@@ -1,0 +1,212 @@
+"""Real-time logging for TTS agent runs.
+
+Creates a timestamped run directory under logs/ with:
+  - progress.json  — updated after every question (for live monitoring)
+  - rounds.jsonl   — one line per round, written in real time
+  - results.jsonl  — one line per completed question
+  - run_config.json — snapshot of run configuration
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import time
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Any
+
+
+def _json_dump(obj: Any, fp: Any) -> None:
+    json.dump(obj, fp, indent=2, ensure_ascii=False, default=str)
+
+
+@dataclass
+class RunLogger:
+    """Manages a single evaluation run's log directory."""
+
+    run_dir: Path
+    _start_time: float = field(default_factory=time.time, init=False)
+    _question_count: int = field(default=0, init=False)
+    _correct_count: int = field(default=0, init=False)
+    _error_count: int = field(default=0, init=False)
+    _total_cost: float = field(default=0.0, init=False)
+    _latest_summary: dict[str, Any] | None = field(default=None, init=False)
+
+    # ------------------------------------------------------------------ #
+    # Construction
+    # ------------------------------------------------------------------ #
+
+    @classmethod
+    def create(
+        cls,
+        base_dir: str | Path = "logs",
+        config: dict[str, Any] | None = None,
+    ) -> "RunLogger":
+        """Create a new run directory with a timestamp name.
+
+        Args:
+            base_dir: Parent directory for all runs.
+            config: Optional configuration dict to persist.
+
+        Returns:
+            A RunLogger ready to use.
+        """
+        ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+        run_dir = Path(base_dir) / f"run_{ts}"
+        run_dir.mkdir(parents=True, exist_ok=True)
+
+        logger = cls(run_dir=run_dir)
+
+        # Write initial progress
+        logger._write_progress()
+
+        # Persist config
+        if config:
+            with open(run_dir / "run_config.json", "w") as f:
+                _json_dump(config, f)
+                f.write("\n")
+
+        return logger
+
+    @classmethod
+    def resume(cls, run_dir: str | Path) -> "RunLogger":
+        """Resume logging into an existing run directory.
+
+        Reads results.jsonl to restore counters so that progress.json
+        stays accurate across the resumed session.
+        """
+        run_dir = Path(run_dir)
+        assert run_dir.exists(), f"Run directory does not exist: {run_dir}"
+
+        logger = cls(run_dir=run_dir)
+
+        results_path = run_dir / "results.jsonl"
+        if results_path.exists():
+            with open(results_path) as f:
+                for line in f:
+                    rec = json.loads(line)
+                    logger._question_count += 1
+                    if rec.get("is_correct"):
+                        logger._correct_count += 1
+                    if rec.get("predicted_answer", "").startswith("ERROR"):
+                        logger._error_count += 1
+                    logger._total_cost += rec.get("cost_usd", 0.0)
+
+        # Restore summary from previous progress.json if available
+        progress_path = run_dir / "progress.json"
+        if progress_path.exists():
+            prev = json.loads(progress_path.read_text())
+            if "summary" in prev:
+                logger._latest_summary = prev["summary"]
+
+        logger._write_progress()
+        return logger
+
+    # ------------------------------------------------------------------ #
+    # Real-time round logging
+    # ------------------------------------------------------------------ #
+
+    def log_round(
+        self,
+        question_id: str,
+        round_num: int,
+        action: str,
+        tool_input: dict[str, Any],
+        cost_usd: float = 0.0,
+    ) -> None:
+        """Append a single round entry to rounds.jsonl (real-time)."""
+        entry = {
+            "timestamp": datetime.now().isoformat(),
+            "question_id": question_id,
+            "round": round_num,
+            "action": action,
+            "cost_usd": cost_usd,
+            **tool_input,
+        }
+        with open(self.run_dir / "rounds.jsonl", "a") as f:
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+
+    # ------------------------------------------------------------------ #
+    # Per-question result
+    # ------------------------------------------------------------------ #
+
+    def log_question(self, record: dict[str, Any], summary: dict[str, Any] | None = None) -> None:
+        """Append a completed question record and update progress."""
+        # Append to results.jsonl
+        with open(self.run_dir / "results.jsonl", "a") as f:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+        # Update counters
+        self._question_count += 1
+        if record.get("is_correct"):
+            self._correct_count += 1
+        if record.get("predicted_answer", "").startswith("ERROR"):
+            self._error_count += 1
+        self._total_cost += record.get("cost_usd", 0.0)
+
+        if summary is not None:
+            self._latest_summary = summary
+
+        # Refresh progress.json
+        self._write_progress()
+
+    # ------------------------------------------------------------------ #
+    # Progress file (overwritten each time for easy polling)
+    # ------------------------------------------------------------------ #
+
+    def _write_progress(self) -> None:
+        elapsed = time.time() - self._start_time
+        progress = {
+            "status": "running",
+            "updated_at": datetime.now().isoformat(),
+            "elapsed_seconds": elapsed,
+            "questions_completed": self._question_count,
+            "correct": self._correct_count,
+            "errors": self._error_count,
+            "accuracy_pct": self._correct_count / self._question_count * 100
+            if self._question_count > 0
+            else 0.0,
+            "total_cost_usd": self._total_cost,
+            "avg_cost_per_question": self._total_cost / self._question_count
+            if self._question_count > 0
+            else 0.0,
+        }
+        if self._latest_summary is not None:
+            progress["summary"] = self._latest_summary
+        # Atomic-ish write via tmp + rename
+        tmp = self.run_dir / "progress.json.tmp"
+        with open(tmp, "w") as f:
+            json.dump(progress, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        tmp.rename(self.run_dir / "progress.json")
+
+    # ------------------------------------------------------------------ #
+    # Finalize
+    # ------------------------------------------------------------------ #
+
+    def finalize(self, summary: dict[str, Any] | None = None) -> None:
+        """Mark the run as completed."""
+        elapsed = time.time() - self._start_time
+        progress = {
+            "status": "completed",
+            "updated_at": datetime.now().isoformat(),
+            "elapsed_seconds": elapsed,
+            "questions_completed": self._question_count,
+            "correct": self._correct_count,
+            "errors": self._error_count,
+            "accuracy_pct": self._correct_count / self._question_count * 100
+            if self._question_count > 0
+            else 0.0,
+            "total_cost_usd": self._total_cost,
+            "avg_cost_per_question": self._total_cost / self._question_count
+            if self._question_count > 0
+            else 0.0,
+        }
+        final_summary = summary or self._latest_summary
+        if final_summary:
+            progress["summary"] = final_summary
+        with open(self.run_dir / "progress.json", "w") as f:
+            json.dump(progress, f, indent=2, ensure_ascii=False)
+            f.write("\n")

@@ -1,0 +1,107 @@
+{
+  "master": {
+    "tasks": [
+      {
+        "id": "survey-1",
+        "title": "Literature survey on test-time scaling",
+        "description": "Survey of sequential scaling, parallel scaling, hybrid search, and agentic test-time scaling methods. Related work is directly in the paper (Section 2).",
+        "status": "cancelled",
+        "stage": "survey",
+        "priority": "low",
+        "dependencies": [],
+        "taskType": "exploration",
+        "completionNotes": "Skipped as standalone deliverable. Related Work section in main.tex covers the survey content directly."
+      },
+      {
+        "id": "ideation-1",
+        "title": "ATTS framework design",
+        "description": "Design the delegated sequential test-time scaling framework: single explore action, orchestrator-based adaptive stopping, benchmark-agnostic controller.",
+        "status": "cancelled",
+        "stage": "ideation",
+        "priority": "low",
+        "dependencies": [],
+        "taskType": "analysis",
+        "completionNotes": "Skipped as standalone deliverable. Idea fully developed and implemented."
+      },
+      {
+        "id": "experiment-1",
+        "title": "Implement evaluation framework",
+        "description": "Build the TTS Agent evaluation framework: benchmarks (HLE, LCB, BabyVision, GPQA, AIME2025/2026), backends (Claude, Codex), orchestrator, precaching, trajectory logging.",
+        "status": "done",
+        "stage": "experiment",
+        "priority": "high",
+        "dependencies": [],
+        "taskType": "implementation",
+        "completionNotes": "Full codebase in Experiment/core_code/. Supports 6 benchmarks, 2 backends, multiple methods (explore-only, self-refine, budget-forcing, reward-model reranking, multi-model)."
+      },
+      {
+        "id": "experiment-2",
+        "title": "Run all experiments and baselines",
+        "description": "Run ATTS and all baselines (Pass@1, Majority Voting, Self-Refine, Budget Forcing, Skywork-Reward-V2, VisualPRM) across all 6 benchmarks with multiple model configurations and ablations.",
+        "status": "done",
+        "stage": "experiment",
+        "priority": "high",
+        "dependencies": ["experiment-1"],
+        "taskType": "implementation",
+        "completionNotes": "Results in Experiment/analysis/. Cache and run directories for all benchmarks with sonnet/haiku/opus, baselines, ablations (no_integrate, effort levels, multi-model, orchestrator variants)."
+      },
+      {
+        "id": "publication-1",
+        "title": "Write NeurIPS 2026 paper",
+        "description": "Write the full paper: Introduction, Related Work, Methodology, Experiments (main results on 4 benchmarks + ablation studies + analysis), Limitations, Conclusion, Appendices (Implementation Details, AIME Results, Benchmark Details), NeurIPS Checklist.",
+        "status": "in-progress",
+        "stage": "publication",
+        "priority": "critical",
+        "dependencies": ["experiment-2"],
+        "taskType": "writing",
+        "suggestedSkills": ["ml-paper-writing", "inno-paper-writing", "inno-reference-audit"],
+        "inputsNeeded": ["Experiment results from Experiment/analysis/run/"],
+        "nextActionPrompt": "Paper draft is structurally complete. Continue iterating on revisions: tighten writing, verify all numbers match experiment data, check figures, audit references."
+      },
+      {
+        "id": "publication-2",
+        "title": "Final submission preparation",
+        "description": "Final polish: citation verification, NeurIPS checklist completion, supplementary materials, code release preparation.",
+        "status": "pending",
+        "stage": "publication",
+        "priority": "high",
+        "dependencies": ["publication-1"],
+        "taskType": "writing",
+        "suggestedSkills": ["inno-reference-audit", "inno-paper-reviewer"],
+        "nextActionPrompt": "After paper revision stabilizes: run citation audit, review NeurIPS checklist, prepare supplementary, clean up code for release."
+      },
+      {
+        "id": "promotion-1",
+        "title": "Create presentation slides",
+        "description": "Create academic presentation slides for ATTS paper.",
+        "status": "deferred",
+        "stage": "promotion",
+        "priority": "low",
+        "dependencies": ["publication-2"],
+        "taskType": "scripting",
+        "suggestedSkills": ["making-academic-presentations"]
+      },
+      {
+        "id": "promotion-2",
+        "title": "Create project homepage",
+        "description": "Create a project homepage with paper summary, results, and code links.",
+        "status": "deferred",
+        "stage": "promotion",
+        "priority": "low",
+        "dependencies": ["publication-2"],
+        "taskType": "delivery"
+      },
+      {
+        "id": "promotion-3",
+        "title": "Create presentation video",
+        "description": "Create video presentation and audio narration for ATTS paper.",
+        "status": "deferred",
+        "stage": "promotion",
+        "priority": "low",
+        "dependencies": ["promotion-1"],
+        "taskType": "rendering",
+        "suggestedSkills": ["making-academic-presentations"]
+      }
+    ]
+  }
+}

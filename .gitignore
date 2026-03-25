@@ -1,0 +1,36 @@
+# Experiment data (large)
+Experiment/analysis/
+Experiment/code_references/
+Experiment/datasets/
+Experiment/core_code/tmp/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Paper build artifacts (keep main.pdf)
+Publication/paper/build/*.aux
+Publication/paper/build/*.bbl
+Publication/paper/build/*.blg
+Publication/paper/build/*.fdb_latexmk
+Publication/paper/build/*.fls
+Publication/paper/build/*.log
+Publication/paper/build/*.out
+
+# Reference PDFs
+Publication/paper/ref/
+
+# Editor/tool config
+.claude/
+.cursor/
+.gemini/
+.agents/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
+tmp/
+*.log

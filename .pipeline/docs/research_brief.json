@@ -1,0 +1,49 @@
+{
+  "project": {
+    "title": "ATTS: Agentic Test-Time Scaling via Adaptive Exploration",
+    "shortName": "ATTS",
+    "description": "A delegated sequential test-time scaling framework where a lightweight orchestrator adaptively controls a pool of candidate solutions through a single action (explore), deciding when to stop and synthesizing the final answer from accumulated evidence.",
+    "field": "Machine Learning / LLM Reasoning / Test-Time Scaling",
+    "venue": "NeurIPS 2026",
+    "venueDeadline": null,
+    "authors": ["Peijia Qin"],
+    "affiliation": "University of California, San Diego"
+  },
+  "pipeline": {
+    "startStage": "experiment",
+    "activeStages": ["publication"],
+    "completedStages": ["experiment"],
+    "skippedStages": ["survey", "ideation"]
+  },
+  "research": {
+    "coreQuestion": "How to adaptively allocate test-time compute over a semantic pool of candidate hypotheses without explicit search trees or handcrafted stopping thresholds?",
+    "approach": "A lightweight orchestrator repeatedly decides whether to call explore (dispatch a fresh independent solver) or stop and synthesize. The orchestrator never solves the problem itself -- it manages evidence. The control logic is benchmark-agnostic: only the explorer prompt and answer schema change across tasks.",
+    "keyContributions": [
+      "Delegated sequential test-time scaling with a single-action interface (explore)",
+      "Adaptive compute allocation via semantic evidence management rather than heuristic rules",
+      "Benchmark-agnostic controller transferable across text-only and multimodal tasks",
+      "Evaluation on 6 benchmarks spanning math, science, code, and multimodal reasoning"
+    ],
+    "methods": ["Claude Agent SDK with MCP tools", "Explore-only orchestration (v3)", "Multi-model exploration", "Effort-level control"],
+    "benchmarks": ["HLE-Verified", "LiveCodeBench", "BabyVision", "GPQA-Diamond", "AIME 2025", "AIME 2026"],
+    "baselines": ["Pass@1", "Majority Voting", "Self-Refine", "Budget Forcing", "Skywork-Reward-V2", "VisualPRM"],
+    "backboneModels": ["Claude Opus 4.6", "Claude Sonnet", "Claude Haiku"],
+    "datasets": {
+      "evaluation": "HLE-Verified Gold (100 samples), LiveCodeBench v6, BabyVision, GPQA-Diamond, AIME 2025/2026"
+    }
+  },
+  "currentStatus": {
+    "phase": "paper-revision",
+    "notes": "Paper draft is structurally complete (Introduction, Related Work, Methodology, Experiments with main results + ablations + analysis, Limitations, Conclusion, Appendices, NeurIPS Checklist). Currently iterating on revisions."
+  },
+  "artifacts": {
+    "paper": "Publication/paper/main.tex",
+    "paperPdf": "Publication/paper/build/main.pdf",
+    "paperBib": "Publication/paper/main.bib",
+    "paperFigures": "Publication/paper/figures/",
+    "codebase": "Experiment/core_code/",
+    "experimentCache": "Experiment/analysis/cache/",
+    "experimentRuns": "Experiment/analysis/run/",
+    "codeReferences": "Experiment/code_references/"
+  }
+}

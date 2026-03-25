@@ -1,0 +1,30 @@
+{
+  "instance_id": "Explain_2026-03-25T07-19-53-055Z",
+  "idea_maturity": "mature",
+  "created_at": "2026-03-25T07:19:53.055Z",
+  "instance": "/data3/peijia/dr-claw/Explain/instance.json",
+  "category": "ML / LLM Reasoning / Test-Time Scaling",
+  "Survey": {
+    "references": "/data3/peijia/dr-claw/Explain/Survey/references",
+    "reports": "/data3/peijia/dr-claw/Explain/Survey/reports"
+  },
+  "Ideation": {
+    "ideas": "/data3/peijia/dr-claw/Explain/Ideation/ideas",
+    "references": "/data3/peijia/dr-claw/Explain/Ideation/references"
+  },
+  "Experiment": {
+    "code_references": "/data3/peijia/dr-claw/Explain/Experiment/code_references",
+    "datasets": "/data3/peijia/dr-claw/Explain/Experiment/datasets",
+    "core_code": "/data3/peijia/dr-claw/Explain/Experiment/core_code",
+    "analysis": "/data3/peijia/dr-claw/Explain/Experiment/analysis"
+  },
+  "Publication": {
+    "paper": "/data3/peijia/dr-claw/Explain/Publication/paper"
+  },
+  "Promotion": {
+    "homepage": "/data3/peijia/dr-claw/Explain/Promotion/homepage",
+    "slides": "/data3/peijia/dr-claw/Explain/Promotion/slides",
+    "audio": "/data3/peijia/dr-claw/Explain/Promotion/audio",
+    "video": "/data3/peijia/dr-claw/Explain/Promotion/video"
+  }
+}

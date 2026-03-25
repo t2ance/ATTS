@@ -1,0 +1,104 @@
+"""Budget Forcing baseline (Muennighoff et al., 2025).
+
+Simulates the s1 compute-control strategy at the API level: after each
+generation, the model's previous reasoning is fed back with "Wait" appended,
+forcing the model to continue deliberating before producing a final answer.
+
+All N rounds run (no early stopping) since budget forcing is about forcing
+more compute, not self-evaluation.
+"""
+
+from __future__ import annotations
+
+from methods.base import Candidate, InfraConfig, create_solve_context
+from trajectory import RoundLog, SolveResult
+
+
+async def solve(
+    infra: InfraConfig,
+    problem: str,
+    image_data_url: str | None = None,
+    question_id: str | None = None,
+    explore_model: str = "gpt-5.2",
+    **_extra,
+) -> SolveResult:
+    """Solve via Budget Forcing: Generate -> (Wait -> Regenerate)*."""
+    ctx = create_solve_context(
+        infra=infra, problem=problem, image_data_url=image_data_url,
+        question_id=question_id,
+        writer_system_prompt=infra.benchmark.get_explorer_system_prompt(infra.backend),
+        writer_user_message=infra.benchmark.build_explorer_message(problem),
+        writer_header_lines=[
+            f"**Backend**: {infra.backend}",
+            f"**Model**: {explore_model}",
+            f"**Max iterations**: {infra.max_iterations}",
+            f"**Method**: budget-forcing",
+        ],
+        writer_title_suffix="(budget-forcing)",
+    )
+
+    # get_explorer_system_prompt(backend) already includes Claude structured
+    # suffix when backend == "claude", so no manual suffix append needed.
+    system_prompt = ctx.benchmark.get_explorer_system_prompt(ctx.backend)
+    explore_schema = ctx.benchmark.get_explore_schema()
+    user_msg = ctx.benchmark.build_explorer_message(problem)
+
+    prev_trajectory = ""
+
+    for i in range(1, infra.max_iterations + 1):
+        msg = user_msg if i == 1 else f"{user_msg}\n\n{prev_trajectory}\n\nWait"
+
+        result, trajectory_text, r_cost, usage, duration = await ctx.call_sub_model(
+            system_prompt=system_prompt,
+            user_message=msg,
+            model=explore_model,
+            output_schema=explore_schema,
+            cache_key=f"explore_{i}",
+            writer=ctx.writer,
+        )
+
+        ctx.cost.add(r_cost, usage, component="explorer")
+        ctx.state.current_iteration = i
+
+        if result.get("timed_out"):
+            if not ctx.quiet:
+                print(f"  [budget-forcing] Round {i}: TIMED OUT")
+            ctx.writer.write_text(f"## Round {i}: TIMED OUT")
+            break
+
+        answer = ctx.benchmark.get_answer_from_explore(result)
+        ctx.state.candidates.append(Candidate(
+            answer=answer,
+            reasoning=result.get("reasoning", ""),
+            approach=result.get("approach", ""),
+            confidence=result.get("confidence", 0.0),
+            cost_usd=r_cost,
+        ))
+
+        ctx.rounds.append(RoundLog(
+            round_num=i,
+            action="explore",
+            tool_input={"answer": answer, "cost_usd": r_cost},
+        ))
+
+        label = "Initial" if i == 1 else "Budget Forcing"
+        ctx.writer.write_text(
+            f"## Round {i} ({label})\n\n"
+            f"- **Approach**: {result.get('approach', '')}\n"
+            f"- **Answer**: {answer}\n"
+            f"- **Confidence**: {result.get('confidence', 'N/A')}\n"
+            f"- **Cost**: ${r_cost}"
+        )
+
+        if not ctx.quiet:
+            print(f"  [budget-forcing] Round {i}: answer={answer}, confidence={result.get('confidence', 'N/A')}")
+
+        prev_trajectory = trajectory_text
+
+    final_answer = ctx.state.candidates[-1].answer if ctx.state.candidates else ""
+
+    if not ctx.quiet:
+        print(f"  [budget-forcing] final answer: {final_answer} after {len(ctx.rounds)} rounds")
+        print(f"  [budget-forcing] total cost: ${ctx.cost.total_cost_usd}")
+
+    return ctx.result(final_answer)
