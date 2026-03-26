@@ -189,16 +189,21 @@ async def run_tool_conversation(
     max_turns: int,
     tool_handler: Callable[[str, dict], Awaitable[tuple[str, bool]]],
     effort: str | None = None,
-    on_text: Callable[[str], None] | None = None,
-    on_tool_use: Callable[[str, dict], None] | None = None,
-    on_tool_result: Callable[[str], None] | None = None,
+    output_format: dict[str, Any] | None = None,
+    writer=None,
+    quiet: bool = True,
+    on_structured_output: Callable[[dict], None] | None = None,
 ) -> tuple[float, dict[str, Any]]:
     """Run a multi-turn tool-calling conversation via Codex Responses API.
 
     tool_handler(name, args) -> (result_text, should_stop)
+    writer: if provided, writes events to the trajectory.
+    quiet: if False, prints events to console.
+    output_format: if provided, constrains the model's final text output to
+        match the given JSON schema (via Codex response_format).
+    on_structured_output: callback when the model emits structured output.
     Returns (total_cost_usd, merged_usage).
     """
-    # Convert generic tool defs to Codex function-calling format
     codex_tools = [
         {
             "type": "function",
@@ -208,6 +213,15 @@ async def run_tool_conversation(
         }
         for td in tools
     ]
+
+    response_format = None
+    if output_format and output_format.get("schema"):
+        response_format = {
+            "type": "json_schema",
+            "name": "structured_output",
+            "schema": output_format["schema"],
+            "strict": True,
+        }
 
     messages: list[dict[str, Any]] = [
         {"role": "user", "content": _build_user_content(user_message, image_data_url)},
@@ -219,17 +233,30 @@ async def run_tool_conversation(
     for _turn in range(max_turns):
         output_text, tool_calls, usage = await _codex_request(
             messages, instructions=system_prompt, model=model,
-            tools=codex_tools, effort=effort,
+            tools=codex_tools, response_format=response_format, effort=effort,
         )
         total_cost += _estimate_cost_usd(usage, model)
         for k, v in usage.items():
             if isinstance(v, (int, float)):
                 total_usage[k] = total_usage.get(k, 0) + v
 
-        if output_text and on_text:
-            on_text(output_text)
+        # Handle text output (either plain text or structured output)
+        if output_text:
+            if not quiet:
+                print(f"[orchestrator] {output_text[:200]}")
+            if writer:
+                writer.write_text(output_text)
 
         if not tool_calls:
+            # Conversation ended -- check for structured output
+            if output_text and response_format:
+                parsed = json.loads(output_text)
+                if not quiet:
+                    print(f"[structured_output] {parsed}")
+                if writer:
+                    writer.write_tool_use("StructuredOutput", parsed)
+                if on_structured_output:
+                    on_structured_output(parsed)
             break
 
         should_stop = False
@@ -237,15 +264,17 @@ async def run_tool_conversation(
             name = tc["name"]
             args = json.loads(tc["arguments"])
 
-            if on_tool_use:
-                on_tool_use(name, args)
+            if not quiet:
+                print(f"[tool_use] {name}")
+            if writer:
+                writer.write_tool_use(name, args)
 
             result_text, stop = await tool_handler(name, args)
             if stop:
                 should_stop = True
 
-            if on_tool_result:
-                on_tool_result(result_text)
+            if writer:
+                writer.write_tool_result(result_text)
 
             messages.append({
                 "type": "function_call",
