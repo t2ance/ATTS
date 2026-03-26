@@ -32,6 +32,8 @@
 \usepackage{graphicx}
 \usepackage{listings}
 \usepackage[all]{hypcap}
+\usepackage{algorithm}
+\usepackage{algorithmic}
 
 \Urlmuskip=0mu plus 2mu\relax
 \pdfstringdefDisableCommands{\def\our{ATTS}\def\explore{explore}\def\integrate{integrate}}
@@ -66,7 +68,7 @@ The allocation of inference-time compute has emerged as a central frontier for i
 
 Existing approaches often answer this question with either heuristics or explicit micro-level search. Predictive routing methods such as DiffAdapt use lightweight difficulty estimates to choose an inference regime before generation begins. However, these decisions remain open-loop and cannot react to evidence that appears during reasoning \citep{diffadapt_paper}. At the other extreme, Tree of Thoughts and process-reward frameworks such as Math-Shepherd perform closed-loop adaptation through explicit tree expansion, pruning, and step-level verification \citep{tree_of_thoughts_paper,math_shepherd_paper}. Recent agentic test-time scaling methods add another variant of this pattern, but many still rely on statistical control rules such as vote entropy, confidence-triggered halting, or parallel mixtures of tool-using agents \citep{catts_webagents_paper,tumix_paper,general_agentbench_tts_paper}. An underexplored alternative is a lightweight orchestrator that allocates compute over a semantic pool of candidate hypotheses without explicit search trees or handcrafted stopping thresholds.
 
-We introduce \our{}, a delegated sequential test-time scaling framework that separates \emph{control} from \emph{solution generation}. A lightweight orchestrator manages a growing pool of candidate solutions through a single tool, \explore{}, which dispatches a fresh, independent solver on the original problem. When the orchestrator judges the pool to be sufficiently informative, it stops exploring and synthesizes the final answer directly from the accumulated evidence. Echoing Sutton's ``Bitter Lesson'' \citep{bitter_lesson_paper}, our claim is not that richer control languages are necessary, but that a minimal action space can be functionally preferable when compute allocation should depend on semantic evidence rather than brittle heuristics.
+We introduce \our{}, a delegated sequential test-time scaling framework that separates \emph{control} from \emph{solution generation}. A lightweight orchestrator manages a growing pool of candidate solutions through a single tool, \explore{}, which dispatches a fresh, independent solver on the original problem. When the orchestrator judges the pool to be sufficiently informative, it stops exploring and synthesizes the final answer directly from the accumulated evidence. Our claim is not that richer control languages are necessary, but that a minimal action space can be functionally preferable when compute allocation should depend on semantic evidence rather than brittle heuristics.
 
 We evaluate \our{} across six benchmarks spanning mathematical reasoning, scientific question answering, code generation, and multimodal reasoning: HLE-Verified \citep{hle_verified_paper}, LiveCodeBench \citep{livecodebench_paper}, BabyVision \citep{babyvision_paper}, AIME 2025 and AIME 2026 \citep{matharena_aime2025,matharena_aime2026}, and GPQA-Diamond \citep{gpqa_paper}. Because the orchestrator is benchmark-agnostic, the same policy transfers across text-only and image-conditioned tasks.
 
@@ -100,7 +102,27 @@ The method proceeds as follows. A lightweight orchestrator repeatedly decides wh
 
 \paragraph{Synthesis.} When the orchestrator stops, it synthesizes the final answer directly from \(\mathcal{C}_t\). Because it has observed the full multi-turn history---each candidate's arrival, its reasoning, and its own deliberation about whether to continue---it has richer context than a separate aggregator that only sees the final pool. The orchestrator compares candidates, reconciles partial evidence, and produces a final answer that reflects the aggregate evidence.
 
-The control logic is benchmark-agnostic: only the explorer prompt and answer schema change across tasks. The orchestrator prompt encodes its decision logic as declarative principles (e.g.\ ``a single candidate does not constitute sufficient evidence'') rather than prescriptive rules, paired with worked examples that demonstrate how these principles apply in concrete scenarios. Appendix~\ref{app:implementation-details} gives the full implementation details including representative prompts.
+\begin{algorithm}[t]
+\caption{\our{}: Adaptive Test-Time Scaling}
+\label{alg:atts}
+\begin{algorithmic}[1]
+\REQUIRE Problem $x$, exploration budget $T$, orchestrator LLM $\mathcal{O}$, solver LLM $\mathcal{S}$
+\ENSURE Final answer $y$
+\STATE $\mathcal{C} \leftarrow \emptyset$ \COMMENT{candidate pool}
+\FOR{$t = 1$ \TO $T$}
+    \STATE \textit{action} $\leftarrow \mathcal{O}(x, \mathcal{C})$ \COMMENT{decide: explore or stop}
+    \IF{\textit{action} = \texttt{stop}}
+        \STATE \textbf{break}
+    \ENDIF
+    \STATE $c_t \leftarrow \mathcal{S}(x)$ \COMMENT{fresh, independent solve}
+    \STATE $\mathcal{C} \leftarrow \mathcal{C} \cup \{c_t\}$
+\ENDFOR
+\STATE $y \leftarrow \mathcal{O}(x, \mathcal{C})$ \COMMENT{synthesize final answer}
+\RETURN $y$
+\end{algorithmic}
+\end{algorithm}
+
+Algorithm~\ref{alg:atts} summarizes the procedure. The control logic is benchmark-agnostic: only the explorer prompt and answer schema change across tasks. The orchestrator prompt encodes its decision logic as declarative principles (e.g.\ ``a single candidate does not constitute sufficient evidence'') rather than prescriptive rules, paired with worked examples that demonstrate how these principles apply in concrete scenarios. Appendix~\ref{app:implementation-details} gives the full implementation details including representative prompts.
 
 \subsection{Rational Metareasoning Perspective}
 
@@ -122,7 +144,9 @@ Across all experiments, the underlying backbone model is Claude Sonnet 4.6 (\tex
 
 We compare against six baselines, all sharing the same backbone model and answer interface so that only the inference-time strategy differs (full details in Appendix~\ref{app:implementation-details}): Pass@1 (single rollout), Majority Voting ($N{=}8$ independent candidates, most-frequent answer; reported only on benchmarks where direct answer aggregation is well-defined), Self-Refine~\citep{self_refine_paper} (iterative feedback-revision on a single draft), Budget Forcing~\citep{s1_budget_forcing_paper} ($N$ sequential rounds with forced continuation via ``Wait''), reward-model reranking using Skywork-Reward-V2~\citep{skywork_reward_v2_paper,skywork_reward_v2_hf} for text benchmarks or VisualPRM~\citep{visualprm_paper,visualprm_hf} for multimodal benchmarks, and LLM Selection ($N{=}8$), which feeds all pre-cached candidates to the backbone model in a single call and asks it to analyze, compare, and synthesize a final answer. LLM Selection isolates the contribution of LLM-based aggregation from adaptive sequential exploration.
 
-For \our{}, the controller issues up to the exploration budget of \explore{} calls before stopping and synthesizing the final answer directly, as described in Section~\ref{sec:methodology}. The comparison across all rows isolates differences in test-time inference strategy rather than differences in training data, parameter count, or post-training recipe. In all tables, \textbf{bold} marks the best accuracy per group (Zero-Shot Models and Test-Time Scaling Methods separately) and the lowest cost per question among test-time scaling methods.
+For \our{}, the controller issues up to the exploration budget of \explore{} calls before stopping and synthesizing the final answer directly, as described in Section~\ref{sec:methodology}. The comparison across all rows isolates differences in test-time inference strategy rather than differences in training data, parameter count, or post-training recipe.
+
+\paragraph{Cost accounting.} All costs reported as \$/q reflect API token charges only, computed from per-model pricing and recorded token usage. For \our{}, this includes orchestrator tokens, explorer tokens, and (when applicable) integrator tokens. For reward-model reranking, the reported cost covers the $N{=}8$ candidate generation calls; the reward model itself runs locally and incurs no API cost but does require GPU compute not reflected in the dollar figure. Grading costs (LLM judge calls for HLE and BabyVision) are excluded from all rows. In all tables, \textbf{bold} marks the best accuracy per group and the lowest \$/q among test-time scaling methods.
 
 \begin{table}[t!]
 \centering
