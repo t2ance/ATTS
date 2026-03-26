@@ -88,45 +88,56 @@ async def _codex_request(
         body["reasoning"] = {"effort": effort}
     if tools:
         body["tools"] = tools
+        body["parallel_tool_calls"] = False
     if response_format:
         body["text"] = {"format": response_format}
+
+    import asyncio as _asyncio
 
     output_text: str | None = None
     tool_calls: list[dict[str, Any]] = []
     usage: dict[str, Any] = {}
 
-    async with httpx.AsyncClient(timeout=httpx.Timeout(600.0)) as client:
-        async with client.stream(
-            "POST",
-            CODEX_ENDPOINT,
-            headers={
-                "Authorization": f"Bearer {token}",
-                "Content-Type": "application/json",
-            },
-            content=json.dumps(body),
-        ) as resp:
-            resp.raise_for_status()
-            async for line in resp.aiter_lines():
-                if not line.startswith("data: "):
+    for _attempt in range(3):
+        output_text = None
+        tool_calls = []
+        usage = {}
+        async with httpx.AsyncClient(timeout=httpx.Timeout(600.0)) as client:
+            async with client.stream(
+                "POST",
+                CODEX_ENDPOINT,
+                headers={
+                    "Authorization": f"Bearer {token}",
+                    "Content-Type": "application/json",
+                },
+                content=json.dumps(body),
+            ) as resp:
+                if resp.status_code >= 500 and _attempt < 2:
+                    await _asyncio.sleep(5 * (_attempt + 1))
                     continue
-                payload = line[len("data: "):]
-                if payload == "[DONE]":
-                    break
-                event = json.loads(payload)
-                event_type = event.get("type", "")
+                resp.raise_for_status()
+                async for line in resp.aiter_lines():
+                    if not line.startswith("data: "):
+                        continue
+                    payload = line[len("data: "):]
+                    if payload == "[DONE]":
+                        break
+                    event = json.loads(payload)
+                    event_type = event.get("type", "")
 
-                if event_type == "response.output_text.done":
-                    output_text = event.get("text")
-                elif event_type == "response.completed":
-                    response_obj = event.get("response", {})
-                    usage = response_obj.get("usage", {})
-                    for item in response_obj.get("output", []):
-                        if item.get("type") == "function_call":
-                            tool_calls.append({
-                                "call_id": item["call_id"],
-                                "name": item["name"],
-                                "arguments": item.get("arguments", "{}"),
-                            })
+                    if event_type == "response.output_text.done":
+                        output_text = event.get("text")
+                    elif event_type == "response.completed":
+                        response_obj = event.get("response", {})
+                        usage = response_obj.get("usage", {})
+                        for item in response_obj.get("output", []):
+                            if item.get("type") == "function_call":
+                                tool_calls.append({
+                                    "call_id": item["call_id"],
+                                    "name": item["name"],
+                                    "arguments": item.get("arguments", "{}"),
+                                })
+        break  # success
 
     return output_text, tool_calls, usage
 
@@ -229,6 +240,7 @@ async def run_tool_conversation(
 
     total_cost = 0.0
     total_usage: dict[str, int] = {}
+    structured_output_emitted = False
 
     for _turn in range(max_turns):
         output_text, tool_calls, usage = await _codex_request(
@@ -257,6 +269,7 @@ async def run_tool_conversation(
                     writer.write_tool_use("StructuredOutput", parsed)
                 if on_structured_output:
                     on_structured_output(parsed)
+                structured_output_emitted = True
             break
 
         should_stop = False
@@ -290,5 +303,24 @@ async def run_tool_conversation(
 
         if should_stop:
             break
+
+    # If structured output was expected but never emitted, force a final
+    # request with no tools so the model must produce structured text.
+    if response_format and on_structured_output and not structured_output_emitted:
+        output_text, _, usage = await _codex_request(
+            messages, instructions=system_prompt, model=model,
+            response_format=response_format, effort=effort,
+        )
+        total_cost += _estimate_cost_usd(usage, model)
+        for k, v in usage.items():
+            if isinstance(v, (int, float)):
+                total_usage[k] = total_usage.get(k, 0) + v
+        assert output_text is not None, "Final structured output request returned no text"
+        parsed = json.loads(output_text)
+        if not quiet:
+            print(f"[structured_output] (forced) {parsed}")
+        if writer:
+            writer.write_tool_use("StructuredOutput", parsed)
+        on_structured_output(parsed)
 
     return total_cost, total_usage

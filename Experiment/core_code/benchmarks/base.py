@@ -352,6 +352,9 @@ class BenchmarkConfig(ABC):
         """Return the answer type for grading. Override per benchmark."""
         return "exactMatch"
 
+    # Map Claude judge models to GPT equivalents for the codex backend.
+    _JUDGE_MODEL_CODEX = {"claude-haiku-4-5-20251001": "gpt-5-codex-mini"}
+
     async def grade(
         self,
         predicted: str,
@@ -363,9 +366,12 @@ class BenchmarkConfig(ABC):
     ) -> tuple[bool, float]:
         """Grade a predicted answer. Returns (is_correct, judge_cost_usd)."""
         from benchmarks.grader import grade_answer
+        judge_model = self.judge_model
+        if backend == "codex" and judge_model in self._JUDGE_MODEL_CODEX:
+            judge_model = self._JUDGE_MODEL_CODEX[judge_model]
         return await grade_answer(
             predicted, gold, question, self.get_answer_type(row),
-            judge_model=self.judge_model, backend=backend, out_dir=out_dir,
+            judge_model=judge_model, backend=backend, out_dir=out_dir,
         )
 
     def normalize_answer(self, text: str) -> str:

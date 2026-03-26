@@ -316,6 +316,26 @@ We ablate the orchestrator model while keeping the explorer fixed at Sonnet 4.6.
 \label{fig:orch-ablation}
 \end{figure}
 
+\paragraph{Backbone model family.}
+To evaluate whether \our{} generalizes beyond a single model family, we run the full framework on HLE-Verified using GPT-5.2 (OpenAI) as the backbone for all three roles---orchestrator, explorer, and synthesizer---keeping the same exploration budget ($T{=}8$) and prompts as the Claude Sonnet configuration.
+
+\begin{table}[H]
+\centering
+\caption{Backbone model ablation on HLE-Verified. Both configurations use the default \our{} architecture (no separate integrator) with identical prompts and exploration budget.}
+\label{tab:backbone-ablation}
+\small
+\begin{tabular}{l r r}
+\toprule
+Backbone & Acc. (\%) & \$/q \\
+\midrule
+Claude Sonnet 4.6 & \textbf{56.00} & 1.90 \\
+GPT-5.2 & 54.00 & \textbf{0.22} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+GPT-5.2 achieves 54.00\% accuracy at \$0.22/q, compared to Claude Sonnet's 56.00\% at \$1.90/q (Table~\ref{tab:backbone-ablation}). The 2-point accuracy gap is small relative to the $8.6{\times}$ cost reduction, and both configurations substantially outperform the respective Pass@1 baselines. This result demonstrates that \our{}'s adaptive exploration framework is not specific to the Claude model family: the same prompts and control logic transfer to a different model provider with comparable effectiveness.
+
 \section{Limitations}
 
 \our{} inherits several limitations from the underlying language model and from its own orchestrator design. First, the method can only synthesize evidence that is already present in the candidate pool, so if all explored candidates share the same misconception, the orchestrator has little opportunity to recover. Second, the current framework does not provide formal guarantees for stopping optimality, calibration, or budget efficiency; the orchestrator is still a learned heuristic policy, even if its action space is intentionally simple. In practice, we observe that the orchestrator tends to converge early: on GPQA, 82\% of questions use exactly two \explore{} calls before stopping, even though the oracle best-of-$N$ curve continues to climb through $N{=}8$. This conservative exploration policy leaves headroom on the table, and learning a better stopping criterion remains an open problem. Third, because \our{} requires multiple model calls, it can increase latency and inference cost relative to direct generation on easy problems where extra exploration is unnecessary. Finally, the current evaluation focuses on benchmarked reasoning tasks with fixed answer interfaces rather than on open-ended tool-use agents, so the present results should be interpreted as evidence about reasoning-oriented test-time scaling rather than as a complete account of agentic decision making.
