@@ -33,3 +33,56 @@
 - MCP tool definitions (name, description, parameter schema) are automatically injected into the model's context by the SDK. No need to describe tools in the system prompt.
 - When `output_format={"type": "json_schema", "schema": ...}` is passed to `ClaudeAgentOptions`, the SDK automatically adds a built-in `StructuredOutput` tool. The model calls it to output structured data matching the schema. The schema's field descriptions (e.g. `_ANSWER_DESCRIPTION`) serve as the format instructions.
 - When MCP tool count is large, the SDK uses tool search (`defer_loading: true`) to dynamically load tools on-demand instead of preloading all of them. This activates automatically when tool descriptions exceed 10% of the context window.
+
+## Design Principles
+
+### P1: Methods are functions, not classes
+Every solving method is a single `async def solve(infra, problem, ...) -> SolveResult`. No inheritance hierarchy, no method classes. Rationale: methods differ in control flow, not in interface. A flat function with shared infrastructure (via `create_solve_context`) is simpler than a class hierarchy where each subclass overrides different hooks. New methods are added by writing one function, not by understanding a class tree.
+
+### P2: Benchmark-agnostic controller, benchmark-specific prompts
+The orchestrator prompt and control logic are completely benchmark-agnostic -- they never mention math, code, or images. Benchmark-specific behavior lives entirely in `BenchmarkConfig` subclasses (prompt templates, answer schemas, grading). This means the same controller works on all benchmarks without modification. When adding a new domain, touch only `benchmarks/`, never `methods/` or `prompts.py`.
+
+### P3: Explore cache as the shared substrate
+Pre-generated explore results (`cache/<qid>/explore_<n>/result.json`) are the common data layer across all methods. ATTS reads them sequentially through its orchestrator; reranking loads them all and scores; standalone-integrator feeds them to an LLM synthesizer. This decouples candidate generation from candidate aggregation -- you can test a new aggregation strategy without re-running expensive explores.
+
+### P4: Fail fast, never silently degrade
+Use `assert` for preconditions and invariants. Never use `try-except` to catch unexpected errors. Never fall back to a default when something is missing. If a cache file is missing, crash. If an API call times out, assert. The only caught exception is `asyncio.TimeoutError` in the caching layer (an expected operational event, not a bug). Silent degradation wastes debugging time.
+
+### P5: Cost is a first-class metric
+Every API call must be recorded via `ctx.cost.add(cost_usd, usage, component=...)`. Cost is reported per-question and per-component in the output. Methods that read from cache must still account for the original explore cost so that $/q comparisons across methods are fair.
+
+## Architecture Decisions
+
+### AD1: Why `cache_only` exempts `integrate_*` keys
+Explore candidates are expensive to generate and should be cached. But the integrate/synthesis step depends on WHICH candidates are available, which varies by method. So `cache_only=True` enforces cache hits for explores (preventing accidental re-generation) but allows cache misses for integrate calls (enabling new synthesis strategies on existing explores). This is the mechanism that lets standalone-integrator and reward-rerank work purely from cached explores.
+
+### AD2: Why backends are dynamically loaded
+`import_module(f"backends.{backend}")` rather than direct imports. Methods never import a specific backend. This keeps the method layer backend-agnostic: the same `solve()` function works with Claude, Codex, or any future backend. It also avoids importing heavy SDK dependencies when they're not needed.
+
+### AD3: Why prompts are split into two layers
+- **Orchestrator prompts** (`prompts.py`): benchmark-agnostic decision principles (when to explore, when to stop, convergence detection). These encode the ATTS methodology.
+- **Explorer/integrator prompts** (`benchmarks/*.py`): domain-specific task instructions and answer schemas. These encode how to solve problems in each domain.
+
+Answer format rules live in schema field `description`s, not in system prompts. The SDK injects tool/schema definitions automatically -- duplicating them in prompts causes conflicts and maintenance burden.
+
+### AD4: Why scripts hardcode all constants
+No command-line arguments. Every path, model name, worker count, and seed is written directly in the script. Rationale: research scripts are run-once artifacts tied to specific experiments. Parameterizing them adds complexity without benefit -- when a parameter changes, you write a new script. The script itself serves as a record of exactly what was run.
+
+## Contributor Rules
+
+### Do
+- Reuse `create_solve_context()` and `load_cached_candidates()` from `base.py` for all new methods.
+- Use `ctx.benchmark.*` polymorphic interfaces for benchmark-specific behavior (prompts, schemas, grading).
+- Gate console output behind `if not ctx.quiet:` with `[method-name]` prefix.
+- Put `from __future__ import annotations` at the top of every file.
+- Lazy-import heavy dependencies (`torch`, `transformers`, `datasets`) inside functions.
+- Precache explores before running downstream methods.
+- Verify numbers against `delegated.log` (authoritative), not `progress.json` (can be stale).
+
+### Do not
+- Write standalone implementations that bypass the shared infrastructure.
+- Import backend modules directly in method code (use `ctx.call_sub_model` instead).
+- Put answer format rules in system prompts (they belong in schema field descriptions).
+- Duplicate tool descriptions in prompts (the SDK injects them).
+- Use `try-except` for unexpected errors.
+- Add arguments to shell scripts.

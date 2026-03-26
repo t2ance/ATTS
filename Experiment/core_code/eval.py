@@ -555,7 +555,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--verbose", action="store_true", help="Print per-round TTS output")
     parser.add_argument("--resume", type=str, default=None, metavar="RUN_DIR", help="Resume into an existing run directory")
     parser.add_argument("--log-dir", type=str, default="logs", help="Directory for real-time logs (default: logs/)")
-    parser.add_argument("--method", type=str, choices=["tts-agent", "tts-agent-multi", "self-refine", "budget-forcing", "rerank"], default="tts-agent",
+    parser.add_argument("--method", type=str, choices=["tts-agent", "tts-agent-multi", "self-refine", "budget-forcing", "rerank", "standalone-integrator"], default="tts-agent",
                         help="Solving method (default: tts-agent)")
     parser.add_argument("--reward-model", type=str, default=None,
                         help="HuggingFace reward model for reranking")
@@ -598,6 +598,13 @@ async def async_main() -> None:
             args.orchestrator_model = args.explore_model
         if args.integrate_model is None:
             args.integrate_model = args.explore_model
+    elif args.method == "standalone-integrator":
+        import functools
+        from methods.standalone_integrator import solve as _si_solve
+        assert args.integrate_model is not None, "--integrate-model required for standalone-integrator"
+        solve = functools.partial(_si_solve, integrate_model=args.integrate_model)
+        if args.orchestrator_model is None:
+            args.orchestrator_model = args.explore_model
     elif args.method == "tts-agent-multi":
         import functools
         from methods.tts_agent_multi import solve as _multi_solve
@@ -653,11 +660,11 @@ async def async_main() -> None:
         else:
             cache_dir = Path(args.cache_dirs)
 
-    if args.method == "rerank" and cache_dir:
+    if args.method in ("rerank", "standalone-integrator") and cache_dir:
         cached_ids = {p.name for p in cache_dir.iterdir() if p.is_dir() and (p / "explore_1" / "result.json").exists()}
         before = len(filtered)
         filtered = [r for r in filtered if benchmark.get_id(r) in cached_ids]
-        print(f"Rerank: {len(filtered)} questions with cache (from {before})")
+        print(f"{args.method}: {len(filtered)} questions with cache (from {before})")
 
     infra = InfraConfig(
         backend=args.backend,

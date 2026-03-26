@@ -201,22 +201,13 @@ def plot_benchmark(bench_key: str, bench_cfg: dict) -> None:
     all_accs = []
     all_costs = []
 
-    # Sonnet BoN curve from no_integrate log (or delegated as fallback)
+    # Parse no_integrate log for ATTS results
     bon_source = bench_cfg.get("no_integrate")
     if bon_source and bon_source.exists():
         ni = parse_delegated_log(bon_source)
     else:
         ni = None
     bon_data = ni if ni is not None else delegated
-
-    color = "#2196F3"
-    ax.plot(bon_data["costs"], bon_data["oracle_pcts"], "o-",
-            color=color, linewidth=2, markersize=5, label="Sonnet Oracle BoN", zorder=3)
-    for n, x, y in zip(bon_data["ns"], bon_data["costs"], bon_data["oracle_pcts"]):
-        ax.annotate(f"n={n}", (x, y), textcoords="offset points",
-                    xytext=(0, 10), fontsize=9, ha="center", color=color)
-    all_accs.extend(bon_data["oracle_pcts"])
-    all_costs.extend(bon_data["costs"])
 
     # Pass@1 point
     pass1_cost = bon_data["costs"][0]
@@ -283,10 +274,9 @@ def plot_benchmark(bench_key: str, bench_cfg: dict) -> None:
 
 
 def plot_effort_ablation() -> None:
-    """2x2 grid: exploration effort (Low/Med/High) per benchmark."""
-    bench_keys = ["hle", "lcb", "babyvision", "gpqa"]
-    fig, axes = plt.subplots(2, 2, figsize=(10, 7))
-    axes = axes.flatten()
+    """1x4 row: exploration effort (Low/Med/High) per benchmark, shared legend outside."""
+    bench_keys = ["hle", "lcb", "gpqa", "babyvision"]
+    fig, axes = plt.subplots(1, 4, figsize=(16, 3.5))
     effort_levels = ["Low", "Med", "High"]
     colors = {"Low": "#80CBC4", "Med": "#00897B", "High": "#004D40"}
     markers = {"Low": "s", "Med": "*", "High": "D"}
@@ -308,7 +298,6 @@ def plot_effort_ablation() -> None:
             ax.set_visible(False)
             continue
 
-        # Plot connected line
         levels_present = [l for l in effort_levels if l in pts]
         x_vals = [pts[l]["cost"] for l in levels_present]
         y_vals = [pts[l]["accuracy"] for l in levels_present]
@@ -318,24 +307,26 @@ def plot_effort_ablation() -> None:
             ax.scatter([pts[level]["cost"]], [pts[level]["accuracy"]],
                        color=colors[level], marker=markers[level],
                        s=150 if level == "Med" else 100,
-                       zorder=5, label=f"{level} ({pts[level]['accuracy']:.1f}%)")
+                       zorder=5, label=level)
 
-        ax.set_title(bench_cfg["title"], fontsize=13, fontweight="bold")
-        ax.set_xlabel("$/q", fontsize=11)
-        ax.set_ylabel("Accuracy (%)", fontsize=11)
-        ax.tick_params(axis="both", labelsize=10)
+        ax.set_title(bench_cfg["title"], fontsize=11, fontweight="bold")
+        ax.set_xlabel("$/q", fontsize=10)
+        if idx == 0:
+            ax.set_ylabel("Accuracy (%)", fontsize=10)
+        ax.tick_params(axis="both", labelsize=9)
         ax.grid(True, alpha=0.3)
         ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"${v:.2f}"))
-        ax.legend(fontsize=9, frameon=False)
 
-        # Tight y-axis
         min_y = min(y_vals)
         max_y = max(y_vals)
         margin_y = max((max_y - min_y) * 0.3, 1.5)
         ax.set_ylim(min_y - margin_y, max_y + margin_y)
 
-    fig.suptitle("Effect of Exploration Effort on Multi-model ATTS", fontsize=14, fontweight="bold", y=1.01)
-    fig.tight_layout()
+    # Shared legend outside, below all subplots
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, -0.02),
+               ncol=3, fontsize=10, frameon=False)
+    fig.tight_layout(rect=[0, 0.06, 1, 1])
     out = "effort_ablation"
     fig.savefig(FIGURES_DIR / f"{out}.pdf", bbox_inches="tight")
     fig.savefig(FIGURES_DIR / f"{out}.png", dpi=150, bbox_inches="tight")
@@ -344,9 +335,9 @@ def plot_effort_ablation() -> None:
 
 
 def plot_orch_ablation() -> None:
-    """1x3 grid: orchestrator model (Haiku/Sonnet/Opus) per benchmark."""
+    """1x3 grid: orchestrator model (Haiku/Sonnet/Opus) per benchmark, shared legend outside."""
     bench_keys = ["hle", "lcb", "gpqa"]
-    fig, axes = plt.subplots(1, 3, figsize=(12, 4))
+    fig, axes = plt.subplots(1, 3, figsize=(12, 3.5))
     orch_levels = ["Haiku", "Sonnet", "Opus"]
     colors = {"Haiku": "#795548", "Sonnet": "#E91E63", "Opus": "#1565C0"}
     markers = {"Haiku": "s", "Sonnet": "*", "Opus": "D"}
@@ -363,10 +354,19 @@ def plot_orch_ablation() -> None:
                 pts["Sonnet"] = {"accuracy": ni["integrated_pct"], "cost": ni["agg_cost"]}
 
         for key, label in [("haiku_orch", "Haiku"), ("opus_orch", "Opus")]:
-            if key in bench_cfg and bench_cfg[key].exists():
-                vdata = parse_delegated_log(bench_cfg[key])
-                if vdata is not None:
-                    pts[label] = {"accuracy": vdata["integrated_pct"], "cost": vdata["agg_cost"]}
+            if key not in bench_cfg or not bench_cfg[key].exists():
+                continue
+            vdata = parse_delegated_log(bench_cfg[key])
+            if vdata is not None:
+                pts[label] = {"accuracy": vdata["integrated_pct"], "cost": vdata["agg_cost"]}
+            else:
+                # Fallback: read from progress.json in the run directory
+                run_dirs = sorted(bench_cfg[key].parent.glob("run_*/progress.json"))
+                if run_dirs:
+                    pdata = json.loads(run_dirs[-1].read_text())
+                    s = pdata.get("summary", {})
+                    if s.get("total"):
+                        pts[label] = {"accuracy": s["correct"] / s["total"] * 100, "cost": s["total_cost_usd"] / s["total"]}
 
         levels_present = [l for l in orch_levels if l in pts]
         x_vals = [pts[l]["cost"] for l in levels_present]
@@ -377,24 +377,111 @@ def plot_orch_ablation() -> None:
             ax.scatter([pts[level]["cost"]], [pts[level]["accuracy"]],
                        color=colors[level], marker=markers[level],
                        s=150 if level == "Sonnet" else 100,
-                       zorder=5, label=f"{level} ({pts[level]['accuracy']:.1f}%)")
+                       zorder=5, label=level)
 
-        ax.set_title(bench_cfg["title"], fontsize=13, fontweight="bold")
-        ax.set_xlabel("$/q", fontsize=11)
-        ax.set_ylabel("Accuracy (%)", fontsize=11)
-        ax.tick_params(axis="both", labelsize=10)
+        ax.set_title(bench_cfg["title"], fontsize=11, fontweight="bold")
+        ax.set_xlabel("$/q", fontsize=10)
+        if idx == 0:
+            ax.set_ylabel("Accuracy (%)", fontsize=10)
+        ax.tick_params(axis="both", labelsize=9)
         ax.grid(True, alpha=0.3)
         ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"${v:.2f}"))
-        ax.legend(fontsize=9, frameon=False)
 
         min_y = min(y_vals)
         max_y = max(y_vals)
         margin_y = max((max_y - min_y) * 0.3, 1.5)
         ax.set_ylim(min_y - margin_y, max_y + margin_y)
 
-    fig.suptitle("Effect of Orchestrator Model on ATTS", fontsize=14, fontweight="bold", y=1.02)
-    fig.tight_layout()
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, -0.02),
+               ncol=3, fontsize=10, frameon=False)
+    fig.tight_layout(rect=[0, 0.06, 1, 1])
     out = "orch_ablation"
+    fig.savefig(FIGURES_DIR / f"{out}.pdf", bbox_inches="tight")
+    fig.savefig(FIGURES_DIR / f"{out}.png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    print(f"  Saved {out}.pdf")
+
+
+def plot_main_results_combined() -> None:
+    """1x4 combined figure for the 4 main benchmarks, shared legend outside."""
+    bench_keys = ["hle", "lcb", "gpqa", "babyvision"]
+    fig, axes = plt.subplots(1, 4, figsize=(20, 4))
+
+    # Collect all legend entries from first panel
+    for idx, bench_key in enumerate(bench_keys):
+        ax = axes[idx]
+        bench_cfg = BENCHMARKS[bench_key]
+        delegated = parse_delegated_log(bench_cfg["delegated"])
+        if delegated is None:
+            continue
+
+        all_accs = []
+        all_costs = []
+
+        bon_source = bench_cfg.get("no_integrate")
+        ni = parse_delegated_log(bon_source) if (bon_source and bon_source.exists()) else None
+        bon_data = ni if ni is not None else delegated
+
+        # Pass@1
+        pass1_cost = bon_data["costs"][0]
+        pass1_acc = bon_data["oracle_pcts"][0]
+        ax.scatter([pass1_cost], [pass1_acc], color="#607D8B", marker="o", s=100, zorder=5,
+                   label="Pass@1" if idx == 0 else "")
+        all_accs.append(pass1_acc)
+        all_costs.append(pass1_cost)
+
+        # Baselines
+        rerank_cost = get_rerank_cost(bench_cfg["delegated"], delegated["total"])
+        for method_name, log_path in bench_cfg["methods"].items():
+            if not log_path.exists():
+                continue
+            data = parse_method_log(log_path)
+            if data is None:
+                continue
+            mcolor = BASELINE_STYLES.get(method_name, {}).get("color", "#607D8B")
+            cost = rerank_cost if method_name in bench_cfg.get("rerank_methods", []) else data["cost"]
+            ax.scatter([cost], [data["accuracy"]], color=mcolor, marker="o", s=100, zorder=5,
+                       label=method_name if idx == 0 else "")
+            all_accs.append(data["accuracy"])
+            all_costs.append(cost)
+
+        # ATTS
+        ours_points = []
+        if ni is not None:
+            ours_points.append(("ATTS", ni["agg_cost"], ni["integrated_pct"]))
+        effort_dirs = bench_cfg.get("effort_dirs", {})
+        if "Med" in effort_dirs:
+            mm = read_mm_effort(effort_dirs["Med"])
+            if mm is not None:
+                ours_points.append(("ATTS Multi Med", mm["cost"], mm["accuracy"]))
+
+        for label, cost, acc in ours_points:
+            mcolor = OURS_STYLES.get(label, {}).get("color", "#E91E63")
+            ax.scatter([cost], [acc], color=mcolor, marker="*", s=250, zorder=6,
+                       label=label if idx == 0 else "")
+            all_accs.append(acc)
+            all_costs.append(cost)
+
+        ax.set_title(bench_cfg["title"], fontsize=14, fontweight="bold")
+        ax.set_xlabel("$/q", fontsize=12)
+        if idx == 0:
+            ax.set_ylabel("Accuracy (%)", fontsize=12)
+        ax.tick_params(axis="both", labelsize=11)
+        ax.grid(True, alpha=0.3)
+        ax.xaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"${v:.2f}"))
+
+        min_acc = min(all_accs)
+        max_acc = max(all_accs)
+        margin = max((max_acc - min_acc) * 0.15, 2.0)
+        ax.set_ylim(max(0, min_acc - margin), min(100, max_acc + margin))
+        ax.set_xlim(0, max(all_costs) * 1.15)
+
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="lower center", bbox_to_anchor=(0.5, -0.02),
+               ncol=len(labels), fontsize=11, frameon=False)
+    fig.tight_layout(rect=[0, 0.08, 1, 1])
+    out = "main_cost_vs_accuracy"
     fig.savefig(FIGURES_DIR / f"{out}.pdf", bbox_inches="tight")
     fig.savefig(FIGURES_DIR / f"{out}.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
@@ -407,6 +494,8 @@ def main():
         print(f"Plotting {bench_key}...")
         plot_benchmark(bench_key, bench_cfg)
 
+    print("Plotting main results combined...")
+    plot_main_results_combined()
     print("Plotting effort ablation...")
     plot_effort_ablation()
     print("Plotting orchestrator ablation...")

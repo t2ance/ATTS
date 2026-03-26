@@ -104,6 +104,43 @@ class SolveContext:
 
 
 # ---------------------------------------------------------------------------
+# Cache loading
+# ---------------------------------------------------------------------------
+
+def load_cached_candidates(
+    cache_dir: Path,
+    question_id: str,
+    benchmark: Any,
+) -> tuple[list[Candidate], float]:
+    """Load all non-timed-out cached explore results for a question.
+
+    Returns (candidates, total_explore_cost_usd).
+    """
+    question_cache = cache_dir / question_id
+    candidates: list[Candidate] = []
+    total_cost = 0.0
+    idx = 1
+    while True:
+        result_path = question_cache / f"explore_{idx}" / "result.json"
+        if not result_path.exists():
+            break
+        d = json.loads(result_path.read_text(encoding="utf-8"))
+        if not d.get("timed_out"):
+            answer = benchmark.get_answer_from_explore(d)
+            cost = d.get("cost_usd", 0.0)
+            candidates.append(Candidate(
+                answer=answer,
+                reasoning=d.get("reasoning", ""),
+                approach=d.get("approach", ""),
+                confidence=d.get("confidence", 0.0),
+                cost_usd=cost,
+            ))
+            total_cost += cost
+        idx += 1
+    return candidates, total_cost
+
+
+# ---------------------------------------------------------------------------
 # Sub-model save / load
 # ---------------------------------------------------------------------------
 

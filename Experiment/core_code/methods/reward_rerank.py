@@ -19,7 +19,7 @@ import torch
 from PIL import Image
 
 from dataclasses import replace
-from methods.base import InfraConfig, create_solve_context
+from methods.base import InfraConfig, create_solve_context, load_cached_candidates
 from trajectory import CostTracker, RoundLog, SolveResult
 
 # ---------------------------------------------------------------------------
