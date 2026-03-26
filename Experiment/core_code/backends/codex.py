@@ -98,7 +98,8 @@ async def _codex_request(
     tool_calls: list[dict[str, Any]] = []
     usage: dict[str, Any] = {}
 
-    for _attempt in range(3):
+    max_retries = 6
+    for _attempt in range(max_retries):
         output_text = None
         tool_calls = []
         usage = {}
@@ -113,8 +114,10 @@ async def _codex_request(
                     },
                     content=json.dumps(body),
                 ) as resp:
-                    if resp.status_code >= 500 and _attempt < 2:
-                        await _asyncio.sleep(5 * (_attempt + 1))
+                    if (resp.status_code >= 500 or resp.status_code == 429) and _attempt < max_retries - 1:
+                        delay = 60 * (_attempt + 1) if resp.status_code == 429 else 5 * (_attempt + 1)
+                        print(f"  [codex] {resp.status_code}, retrying in {delay}s (attempt {_attempt + 1}/{max_retries})")
+                        await _asyncio.sleep(delay)
                         continue
                     resp.raise_for_status()
                     async for line in resp.aiter_lines():
@@ -140,7 +143,7 @@ async def _codex_request(
                                     })
             break  # success
         except (httpx.RemoteProtocolError, httpx.ReadError, httpx.ConnectError) as e:
-            if _attempt < 2:
+            if _attempt < max_retries - 1:
                 print(f"  [codex] connection error (attempt {_attempt + 1}/3), retrying: {e}")
                 await _asyncio.sleep(5 * (_attempt + 1))
                 continue
