@@ -102,42 +102,49 @@ async def _codex_request(
         output_text = None
         tool_calls = []
         usage = {}
-        async with httpx.AsyncClient(timeout=httpx.Timeout(600.0)) as client:
-            async with client.stream(
-                "POST",
-                CODEX_ENDPOINT,
-                headers={
-                    "Authorization": f"Bearer {token}",
-                    "Content-Type": "application/json",
-                },
-                content=json.dumps(body),
-            ) as resp:
-                if resp.status_code >= 500 and _attempt < 2:
-                    await _asyncio.sleep(5 * (_attempt + 1))
-                    continue
-                resp.raise_for_status()
-                async for line in resp.aiter_lines():
-                    if not line.startswith("data: "):
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(600.0)) as client:
+                async with client.stream(
+                    "POST",
+                    CODEX_ENDPOINT,
+                    headers={
+                        "Authorization": f"Bearer {token}",
+                        "Content-Type": "application/json",
+                    },
+                    content=json.dumps(body),
+                ) as resp:
+                    if resp.status_code >= 500 and _attempt < 2:
+                        await _asyncio.sleep(5 * (_attempt + 1))
                         continue
-                    payload = line[len("data: "):]
-                    if payload == "[DONE]":
-                        break
-                    event = json.loads(payload)
-                    event_type = event.get("type", "")
+                    resp.raise_for_status()
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        payload = line[len("data: "):]
+                        if payload == "[DONE]":
+                            break
+                        event = json.loads(payload)
+                        event_type = event.get("type", "")
 
-                    if event_type == "response.output_text.done":
-                        output_text = event.get("text")
-                    elif event_type == "response.completed":
-                        response_obj = event.get("response", {})
-                        usage = response_obj.get("usage", {})
-                        for item in response_obj.get("output", []):
-                            if item.get("type") == "function_call":
-                                tool_calls.append({
-                                    "call_id": item["call_id"],
-                                    "name": item["name"],
-                                    "arguments": item.get("arguments", "{}"),
-                                })
-        break  # success
+                        if event_type == "response.output_text.done":
+                            output_text = event.get("text")
+                        elif event_type == "response.completed":
+                            response_obj = event.get("response", {})
+                            usage = response_obj.get("usage", {})
+                            for item in response_obj.get("output", []):
+                                if item.get("type") == "function_call":
+                                    tool_calls.append({
+                                        "call_id": item["call_id"],
+                                        "name": item["name"],
+                                        "arguments": item.get("arguments", "{}"),
+                                    })
+            break  # success
+        except (httpx.RemoteProtocolError, httpx.ReadError, httpx.ConnectError) as e:
+            if _attempt < 2:
+                print(f"  [codex] connection error (attempt {_attempt + 1}/3), retrying: {e}")
+                await _asyncio.sleep(5 * (_attempt + 1))
+                continue
+            raise
 
     return output_text, tool_calls, usage
 
