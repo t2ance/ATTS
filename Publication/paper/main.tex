@@ -5,10 +5,10 @@
 % before loading main
 
 % ready for submission
-% \usepackage{main}
+\usepackage{main}
 
 % to compile a preprint version, e.g., for submission to arXiv:
-\usepackage[preprint]{main}
+% \usepackage[preprint]{main}
 
 % to compile a camera-ready version:
 % \usepackage[final]{main}
@@ -128,11 +128,7 @@ We compare against six baselines, all sharing the same backbone model and answer
 
 For \our{}, the controller issues up to the exploration budget of \explore{} calls before stopping and synthesizing the final answer directly, as described in Section~\ref{sec:methodology}. The comparison across all rows isolates differences in test-time inference strategy rather than differences in training data, parameter count, or post-training recipe. In all tables, \textbf{bold} marks the best accuracy per group (Zero-Shot Models and Test-Time Scaling Methods separately) and the lowest cost per question among test-time scaling methods.
 
-\subsection{Main Results}
-
-Table~\ref{tab:main-results} presents the main results across all four benchmarks. For each benchmark, the upper group reproduces published zero-shot references for context, and the lower group reports test-time scaling methods evaluated under our unified setup. Zero-shot references are cited from the respective benchmark papers and official leaderboards; they use different model configurations and are therefore not directly comparable to our test-time scaling rows. HLE-Verified zero-shot rows report Revised-subset Acc \citep{hle_verified_paper} while our rows evaluate a 100-sample Gold subset. LiveCodeBench references follow the public generation leaderboard \citep{livecodebench_paper}. BabyVision references are from \citet{babyvision_paper}. GPQA-Diamond references are from \citet{gpqa_paper} and official records. Full benchmark details including dataset releases, grading protocols, and subset definitions are in Appendix~\ref{app:benchmark-details}.
-
-\begin{table}[H]
+\begin{table}[t!]
 \centering
 \caption{Main results on four benchmarks. Top left: HLE-Verified (Accuracy). Top right: LiveCodeBench (Pass@1, overall and by difficulty). Bottom left: GPQA-Diamond (Accuracy). Bottom right: BabyVision (Avg@3, overall and by task family). Each subtable shows zero-shot model references (upper) and test-time scaling methods (lower). \textbf{Bold} marks the best per group; lowest \$/q among test-time methods is also bolded.}
 \label{tab:main-results}
@@ -155,10 +151,10 @@ DeepSeek-V3.2 & 47.45 & -- \\
 Qwen3-Max-Thinking & 48.48 & -- \\
 \midrule
 \groupheader{3}{Test-Time Scaling Methods}
-Pass@1 & 48.00 & \textbf{0.28} \\
-Self-Refine & 53.00 & 0.41 \\
+Pass@1 & 48.00 & 0.50 \\
+Self-Refine & 53.00 & \textbf{0.41} \\
 Budget Forcing & 51.00 & 0.60 \\
-Skywork-Reward-V2 & 52.00 & 2.22 \\
+Skywork-Reward-V2 & 52.00 & 4.41 \\
 LLM Selection ($N{=}8$) & \textbf{58.00} & 4.53 \\
 \our{} (Ours) & 56.00 & 1.90 \\
 \our{} Multi-model Med & 57.00 & 1.63 \\
@@ -209,12 +205,12 @@ GPT-5.2 (xhigh) & 90.3 & -- \\
 \midrule
 \groupheader{3}{Test-Time Scaling Methods}
 Pass@1 & 74.24 & \textbf{0.13} \\
-Majority Voting & 74.24 & 0.90 \\
+Majority Voting & 73.74 & 0.90 \\
 Self-Refine & 72.22 & 0.23 \\
 Budget Forcing & 76.77 & 0.42 \\
 Skywork-Reward-V2 & 75.76 & 0.90 \\
 LLM Selection ($N{=}8$) & 77.27 & 0.97 \\
-\our{} (Ours) & \textbf{82.83} & 0.35 \\
+\our{} (Ours) & \textbf{82.83} & 0.36 \\
 \our{} Multi-model Med & 81.82 & 0.39 \\
 \bottomrule
 \end{tabular}
@@ -237,7 +233,7 @@ Grok-4 & 16.2 & 11.0 & 24.1 & 13.2 & 24.8 & -- \\
 \midrule
 \groupheader{7}{Test-Time Scaling Methods}
 Pass@1 & 19.59 & 20.86 & 19.28 & 19.78 & 15.69 & \textbf{0.07} \\
-Majority Voting & 22.42 & \textbf{23.93} & 21.69 & 23.08 & \textbf{23.53} & 0.50 \\
+Majority Voting & \textbf{23.20} & \textbf{23.93} & 21.69 & 23.08 & \textbf{23.53} & 0.50 \\
 Self-Refine & 21.39 & 20.25 & 22.89 & 20.88 & \textbf{23.53} & 0.42 \\
 Budget Forcing & 21.91 & 20.86 & \textbf{28.92} & 21.98 & 13.73 & 0.52 \\
 VisualPRM & 20.88 & 20.86 & 21.69 & 21.98 & 17.65 & 0.50 \\
@@ -249,6 +245,10 @@ LLM Selection ($N{=}8$) & \textbf{23.20} & 23.31 & 25.30 & 23.08 & 19.61 & 0.56 
 \end{minipage}
 \end{table}
 
+\subsection{Main Results}
+
+Table~\ref{tab:main-results} presents the main results across all four benchmarks. For each benchmark, the upper group reproduces published zero-shot references for context, and the lower group reports test-time scaling methods evaluated under our unified setup. Zero-shot references are cited from the respective benchmark papers and official leaderboards; they use different model configurations and are therefore not directly comparable to our test-time scaling rows. HLE-Verified zero-shot rows report Revised-subset Acc \citep{hle_verified_paper} while our rows evaluate a 100-sample Gold subset. LiveCodeBench references follow the public generation leaderboard \citep{livecodebench_paper}. BabyVision references are from \citet{babyvision_paper}. GPQA-Diamond references are from \citet{gpqa_paper} and official records. Full benchmark details including dataset releases, grading protocols, and subset definitions are in Appendix~\ref{app:benchmark-details}.
+
 \paragraph{HLE-Verified.}
 On HLE-Verified, \our{} achieves 56.00\% accuracy at \$1.90/q, outperforming Self-Refine (53.00\%) and Budget Forcing (51.00\%). LLM Selection reaches 58.00\% but at \$4.53/q---a $2.4\times$ cost increase for a 2-point gain---illustrating a cost-accuracy tradeoff where single-pass aggregation can achieve higher accuracy when cost is unconstrained, but adaptive exploration provides a more efficient operating point. The multi-model variant improves to 57.00\% at \$1.63/q, narrowing the accuracy gap while maintaining cost efficiency.
 
@@ -256,10 +256,10 @@ On HLE-Verified, \our{} achieves 56.00\% accuracy at \$1.90/q, outperforming Sel
 For LiveCodeBench, the single-model \our{} configuration reaches 82.29\% Pass@1 at \$0.53/q, improving over Self-Refine (80.57\%) and Budget Forcing (80.00\%). The gains concentrate on Hard problems: 67.50\% vs.\ 63.75\% for both Self-Refine and Budget Forcing, while Easy (100\%) and Medium (90.38\%) accuracies are at or near ceiling. The multi-model variant further improves to 85.63\% overall and 73.42\% on Hard.
 
 \paragraph{GPQA-Diamond.}
-On GPQA-Diamond, \our{} achieves the highest accuracy among all test-time scaling methods (82.83\%) at \$0.35/q, substantially outperforming Budget Forcing (76.77\%) and Skywork-Reward-V2 (75.76\%). Self-Refine (72.22\%) falls below Pass@1 (74.24\%), consistent with the observation that its feedback model frequently accepts the initial draft without revision, and occasionally introduces errors when it does revise.
+On GPQA-Diamond, \our{} achieves the highest accuracy among all test-time scaling methods (82.83\%) at \$0.36/q, substantially outperforming Budget Forcing (76.77\%) and Skywork-Reward-V2 (75.76\%). Self-Refine (72.22\%) falls below Pass@1 (74.24\%), consistent with the observation that its feedback model frequently accepts the initial draft without revision, and occasionally introduces errors when it does revise.
 
 \paragraph{BabyVision.}
-Among test-time scaling methods, \our{} leads on BabyVision with 23.20\% overall accuracy at \$0.27/q, ahead of Majority Voting (22.42\%) and Budget Forcing (21.91\%). The largest per-subset margin appears on Spatial Perception, where \our{} reaches 26.37\%.
+Among test-time scaling methods, \our{} ties with Majority Voting and LLM Selection at 23.20\% overall accuracy on BabyVision, but at \$0.27/q---roughly half the cost of either alternative. The largest per-subset margin appears on Spatial Perception, where \our{} reaches 26.37\%.
 
 \begin{figure}[H]
 \centering
@@ -302,8 +302,8 @@ In the default \our{} architecture, the orchestrator produces the final answer d
 \midrule
 HLE-Verified & 56.00 & 1.90 & 57.00 & 2.66 \\
 LiveCodeBench & 82.29 & 0.53 & 80.57 & 0.72 \\
-BabyVision & 23.20 & 0.27 & 23.20 & 0.34 \\
-GPQA-Diamond & 82.83 & 0.35 & 76.26 & 0.44 \\
+BabyVision & 23.20 & 0.27 & 23.20 & 0.38 \\
+GPQA-Diamond & 82.83 & 0.36 & 76.26 & 0.44 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -322,11 +322,11 @@ We ablate the orchestrator model while keeping the explorer fixed at Sonnet 4.6.
 
 \section{Limitations}
 
-\our{} inherits several limitations from the underlying language model and from its own orchestrator design. First, the method can only synthesize evidence that is already present in the candidate pool, so if all explored candidates share the same misconception, the orchestrator has little opportunity to recover. Second, the current framework does not provide formal guarantees for stopping optimality, calibration, or budget efficiency; the orchestrator is still a learned heuristic policy, even if its action space is intentionally simple. In practice, we observe that the orchestrator tends to converge early: on GPQA, 88\% of questions use exactly two \explore{} calls before stopping, even though the oracle best-of-$N$ curve continues to climb through $N{=}8$. This conservative exploration policy leaves headroom on the table, and learning a better stopping criterion remains an open problem. Third, because \our{} requires multiple model calls, it can increase latency and inference cost relative to direct generation on easy problems where extra exploration is unnecessary. Finally, the current evaluation focuses on benchmarked reasoning tasks with fixed answer interfaces rather than on open-ended tool-use agents, so the present results should be interpreted as evidence about reasoning-oriented test-time scaling rather than as a complete account of agentic decision making.
+\our{} inherits several limitations from the underlying language model and from its own orchestrator design. First, the method can only synthesize evidence that is already present in the candidate pool, so if all explored candidates share the same misconception, the orchestrator has little opportunity to recover. Second, the current framework does not provide formal guarantees for stopping optimality, calibration, or budget efficiency; the orchestrator is still a learned heuristic policy, even if its action space is intentionally simple. In practice, we observe that the orchestrator tends to converge early: on GPQA, 82\% of questions use exactly two \explore{} calls before stopping, even though the oracle best-of-$N$ curve continues to climb through $N{=}8$. This conservative exploration policy leaves headroom on the table, and learning a better stopping criterion remains an open problem. Third, because \our{} requires multiple model calls, it can increase latency and inference cost relative to direct generation on easy problems where extra exploration is unnecessary. Finally, the current evaluation focuses on benchmarked reasoning tasks with fixed answer interfaces rather than on open-ended tool-use agents, so the present results should be interpreted as evidence about reasoning-oriented test-time scaling rather than as a complete account of agentic decision making.
 
 \section{Conclusion}
 
-The central empirical finding of this work is that a minimal action space---a single \explore{} tool with adaptive stopping---is sufficient to match or outperform more complex test-time scaling strategies across diverse reasoning domains while remaining cost-competitive. A multi-model variant further improves to 57.00\% and 85.63\% on HLE-Verified and LiveCodeBench respectively. The ablation results sharpen this finding: removing the orchestrator's multi-turn context by delegating synthesis to a separate call degrades or fails to improve accuracy on three of four benchmarks, demonstrating that stateful evidence management---not just candidate diversity---drives the gains. For the broader field, these results suggest that adaptive compute allocation may be more productively framed as a sequential decision problem over candidate hypotheses than as explicit tree search or fixed sampling. A key limitation is the orchestrator's conservative stopping behavior: on GPQA-Diamond, 88\% of questions use exactly two \explore{} calls, leaving substantial headroom relative to oracle best-of-$N$. Learning stopping policies that better exploit the full exploration budget remains an open problem.
+The central empirical finding of this work is that a minimal action space---a single \explore{} tool with adaptive stopping---is sufficient to match or outperform more complex test-time scaling strategies across diverse reasoning domains while remaining cost-competitive. A multi-model variant further improves to 57.00\% and 85.63\% on HLE-Verified and LiveCodeBench respectively. The ablation results sharpen this finding: removing the orchestrator's multi-turn context by delegating synthesis to a separate call degrades or fails to improve accuracy on three of four benchmarks, demonstrating that stateful evidence management---not just candidate diversity---drives the gains. For the broader field, these results suggest that adaptive compute allocation may be more productively framed as a sequential decision problem over candidate hypotheses than as explicit tree search or fixed sampling. A key limitation is the orchestrator's conservative stopping behavior: on GPQA-Diamond, 82\% of questions use exactly two \explore{} calls, leaving substantial headroom relative to oracle best-of-$N$. Learning stopping policies that better exploit the full exploration budget remains an open problem.
 
 \bibliographystyle{plainnat}
 \bibliography{main}
@@ -492,7 +492,7 @@ Step 3.5 Flash & 96.67 & -- \\
 Claude-Opus-4.6 (High) & 96.67 & -- \\
 \midrule
 \groupheader{3}{Test-Time Scaling Methods}
-Pass@1 & 93.33 & \textbf{0.22} \\
+Pass@1 & \textbf{96.67} & \textbf{0.22} \\
 Majority Voting & 93.33 & 1.37 \\
 Self-Refine & 90.00 & 0.23 \\
 Budget Forcing & 93.33 & 0.60 \\
@@ -521,7 +521,7 @@ Skywork-Reward-V2 & \textbf{96.67} & 1.37 \\
 On AIME 2025, most test-time scaling methods converge to the same accuracy (93.33\%), with only Skywork-Reward-V2 falling behind at 90.00\%. The 30-problem dataset leaves little statistical room for differentiation, and the backbone model already solves 28 of 30 problems with a single attempt.
 
 \paragraph{AIME 2026.}
-On AIME 2026, \our{} and Skywork-Reward-V2 both reach 96.67\%, improving over Pass@1 (93.33\%). Self-Refine drops to 90.00\%, likely because its feedback model misjudges some correct solutions and introduces errors during revision. As with AIME 2025, the small dataset size (30 problems) limits the granularity of method comparisons.
+On AIME 2026, Pass@1, \our{}, and Skywork-Reward-V2 all reach 96.67\% (29/30), confirming near-ceiling performance. Self-Refine drops to 90.00\%, likely because its feedback model misjudges some correct solutions and introduces errors during revision. As with AIME 2025, the small dataset size (30 problems) limits the granularity of method comparisons.
 
 \section{Ablation Data}
 \label{app:ablation-data}
@@ -560,7 +560,7 @@ GPQA-Diamond & 77.78 & 0.29 & 81.82 & 0.39 & 82.32 & 0.40 \\
 \midrule
 HLE-Verified & 57.00 & 2.23 & 56.00 & 1.90 & 59.00 & 1.79 \\
 LiveCodeBench & 79.43 & 0.71 & 82.29 & 0.53 & 83.43 & 0.64 \\
-GPQA-Diamond & 79.80 & 0.36 & 82.83 & 0.35 & 77.27 & 0.34 \\
+GPQA-Diamond & 79.80 & 0.36 & 82.83 & 0.36 & 77.27 & 0.34 \\
 \bottomrule
 \end{tabular}
 \end{table}

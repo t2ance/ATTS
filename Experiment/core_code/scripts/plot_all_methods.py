@@ -90,7 +90,7 @@ BENCHMARKS = {
         "effort_dirs": {
             "Low": RUN_DIR / "gpqa/multi_model_effort_low",
             "Med": RUN_DIR / "gpqa/multi_model_effort_medium",
-            "High": RUN_DIR / "gpqa/multi_model_effort_high_v2",
+            "High": RUN_DIR / "gpqa/multi_model_effort_high",
         },
         "methods": {
             "Self-Refine": RUN_DIR / "gpqa/sonnet_self_refine/self_refine.log",
@@ -98,6 +98,7 @@ BENCHMARKS = {
             "Skywork-Reward-V2": RUN_DIR / "gpqa/sonnet_skywork_rerank/rerank.log",
         },
         "rerank_methods": ["Skywork-Reward-V2"],
+        "llm_selection": RUN_DIR / "gpqa/sonnet_standalone_integrator",
     },
     "lcb": {
         "title": "LiveCodeBench",
@@ -116,6 +117,7 @@ BENCHMARKS = {
             "Skywork-Reward-V2": RUN_DIR / "lcb/sonnet_skywork_rerank/rerank2.log",
         },
         "rerank_methods": ["Skywork-Reward-V2"],
+        "llm_selection": RUN_DIR / "lcb/sonnet_standalone_integrator",
     },
     "babyvision": {
         "title": "BabyVision",
@@ -132,6 +134,7 @@ BENCHMARKS = {
             "VisualPRM": RUN_DIR / "babyvision/sonnet_visualprm_rerank/rerank.log",
         },
         "rerank_methods": ["VisualPRM"],
+        "llm_selection": RUN_DIR / "babyvision/sonnet_standalone_integrator",
     },
     "aime2025": {
         "title": "AIME 2025",
@@ -172,6 +175,7 @@ BENCHMARKS = {
             "Skywork-Reward-V2": RUN_DIR / "hle/sonnet_skywork_rerank/rerank_resume2.log",
         },
         "rerank_methods": ["Skywork-Reward-V2"],
+        "llm_selection": RUN_DIR / "hle/sonnet_standalone_integrator",
     },
 }
 
@@ -181,6 +185,7 @@ BASELINE_STYLES = {
     "Budget Forcing": {"color": "#9C27B0"},
     "Skywork-Reward-V2": {"color": "#FF5722"},
     "VisualPRM": {"color": "#FF5722"},
+    "LLM Selection": {"color": "#FF9800"},
 }
 
 OURS_STYLES = {
@@ -230,6 +235,18 @@ def plot_benchmark(bench_key: str, bench_cfg: dict) -> None:
                    label=f"{method_name} ({data['accuracy']:.1f}%)")
         all_accs.append(data["accuracy"])
         all_costs.append(cost)
+
+    # LLM Selection (standalone integrator)
+    llm_sel_dir = bench_cfg.get("llm_selection")
+    if llm_sel_dir and llm_sel_dir.exists():
+        llm_sel = read_mm_effort(llm_sel_dir)
+        if llm_sel is not None:
+            mcolor = BASELINE_STYLES["LLM Selection"]["color"]
+            ax.scatter([llm_sel["cost"]], [llm_sel["accuracy"]], color=mcolor,
+                       marker="o", s=80, zorder=5,
+                       label=f"LLM Selection ({llm_sel['accuracy']:.1f}%)")
+            all_accs.append(llm_sel["accuracy"])
+            all_costs.append(llm_sel["cost"])
 
     # ATTS (explore-only, from no_integrate log)
     ours_points = []
@@ -445,6 +462,18 @@ def plot_main_results_combined() -> None:
                        label=method_name if idx == 0 else "")
             all_accs.append(data["accuracy"])
             all_costs.append(cost)
+
+        # LLM Selection
+        llm_sel_dir = bench_cfg.get("llm_selection")
+        if llm_sel_dir and llm_sel_dir.exists():
+            llm_sel = read_mm_effort(llm_sel_dir)
+            if llm_sel is not None:
+                mcolor = BASELINE_STYLES["LLM Selection"]["color"]
+                ax.scatter([llm_sel["cost"]], [llm_sel["accuracy"]], color=mcolor,
+                           marker="o", s=100, zorder=5,
+                           label="LLM Selection" if idx == 0 else "")
+                all_accs.append(llm_sel["accuracy"])
+                all_costs.append(llm_sel["cost"])
 
         # ATTS
         ours_points = []
