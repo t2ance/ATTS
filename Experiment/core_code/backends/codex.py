@@ -142,7 +142,7 @@ async def _codex_request(
                                         "arguments": item.get("arguments", "{}"),
                                     })
             break  # success
-        except (httpx.RemoteProtocolError, httpx.ReadError, httpx.ConnectError) as e:
+        except (httpx.RemoteProtocolError, httpx.ReadError, httpx.ReadTimeout, httpx.ConnectError) as e:
             if _attempt < max_retries - 1:
                 print(f"  [codex] connection error (attempt {_attempt + 1}/3), retrying: {e}")
                 await _asyncio.sleep(5 * (_attempt + 1))

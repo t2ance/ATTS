@@ -341,24 +341,25 @@ We ablate the orchestrator model while keeping the explorer fixed at Sonnet 4.6.
 \end{figure}
 
 \paragraph{Backbone model family.}
-To evaluate whether \our{} generalizes beyond a single model family, we run the full framework on HLE-Verified using GPT-5.2 (OpenAI) as the backbone for all three roles---orchestrator, explorer, and synthesizer---keeping the same exploration budget ($T{=}8$) and prompts as the Claude Sonnet configuration.
+To evaluate whether \our{} generalizes beyond a single model family, we run the full framework on HLE-Verified using GPT-5.2 (OpenAI) as the backbone for all three roles---orchestrator, explorer, and synthesizer---keeping the same exploration budget ($T{=}8$) and prompts as the Claude Sonnet configuration. We test two reasoning effort levels to assess the effect of orchestrator reasoning depth on synthesis quality.
 
 \begin{table}[H]
 \centering
-\caption{Backbone model ablation on HLE-Verified. Both configurations use the default \our{} architecture (no separate integrator) with identical prompts and exploration budget.}
+\caption{Backbone model ablation on HLE-Verified. All configurations use the default \our{} architecture (no separate integrator) with identical prompts and exploration budget. Reasoning effort controls the orchestrator's internal chain-of-thought budget.}
 \label{tab:backbone-ablation}
 \small
-\begin{tabular}{l r r}
+\begin{tabular}{l l r r r}
 \toprule
-Backbone & Acc. (\%) & \$/q \\
+Backbone & Effort & Pass@1 & ATTS & \$/q \\
 \midrule
-Claude Sonnet 4.6 & \textbf{56.00} & 1.90 \\
-GPT-5.2 & 54.00 & \textbf{0.22} \\
+Claude Sonnet 4.6 & default & 48.00 & \textbf{56.00} & 1.90 \\
+GPT-5.2 & low & 55.00 & 54.00 & \textbf{0.22} \\
+GPT-5.2 & high & 55.00 & \textbf{57.00} & 0.26 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-GPT-5.2 achieves 54.00\% accuracy at \$0.22/q, compared to Claude Sonnet's 56.00\% at \$1.90/q (Table~\ref{tab:backbone-ablation}). The 2-point accuracy gap is small relative to the $8.6{\times}$ cost reduction, and both configurations substantially outperform the respective Pass@1 baselines. This result demonstrates that \our{}'s adaptive exploration framework is not specific to the Claude model family: the same prompts and control logic transfer to a different model provider with comparable effectiveness.
+At low reasoning effort, GPT-5.2 achieves 54.00\% (below its own Pass@1 of 55.00\%), indicating that the orchestrator's shallow reasoning fails to improve over the first candidate. Increasing effort to high recovers the gain: 57.00\% at \$0.26/q, outperforming Claude Sonnet (56.00\% at \$1.90/q) at $7.3{\times}$ lower cost (Table~\ref{tab:backbone-ablation}). The effort sensitivity reveals that the orchestrator's meta-reasoning depth---not the action space or prompt design---is the binding constraint for cross-model transfer. With sufficient reasoning budget, the same prompts and control logic produce comparable or better results on a different model family.
 
 \section{Limitations}
 
