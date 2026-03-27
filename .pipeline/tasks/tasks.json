@@ -5,12 +5,12 @@
         "id": "survey-1",
         "title": "Literature survey on test-time scaling",
         "description": "Survey of sequential scaling, parallel scaling, hybrid search, and agentic test-time scaling methods. Related work is directly in the paper (Section 2).",
-        "status": "cancelled",
+        "status": "done",
         "stage": "survey",
         "priority": "low",
         "dependencies": [],
         "taskType": "exploration",
-        "completionNotes": "Skipped as standalone deliverable. Related Work section in main.tex covers the survey content directly."
+        "completionNotes": "2026-03-27: Comprehensive theoretical foundations survey completed. Covers rational metareasoning (Russell & Wefald, Hay et al.), optimal stopping (Pandora's Box, BEACON, MMC, SPRT), regret bounds (Huang et al., Zuo & Zhu), sequential vs batch theory (Blackwell, DPI, CoT complexity). Report at Survey/reports/theoretical_foundations_survey.md."
       },
       {
         "id": "ideation-1",
@@ -38,12 +38,13 @@
         "id": "experiment-2",
         "title": "Run all experiments and baselines",
         "description": "Run ATTS and all baselines (Pass@1, Majority Voting, Self-Refine, Budget Forcing, Skywork-Reward-V2, VisualPRM) across all 6 benchmarks with multiple model configurations and ablations.",
-        "status": "done",
+        "status": "in-progress",
         "stage": "experiment",
         "priority": "high",
         "dependencies": ["experiment-1"],
         "taskType": "implementation",
-        "completionNotes": "Results in Experiment/analysis/. Cache and run directories for all benchmarks with sonnet/haiku/opus, baselines, ablations (no_integrate, effort levels, multi-model, orchestrator variants)."
+        "completionNotes": "2026-03-27: Claude experiments complete. GPT-5.2 backbone experiments added: HLE effort=low (54%), HLE effort=high (57%), standalone integrator (58%). Codex backend fixed (parallel_tool_calls=false, forced structured output, 429/5xx/timeout retry). GPQA GPT-5.2 precache 28% complete (448/1584 explores cached).",
+        "nextActionPrompt": "Finish GPQA GPT-5.2 precache, then run GPQA GPT-5.2 ATTS eval (no-integrate, effort=high)."
       },
       {
         "id": "publication-1",
@@ -56,19 +57,21 @@
         "taskType": "writing",
         "suggestedSkills": ["ml-paper-writing", "inno-paper-writing", "inno-reference-audit"],
         "inputsNeeded": ["Experiment results from Experiment/analysis/run/"],
-        "nextActionPrompt": "Paper draft is structurally complete. Continue iterating on revisions: tighten writing, verify all numbers match experiment data, check figures, audit references."
+        "completionNotes": "2026-03-27 revision pass: fixed all data errors (C1-C7, H1-H4, Q1-Q2, F1), added 6 missing related work papers, filled NeurIPS checklist, updated to NeurIPS 2026 style, added Algorithm 1 pseudocode, added cost accounting paragraph, toned down principles section, cleaned notation, added code release URL, added LLM Selection to all figures. Backbone ablation: GPT-5.2 effort=high 57% at $0.26/q vs Claude 56% at $1.90/q on HLE. GPQA GPT-5.2 precache in progress (28%).",
+        "nextActionPrompt": "Remaining: (1) finish GPQA GPT-5.2 precache + eval to complete backbone ablation table with 2 benchmarks, (2) update backbone ablation section with GPQA results, (3) page count audit (currently 20 pages, main text must fit 9 pages), (4) final proofreading pass."
       },
       {
         "id": "publication-2",
         "title": "Final submission preparation",
         "description": "Final polish: citation verification, NeurIPS checklist completion, supplementary materials, code release preparation.",
-        "status": "pending",
+        "status": "in-progress",
         "stage": "publication",
         "priority": "high",
         "dependencies": ["publication-1"],
         "taskType": "writing",
         "suggestedSkills": ["inno-reference-audit", "inno-paper-reviewer"],
-        "nextActionPrompt": "After paper revision stabilizes: run citation audit, review NeurIPS checklist, prepare supplementary, clean up code for release."
+        "completionNotes": "2026-03-27: NeurIPS checklist filled (8 Yes, 2 No, 5 NA). NeurIPS 2026 style file installed. Code release URL added. Citation audit done (6 new refs verified via Google Scholar). Codex backend unified with Claude backend interface for GPT experiments.",
+        "nextActionPrompt": "After backbone ablation experiments complete: final data audit pass on all numbers, compile and check page budget, prepare camera-ready PDF."
       },
       {
         "id": "promotion-1",
