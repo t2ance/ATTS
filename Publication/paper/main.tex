@@ -669,13 +669,79 @@ Total hurt (Pass@1 correct $\to$ \our{} wrong) & 1 & \\
 \end{tabular}
 \end{table}
 
-Most improvements (82\%) arise from the diversity of independent explorations: when the first candidate is wrong, subsequent explorations are likely to find the correct answer, and the orchestrator follows the emerging consensus. The remaining 18\% involve the orchestrator overriding the explore majority based on reasoning quality---a capability that goes beyond simple voting.
+Most improvements (82\%) arise from the diversity of independent explorations: when the first candidate is wrong, subsequent explorations are likely to find the correct answer, and the orchestrator follows the emerging consensus. The remaining 18\% involve the orchestrator overriding the explore majority based on reasoning quality---a capability that goes beyond simple voting. Listings~\ref{lst:majority-case} and~\ref{lst:minority-case} show representative examples of each mechanism.
 
-\paragraph{Example: Majority correction.}
-A chemistry question asks to trace a three-step reaction sequence (Grob fragmentation, MPV reduction, ozonolysis) and predict the NMR coupling pattern of a specific proton. The first exploration incorrectly identifies the coupling as a ``doublet of doublets.'' The orchestrator launches a second exploration, which arrives at ``triplet of triplets'' through a different analysis of the bicyclic ring system. After observing convergence between the second and subsequent explorations on this answer, the orchestrator adopts it. Final answer: A (triplet of triplets, correct).
+\begin{lstlisting}[
+  frame=shadowbox,
+  backgroundcolor=\color{gray!5},
+  rulecolor=\color{blue!40!black},
+  basicstyle=\scriptsize\ttfamily,
+  breaklines=true,
+  captionpos=b,
+  caption={Majority correction: a Diels-Alder/NMR problem (GPQA-Diamond). The first explore gives the wrong answer (D); subsequent explores converge on A through independent analyses. The orchestrator follows the consensus.},
+  label={lst:majority-case}
+]
+Question: A dicarboxylic acid containing a cis-alkene was dehydrated to
+the corresponding anhydride [...] reacted with 1,2,3,4-tetramethyl-
+cyclopentadiene [...] How many peaks are in the CHCH3 region?
+Options: (A) 2 peaks  (B) 3 peaks  (C) 4 peaks  (D) 8 peaks
+Gold: A
 
-\paragraph{Example: Minority extraction.}
-A chemistry question asks which of four molecules has $C_{3h}$ symmetry. Seven explorations are launched: four favor molecule A (triisopropyl borate), three favor molecule B (a triphenylene trianhydride). The orchestrator examines the reasoning chains and identifies a critical flaw in the majority's argument: triisopropyl borate achieves $C_{3h}$ only in a specific conformation due to flexible isopropyl groups, while the triphenylene trianhydride has $C_{3h}$ intrinsic to its rigid molecular topology. The orchestrator selects B (the minority answer) with reduced confidence (0.62 vs.\ the majority's 0.88), reflecting appropriate uncertainty. Final answer: B (correct).
+Explore #1: answer=D, confidence=0.85
+  Approach: Identify anhydride, determine Diels-Alder stereochemistry.
+
+Explore #2: answer=A, confidence=0.88
+  Approach: Maleic anhydride + tetramethylcyclopentadiene gives endo
+  bicyclo[2.2.1] product. The methyl groups split into two sets by
+  symmetry: bridge methyls (6H singlet) and ring methyls (6H singlet).
+
+Explore #3: answer=A, confidence=0.88
+  [Independent confirmation via the same endo-selectivity argument.]
+
+Orchestrator synthesis (after 5 explores, 3 favoring A):
+  "Three independent explorations converged on A through consistent
+   analysis of the endo product's symmetry. The dissenting candidates
+   incorrectly assumed exo selectivity."
+  Final answer: A, confidence=0.75. CORRECT.
+\end{lstlisting}
+
+\begin{lstlisting}[
+  frame=shadowbox,
+  backgroundcolor=\color{gray!5},
+  rulecolor=\color{blue!40!black},
+  basicstyle=\scriptsize\ttfamily,
+  breaklines=true,
+  captionpos=b,
+  caption={Minority extraction: a molecular symmetry problem (GPQA-Diamond). The explore majority (4/7) favors molecule A, but the orchestrator identifies a flaw in the majority's reasoning and selects the minority answer B.},
+  label={lst:minority-case}
+]
+Question: Which of the following molecules has C3h symmetry?
+(A) Triisopropyl borate  (B) Triphenylene trianhydride
+(C) Benzene trianhydride  (D) Quinuclidine
+Gold: B
+
+Explore #1: answer=A, confidence=0.92
+  "Triisopropyl borate: B is sp2 planar, C3 axis + sigma_h from the
+   BO3 plane, no C2 or sigma_v. Point group: C3h."
+Explore #2: answer=B, confidence=0.85
+  "Triisopropyl borate: isopropyl groups adopt a propeller arrangement
+   -- not planar, so no sigma_h. True point group: C3, not C3h."
+Explore #3: answer=A, confidence=0.88
+  [Repeats the sp2-planar argument for molecule A.]
+Explore #4: answer=B, confidence=0.82
+  [Identifies that benzene trianhydride (C) has 3 perpendicular C2
+   axes -> D3h, while triphenylene trianhydride (B) lacks C2 due to
+   inequivalent positions in the fused ring system -> C3h.]
+[... 3 more explores: 2 favor A, 1 favors B. Final tally: A=4, B=3.]
+
+Orchestrator synthesis (after 7 explores):
+  "The candidates favoring A assume the isopropyl groups preserve
+   sigma_h, but Explore #4 correctly notes that the propeller
+   conformation breaks this plane. Triphenylene trianhydride (B) has
+   C3h intrinsic to its rigid topology -- positions 1,2 in triphenylene
+   are inequivalent, preventing C2 axes that would elevate to D3h."
+  Final answer: B, confidence=0.62. CORRECT.
+\end{lstlisting}
 
 \paragraph{Emergent behavior: selective exploration bypass.}
 When using Opus 4.6 as orchestrator, we observe a distinct behavior absent in weaker models: the orchestrator occasionally bypasses exploration entirely, answering directly from its own knowledge. On GPQA-Diamond, Opus skips exploration on 30 of 198 questions (15\%), achieving 90\% accuracy on these self-answered questions---substantially higher than its 77\% accuracy on explored questions. This suggests that stronger orchestrators develop an implicit sense of which problems are within their direct competence, selectively invoking the exploration mechanism only when needed.
