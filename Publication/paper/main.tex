@@ -645,6 +645,41 @@ Since $g(\sigma_1) = g(\sigma_2)$, $d_I$ outputs the same answer $a$ on both. If
 
 The integrator receives only $\mathcal{C}_\tau$ in a single call---a lossy summary of the orchestrator's full multi-turn history. Theorem~\ref{thm:info-loss} predicts that whenever the discarded context (reasoning approach diversity, convergence trajectory, stopping rationale) is decision-relevant, synthesis quality must degrade. The accuracy drops in Table~\ref{tab:integrator-ablation}---6.57 points on GPQA-Diamond, 1.72 on LiveCodeBench---are instances of this information-loss penalty. Formally verified proofs in Lean~4 are included in the code release.
 
+\section{Qualitative Analysis}
+\label{app:case-studies}
+
+To understand \emph{how} \our{} improves over Pass@1, we examine the 22 GPQA-Diamond questions where \our{} (Sonnet orchestrator) produces a correct answer but the first exploration does not. Table~\ref{tab:success-types} categorizes these by the orchestrator's mechanism of improvement.
+
+\begin{table}[H]
+\centering
+\caption{How \our{} improves over Pass@1 on GPQA-Diamond. \emph{Majority correction}: multiple explores converge on the correct answer, overriding an incorrect first candidate. \emph{Minority extraction}: the orchestrator identifies a correct minority candidate by evaluating reasoning quality. In one question (the only true failure after grading correction), \our{} changes a correct Pass@1 answer to an incorrect one.}
+\label{tab:success-types}
+\small
+\begin{tabular}{l r r}
+\toprule
+Orchestrator behavior & Count & Fraction \\
+\midrule
+Majority correction & 18 & 82\% \\
+Minority extraction & 4 & 18\% \\
+\midrule
+Total rescued (Pass@1 wrong $\to$ \our{} correct) & 22 & \\
+Total hurt (Pass@1 correct $\to$ \our{} wrong) & 1 & \\
+\textbf{Net gain} & \textbf{+21} & \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Most improvements (82\%) arise from the diversity of independent explorations: when the first candidate is wrong, subsequent explorations are likely to find the correct answer, and the orchestrator follows the emerging consensus. The remaining 18\% involve the orchestrator overriding the explore majority based on reasoning quality---a capability that goes beyond simple voting.
+
+\paragraph{Example: Majority correction.}
+A chemistry question asks to trace a three-step reaction sequence (Grob fragmentation, MPV reduction, ozonolysis) and predict the NMR coupling pattern of a specific proton. The first exploration incorrectly identifies the coupling as a ``doublet of doublets.'' The orchestrator launches a second exploration, which arrives at ``triplet of triplets'' through a different analysis of the bicyclic ring system. After observing convergence between the second and subsequent explorations on this answer, the orchestrator adopts it. Final answer: A (triplet of triplets, correct).
+
+\paragraph{Example: Minority extraction.}
+A chemistry question asks which of four molecules has $C_{3h}$ symmetry. Seven explorations are launched: four favor molecule A (triisopropyl borate), three favor molecule B (a triphenylene trianhydride). The orchestrator examines the reasoning chains and identifies a critical flaw in the majority's argument: triisopropyl borate achieves $C_{3h}$ only in a specific conformation due to flexible isopropyl groups, while the triphenylene trianhydride has $C_{3h}$ intrinsic to its rigid molecular topology. The orchestrator selects B (the minority answer) with reduced confidence (0.62 vs.\ the majority's 0.88), reflecting appropriate uncertainty. Final answer: B (correct).
+
+\paragraph{Emergent behavior: selective exploration bypass.}
+When using Opus 4.6 as orchestrator, we observe a distinct behavior absent in weaker models: the orchestrator occasionally bypasses exploration entirely, answering directly from its own knowledge. On GPQA-Diamond, Opus skips exploration on 30 of 198 questions (15\%), achieving 90\% accuracy on these self-answered questions---substantially higher than its 77\% accuracy on explored questions. This suggests that stronger orchestrators develop an implicit sense of which problems are within their direct competence, selectively invoking the exploration mechanism only when needed.
+
 \section{Benchmark Details}
 \label{app:benchmark-details}
 
