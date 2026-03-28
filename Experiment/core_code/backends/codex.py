@@ -98,7 +98,7 @@ async def _codex_request(
     tool_calls: list[dict[str, Any]] = []
     usage: dict[str, Any] = {}
 
-    max_retries = 6
+    max_retries = 20
     for _attempt in range(max_retries):
         output_text = None
         tool_calls = []
@@ -115,7 +115,7 @@ async def _codex_request(
                     content=json.dumps(body),
                 ) as resp:
                     if (resp.status_code >= 500 or resp.status_code == 429) and _attempt < max_retries - 1:
-                        delay = 60 * (_attempt + 1) if resp.status_code == 429 else 5 * (_attempt + 1)
+                        delay = min(60 * (_attempt + 1), 600) if resp.status_code == 429 else 5 * (_attempt + 1)
                         print(f"  [codex] {resp.status_code}, retrying in {delay}s (attempt {_attempt + 1}/{max_retries})")
                         await _asyncio.sleep(delay)
                         continue
