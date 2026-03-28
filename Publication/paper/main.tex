@@ -475,7 +475,7 @@ Benchmark-specific adaptation is intentionally lightweight. Most answer-based ta
 At runtime, the controller maintains the candidate pool and repeatedly calls \explore{} until the exploration budget is exhausted or the controller decides to stop and synthesize. The same implementation supports both text-only and image-conditioned tasks, and all runs can optionally record the controller trace and sub-model outputs for later inspection. These implementation choices are meant to make the evaluation pipeline inspectable without changing the central adaptive exploration decision process.
 
 \paragraph{Grading.}
-LiveCodeBench and AIME use deterministic grading (code execution and exact integer matching, respectively). GPQA-Diamond uses exact option-letter matching. HLE-Verified and BabyVision use an LLM judge (Claude Haiku 4.5) that compares the predicted answer against the reference answer.
+LiveCodeBench and AIME use deterministic grading (code execution and exact integer matching, respectively). GPQA-Diamond uses exact option-letter matching, consistent with the official GPQA evaluation protocol~\citep{gpqa_paper}; as with any regex-based extraction, minor formatting variations in model output may introduce small amounts of grading noise. HLE-Verified and BabyVision use an LLM judge (Claude Haiku 4.5) that compares the predicted answer against the reference answer.
 
 \paragraph{Baseline implementations.}
 All baselines use the same backbone model and the same benchmark-specific answer format as \our{}, so the comparison isolates the inference-time strategy.
