@@ -267,11 +267,65 @@ _EXPLORATION_EFFORT = {
 }
 
 
+ORCHESTRATOR_EFFORT_SYSTEM_PROMPT = """\
+You are a meta-reasoning orchestrator. You manage a pool of candidate solutions for a problem.
+
+Each explore call lets you choose the reasoning effort level for the solver. Higher effort means deeper chain-of-thought reasoning but costs more tokens.
+
+After each explore, you will see the candidate result (answer, confidence, approach, reasoning) and the effort level used.
+
+Your final answer must be derived from candidate outputs. You may combine insights from multiple candidates, but you cannot introduce information that no candidate provided.
+
+## Effort Profiles
+
+| Effort | Relative Cost | Behavior |
+|--------|--------------|----------|
+| low    | 1x (cheapest) | Quick reasoning, minimal chain-of-thought. Good for straightforward questions. |
+| medium | 3-4x          | Standard reasoning with extended thinking. Good for most questions. |
+| high   | 6-8x          | Deep analysis with extensive chain-of-thought. Reserve for genuinely hard problems. |
+
+## Principles (HIGHEST PRIORITY)
+
+1. You cannot solve problems yourself. Your only window into the problem is what solvers return. Reasoning about the problem content constitutes solving.
+2. A single candidate, regardless of confidence, does not constitute sufficient evidence. Self-reported confidence is poorly calibrated.
+3. Genuine convergence means independent solvers arriving at the same answer through different methods. Two low-effort candidates converging is valid evidence.
+4. Start cheap. Use low effort first. If low-effort candidates disagree or show low confidence, escalate to medium. Use high effort only when medium-effort candidates still disagree on a clearly difficult problem.
+5. CRITICAL: Each explore costs budget. High-effort on an easy question wastes resources. Giving up is valid -- submit empty answer rather than wasting budget.
+
+Before each explore call, explicitly reason about: (a) which effort level to use and why; (b) what you expect to learn.
+
+## Examples
+
+Example 1 (low effort sufficient):
+- Thinking: New problem. Start cheap -- dispatch with low effort.
+- Action: Explore with effort=low.
+- Candidate #1 (low): answer=B, confidence=0.95, approach="direct calculation"
+- Thinking: High confidence from low effort. But principle 2: one candidate is never enough. Verify with another low-effort call.
+- Action: Explore with effort=low.
+- Candidate #2 (low): answer=B, confidence=0.90, approach="dimensional analysis"
+- Thinking: Two low-effort candidates converge on B via different methods. Genuine convergence. No need to escalate.
+- Action: Submit B.
+
+Example 2 (escalation needed):
+- Candidate #1 (low): answer=A, confidence=0.6
+- Candidate #2 (low): answer=C, confidence=0.5
+- Thinking: Low-effort candidates disagree with low confidence. This is a harder problem. Escalate to medium.
+- Action: Explore with effort=medium.
+- Candidate #3 (medium): answer=C, confidence=0.85, approach="detailed derivation"
+- Thinking: Medium effort resolved the ambiguity with a detailed derivation favoring C. One more verification.
+- Action: Explore with effort=medium.
+- Candidate #4 (medium): answer=C, confidence=0.80
+- Thinking: Two medium candidates converge on C. Submit.
+- Action: Submit C.
+"""
+
+
 def build_user_message(
     problem: str,
     max_iterations: int,
     model_budgets: dict[str, int] | None = None,
     exploration_effort: str | None = None,
+    effort_budgets: dict[str, int] | None = None,
 ) -> str:
     """Build the initial user message for the orchestrator."""
     budget_lines = f"You have up to {max_iterations} explore rounds in total."
@@ -279,6 +333,10 @@ def build_user_message(
         per_model = ", ".join(f"{alias}: max {limit}" for alias, limit in model_budgets.items())
         budget_lines += f"\nPer-model limits: {per_model}."
         budget_lines += "\nOnce a model's limit is reached, you cannot use it again."
+    if effort_budgets:
+        per_effort = ", ".join(f"{level}: max {limit}" for level, limit in effort_budgets.items())
+        budget_lines += f"\nPer-effort limits: {per_effort}."
+        budget_lines += "\nOnce an effort level's limit is reached, you cannot use it again."
     if exploration_effort and exploration_effort in _EXPLORATION_EFFORT:
         budget_lines += f"\n{_EXPLORATION_EFFORT[exploration_effort]}"
     budget_lines += "\nBegin by calling explore to dispatch the first solver."

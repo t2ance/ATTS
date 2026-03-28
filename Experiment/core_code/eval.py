@@ -555,7 +555,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--verbose", action="store_true", help="Print per-round TTS output")
     parser.add_argument("--resume", type=str, default=None, metavar="RUN_DIR", help="Resume into an existing run directory")
     parser.add_argument("--log-dir", type=str, default="logs", help="Directory for real-time logs (default: logs/)")
-    parser.add_argument("--method", type=str, choices=["tts-agent", "tts-agent-multi", "self-refine", "budget-forcing", "rerank", "standalone-integrator"], default="tts-agent",
+    parser.add_argument("--method", type=str, choices=["tts-agent", "tts-agent-multi", "tts-agent-effort", "self-refine", "budget-forcing", "rerank", "standalone-integrator"], default="tts-agent",
                         help="Solving method (default: tts-agent)")
     parser.add_argument("--reward-model", type=str, default=None,
                         help="HuggingFace reward model for reranking")
@@ -566,6 +566,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--no-integrate", action="store_true", help="Disable integrate: explore-only mode with aggressive exploration prompt and confidence-based selection")
     parser.add_argument("--model-budgets", type=str, default=None,
                         help="Per-model budget limits for tts-agent-multi, e.g. 'haiku:4,sonnet:4,opus:4'")
+    parser.add_argument("--effort-budgets", type=str, default=None,
+                        help="Per-effort budget limits for tts-agent-effort, e.g. 'low:8,medium:6,high:4'")
     parser.add_argument("--exploration-effort", type=str, default=None,
                         choices=["low", "medium", "high"],
                         help="Exploration effort for multi-model: low (stop early), medium (cross-model verify), high (thorough)")
@@ -621,6 +623,23 @@ async def async_main() -> None:
             model_budgets[model_alias.strip()] = int(budget.strip())
         solve = functools.partial(_multi_solve, cache_dirs=cache_dirs, model_budgets=model_budgets,
                                   exploration_effort=args.exploration_effort)
+        args.integrate_model = args.orchestrator_model
+        args._cache_dirs_multi = cache_dirs
+    elif args.method == "tts-agent-effort":
+        import functools
+        from methods.tts_agent_effort import solve as _effort_solve
+        assert args.orchestrator_model is not None, "--orchestrator-model is required for tts-agent-effort"
+        assert args.cache_dirs is not None, "--cache-dirs with effort:path pairs is required for tts-agent-effort"
+        assert args.effort_budgets is not None, "--effort-budgets is required for tts-agent-effort"
+        cache_dirs = {}
+        for pair in args.cache_dirs.split(","):
+            level, path = pair.split(":")
+            cache_dirs[level.strip()] = Path(path.strip())
+        effort_budgets = {}
+        for pair in args.effort_budgets.split(","):
+            level, budget = pair.split(":")
+            effort_budgets[level.strip()] = int(budget.strip())
+        solve = functools.partial(_effort_solve, cache_dirs=cache_dirs, effort_budgets=effort_budgets)
         args.integrate_model = args.orchestrator_model
         args._cache_dirs_multi = cache_dirs
     else:
