@@ -368,7 +368,7 @@ GPT-5.2 & high & GPQA & 56.06 & \textbf{71.07} & \textbf{+15.0} & \textbf{0.16} 
 \end{tabular}
 \end{table}
 
-\our{} produces positive gains on both benchmarks for both model families (Table~\ref{tab:backbone-ablation}). On GPQA-Diamond, GPT-5.2 shows the largest absolute gain: +15.0 points over Pass@1 (56.06\% $\to$ 71.07\%), compared to Claude Sonnet's +10.5 points. On HLE-Verified, the gain is smaller (+2.0 points) but still positive, and the cost is $7.3\times$ lower than Claude. These results demonstrate that \our{}'s adaptive exploration framework is not specific to any model family: the same prompts and control logic transfer to a different provider with consistent gains at substantially lower cost.
+\our{} produces positive gains on both benchmarks for both model families (Table~\ref{tab:backbone-ablation}). On GPQA-Diamond, GPT-5.2 shows the largest absolute gain: +15.0 points over Pass@1 (56.06\% $\to$ 71.07\%), compared to Claude Sonnet's +10.5 points. The lower GPT-5.2 Pass@1 (56.06\% vs.\ the 90.3\% reported for GPT-5.2 in the GPQA leaderboard) reflects the use of \texttt{effort=low} for exploration, which limits reasoning tokens; the orchestrator operates at \texttt{effort=high} during synthesis. On HLE-Verified, the gain is smaller (+2.0 points) but still positive, and the cost is $7.3\times$ lower than Claude. These results demonstrate that \our{}'s adaptive exploration framework is not specific to any model family: the same prompts and control logic transfer to a different provider with consistent gains at substantially lower cost.
 
 \section{Limitations}
 
