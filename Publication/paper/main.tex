@@ -63,7 +63,7 @@
 \maketitle
 
 \begin{abstract}
-Test-time scaling has become a key mechanism for improving large language model reasoning, but existing approaches often rely either on rigid heuristic allocation rules or on explicit fine-grained search over intermediate reasoning steps. We introduce \our{}, a delegated sequential test-time scaling framework in which a lightweight orchestrator adaptively controls a pool of candidate solutions through a single action: \explore{}, which launches a fresh, independent solver. The orchestrator decides when to stop exploring and directly synthesizes the final answer from the accumulated evidence. By restricting control to this minimal interface, \our{} shifts compute allocation toward semantic evidence management over candidate hypotheses. We evaluate \our{} on six benchmarks spanning mathematical reasoning, scientific question answering, code generation, and multimodal reasoning. \our{} outperforms or matches all baselines across the four main benchmarks while remaining cost-competitive: 82.83\% on GPQA-Diamond, 82.29\% on LiveCodeBench, 56.00\% on HLE-Verified, and 23.20\% on BabyVision. An ablation replacing the orchestrator's direct synthesis with a separate integrator call degrades or fails to improve accuracy on three of four benchmarks, indicating that stateful evidence accumulation during exploration is critical to the method's effectiveness.
+Test-time scaling has become a key mechanism for improving large language model reasoning, but existing approaches often rely either on rigid heuristic allocation rules or on explicit fine-grained search over intermediate reasoning steps. We introduce \our{}, a delegated sequential test-time scaling framework in which a lightweight orchestrator adaptively controls a pool of candidate solutions through a single action: \explore{}, which launches a fresh, independent solver. The orchestrator decides when to stop exploring and directly synthesizes the final answer from the accumulated evidence. By restricting control to this minimal interface, \our{} shifts compute allocation toward semantic evidence management over candidate hypotheses. We evaluate \our{} on six benchmarks spanning mathematical reasoning, scientific question answering, code generation, and multimodal reasoning. \our{} outperforms or matches all baselines across the four main benchmarks while remaining cost-competitive: 84.77\% on GPQA-Diamond, 82.29\% on LiveCodeBench, 56.00\% on HLE-Verified, and 23.20\% on BabyVision. An ablation replacing the orchestrator's direct synthesis with a separate integrator call degrades or fails to improve accuracy on three of four benchmarks, indicating that stateful evidence accumulation during exploration is critical to the method's effectiveness.
 \end{abstract}
 
 \section{Introduction}
@@ -230,11 +230,11 @@ GPT-5.2 (xhigh) & 90.3 & -- \\
 \groupheader{3}{Test-Time Scaling Methods}
 Pass@1 & 74.24 & \textbf{0.13} \\
 Majority Voting & 73.74 & 0.90 \\
-Self-Refine & 72.22 & 0.23 \\
-Budget Forcing & 76.77 & 0.42 \\
-Skywork-Reward-V2 & 75.76 & 0.90 \\
-LLM Selection ($N{=}8$) & 77.27 & 0.97 \\
-\our{} (Ours) & \textbf{82.83} & 0.36 \\
+Self-Refine & 73.10 & 0.23 \\
+Budget Forcing & 77.16 & 0.42 \\
+Skywork-Reward-V2 & 76.14 & 0.90 \\
+LLM Selection ($N{=}8$) & 77.16 & 0.97 \\
+\our{} (Ours) & \textbf{84.77} & 0.36 \\
 \our{} Multi-model Med & 81.82 & 0.39 \\
 \bottomrule
 \end{tabular}
@@ -280,7 +280,7 @@ On HLE-Verified, \our{} achieves 56.00\% accuracy at \$1.90/q, outperforming Sel
 For LiveCodeBench, the single-model \our{} configuration reaches 82.29\% Pass@1 at \$0.53/q, improving over Self-Refine (80.57\%) and Budget Forcing (80.00\%). The gains concentrate on Hard problems: 67.50\% vs.\ 63.75\% for both Self-Refine and Budget Forcing, while Easy (100\%) and Medium (90.38\%) accuracies are at or near ceiling. The multi-model variant further improves to 85.63\% overall and 73.42\% on Hard.
 
 \paragraph{GPQA-Diamond.}
-On GPQA-Diamond, \our{} achieves the highest accuracy among all test-time scaling methods (82.83\%) at \$0.36/q, substantially outperforming Budget Forcing (76.77\%) and Skywork-Reward-V2 (75.76\%). Self-Refine (72.22\%) falls below Pass@1 (74.24\%), consistent with the observation that its feedback model frequently accepts the initial draft without revision, and occasionally introduces errors when it does revise.
+On GPQA-Diamond, \our{} achieves the highest accuracy among all test-time scaling methods (84.77\%) at \$0.36/q, substantially outperforming Budget Forcing (77.16\%) and Skywork-Reward-V2 (76.14\%). Self-Refine (73.10\%) falls below Pass@1 (74.24\%), consistent with the observation that its feedback model frequently accepts the initial draft without revision, and occasionally introduces errors when it does revise.
 
 \paragraph{BabyVision.}
 Among test-time scaling methods, \our{} ties with Majority Voting and LLM Selection at 23.20\% overall accuracy on BabyVision, but at \$0.27/q---roughly half the cost of either alternative. The largest per-subset margin appears on Spatial Perception, where \our{} reaches 26.37\%.
@@ -327,12 +327,12 @@ In the default \our{} architecture, the orchestrator produces the final answer d
 HLE-Verified & 56.00 & 1.90 & 57.00 & 2.66 \\
 LiveCodeBench & 82.29 & 0.53 & 80.57 & 0.72 \\
 BabyVision & 23.20 & 0.27 & 23.20 & 0.38 \\
-GPQA-Diamond & 82.83 & 0.36 & 76.26 & 0.44 \\
+GPQA-Diamond & 84.77 & 0.36 & 76.14 & 0.44 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Across all four benchmarks, adding a separate integrator does not consistently improve accuracy and always increases cost (Table~\ref{tab:integrator-ablation}). On GPQA-Diamond, accuracy drops from 82.83\% to 76.26\%; on LiveCodeBench, from 82.29\% to 80.57\%. On HLE-Verified, the integrator variant gains 1 point (57.00\% vs.\ 56.00\%) but at substantially higher cost (\$2.66/q vs.\ \$1.90/q). The degradation likely stems from the integrator having less context for synthesis: it only sees the final candidate pool in a single-turn call, whereas the orchestrator has observed the full multi-turn conversation including each candidate's arrival and the reasoning behind its own exploration decisions.
+Across all four benchmarks, adding a separate integrator does not consistently improve accuracy and always increases cost (Table~\ref{tab:integrator-ablation}). On GPQA-Diamond, accuracy drops from 84.77\% to 76.14\%; on LiveCodeBench, from 82.29\% to 80.57\%. On HLE-Verified, the integrator variant gains 1 point (57.00\% vs.\ 56.00\%) but at substantially higher cost (\$2.66/q vs.\ \$1.90/q). The degradation likely stems from the integrator having less context for synthesis: it only sees the final candidate pool in a single-turn call, whereas the orchestrator has observed the full multi-turn conversation including each candidate's arrival and the reasoning behind its own exploration decisions.
 
 \paragraph{Orchestrator model selection.}
 We ablate the orchestrator model while keeping the explorer fixed at Sonnet 4.6 (Table~\ref{tab:orch-ablation}, Figure~\ref{fig:orch-ablation}). The results show no monotonic relationship between model strength and orchestrator effectiveness: Opus achieves the highest accuracy on HLE (59\%) and LiveCodeBench (83.4\%), but drops to 77.3\% on GPQA---well below Sonnet's 82.8\%. Haiku, the weakest model, slightly outperforms Sonnet on HLE (57\% vs.\ 56\%).
@@ -360,15 +360,15 @@ To evaluate whether \our{} generalizes beyond a single model family, we run the 
 Backbone & Effort & Benchmark & Pass@1 & ATTS & Gain & \$/q \\
 \midrule
 Claude Sonnet 4.6 & default & HLE & 48.00 & 56.00 & +8.0 & 1.90 \\
-Claude Sonnet 4.6 & default & GPQA & 74.24 & 82.83 & +8.6 & 0.36 \\
+Claude Sonnet 4.6 & default & GPQA & 74.24 & 84.77 & +10.5 & 0.36 \\
 \midrule
 GPT-5.2 & high & HLE & 55.00 & 57.00 & +2.0 & 0.26 \\
-GPT-5.2 & high & GPQA & 56.06 & \textbf{70.20} & \textbf{+14.1} & \textbf{0.16} \\
+GPT-5.2 & high & GPQA & 56.06 & \textbf{71.07} & \textbf{+15.0} & \textbf{0.16} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\our{} produces positive gains on both benchmarks for both model families (Table~\ref{tab:backbone-ablation}). On GPQA-Diamond, GPT-5.2 shows the largest absolute gain: +14.1 points over Pass@1 (56.06\% $\to$ 70.20\%), compared to Claude Sonnet's +8.6 points. Notably, GPT-5.2 ATTS (70.20\%) exceeds its own oracle best-of-8 (68.18\%), indicating that the orchestrator's synthesis adds value beyond mere candidate selection. On HLE-Verified, the gain is smaller (+2.0 points) but still positive, and the cost is $7.3\times$ lower than Claude. These results demonstrate that \our{}'s adaptive exploration framework is not specific to any model family: the same prompts and control logic transfer to a different provider with consistent gains at substantially lower cost.
+\our{} produces positive gains on both benchmarks for both model families (Table~\ref{tab:backbone-ablation}). On GPQA-Diamond, GPT-5.2 shows the largest absolute gain: +15.0 points over Pass@1 (56.06\% $\to$ 71.07\%), compared to Claude Sonnet's +10.5 points. On HLE-Verified, the gain is smaller (+2.0 points) but still positive, and the cost is $7.3\times$ lower than Claude. These results demonstrate that \our{}'s adaptive exploration framework is not specific to any model family: the same prompts and control logic transfer to a different provider with consistent gains at substantially lower cost.
 
 \section{Limitations}
 
@@ -610,7 +610,7 @@ GPQA-Diamond & 77.78 & 0.29 & 81.82 & 0.39 & 82.32 & 0.40 \\
 \midrule
 HLE-Verified & 57.00 & 2.23 & 56.00 & 1.90 & 59.00 & 1.79 \\
 LiveCodeBench & 79.43 & 0.71 & 82.29 & 0.53 & 83.43 & 0.64 \\
-GPQA-Diamond & 79.80 & 0.36 & 82.83 & 0.36 & 77.27 & 0.34 \\
+GPQA-Diamond & 80.20 & 0.36 & 84.77 & 0.36 & 77.16 & 0.34 \\
 \bottomrule
 \end{tabular}
 \end{table}

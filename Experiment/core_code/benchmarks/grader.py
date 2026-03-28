@@ -22,12 +22,18 @@ def normalize_answer(text: str) -> str:
 
 def _extract_mc_letter(text: str) -> str | None:
     """Extract a multiple-choice letter from text."""
+    # Priority 1: answer starts with option letter (e.g., "d: formula", "(a) value")
+    m = re.match(r"\(?([a-e])[):\s.,]", text)
+    if m:
+        return m.group(1)
+    # Priority 2: explicit "answer is X" pattern
     m = re.search(r"(?:answer\s*(?:is|are|=|:)\s*\(?([a-e])\)?)", text)
     if m:
         return m.group(1)
     m = re.search(r"(?:option|choice)\s*\(?([a-e])\)?", text)
     if m:
         return m.group(1)
+    # Priority 3: last standalone letter a-e (handles "analyzing a through d, answer is c")
     matches = re.findall(r"\b([a-e])\b", text)
     if matches:
         return matches[-1]
