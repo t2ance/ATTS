@@ -1,383 +1,276 @@
-# Plan: Training a 7B ATTS Orchestrator with VOC-Based Reward
+# Plan: Training a Local ATTS Orchestrator with VOC-Based Reward
 
 ## Goal
 
-Train Qwen2.5-7B-Instruct to serve as the ATTS orchestrator, replacing Claude Sonnet 4.6. The trained model makes explore/stop decisions and synthesizes final answers from candidate pools. Success is an existence proof that the orchestrator decision is learnable via RL with a VOC-inspired reward.
+Train a local model to serve as the ATTS orchestrator, replacing Claude Sonnet 4.6. The trained model makes explore/stop decisions and synthesizes final answers from candidate pools. The result demonstrates that the orchestrator policy is learnable, with evaluation on ALL four paper benchmarks (clean, no train/test contamination).
 
 ## Design Principle: Harness Engineering
 
-The scaffold (orchestrator infrastructure, tool definitions, candidate format, system prompts) stays IDENTICAL. The 7B model sees exactly what Sonnet sees and outputs exactly what Sonnet outputs. Only the model inside the orchestrator slot changes. No simplification of inputs, no modification to the scaffold.
+The scaffold (orchestrator infrastructure, tool definitions, candidate format, system prompts) stays IDENTICAL. The local model sees exactly what Sonnet sees and outputs exactly what Sonnet outputs. Only the model inside the orchestrator slot changes. No simplification of inputs, no modification to the scaffold.
+
+Evaluation uses the existing `eval.py --backend vllm` with the same cached explores that Sonnet used. The only new code is `backends/vllm.py` (~250 LOC).
 
 ## Compute
 
 - 4x NVIDIA A100 80GB PCIe
-- PyTorch 2.10, Transformers 4.57.6
-- Base model: `Qwen/Qwen2.5-7B-Instruct` (128K context, native tool calling with `<tool_call>` tags)
+- Conda env: `verl`
 
-## Success Criteria
+## Package Versions (verl env)
 
-| Metric | Target |
-|--------|--------|
-| SFT-only accuracy on GPQA | >40% (>50% of Sonnet's 80.81%) |
-| SFT+RL accuracy on GPQA | Measurable improvement over SFT-only |
-| Stopping distribution correlation with Sonnet | >0.7 |
-| VOC reward vs accuracy-only reward | VOC reward produces better accuracy-cost tradeoff |
+| Package | Version |
+|---------|---------|
+| torch | 2.10.0+cu128 |
+| transformers | 4.57.6 |
+| peft | 0.18.1 |
+| vllm | 0.18.0 |
+| verl | 0.7.0 |
+| llamafactory | 0.9.5.dev0 (from source) |
+| sglang | NOT INSTALLED (needed for GRPO multi-turn) |
+| flash_attn | 2.8.3 |
+
+## Model Selection
+
+| Model | Status | Notes |
+|-------|--------|-------|
+| Qwen2.5-7B-Instruct | Tested, works | transformers 4.57.6 supports it |
+| Qwen3-8B | **Current choice**, tested, SFT+eval working | transformers 4.57.6 supports it |
+| Qwen3.5-9B | SFT verified, vLLM blocked | Needs transformers 5.x; vLLM 0.18 pins 4.57.6 |
+
+Qwen3.5-9B is the preferred model long-term but currently blocked by vLLM's transformers pin. Once vLLM supports transformers 5.x, switch to Qwen3.5-9B (SFT already verified to work via LLaMA-Factory with transformers 5.2.0).
 
 ---
 
-## Phase 1: Data Pipeline
+## Current Status (2026-03-30)
 
-### 1.1 SFT Data Source
+### What's DONE
 
-Orchestrator traces from existing ATTS v3 (no-integrate) runs. ALL traces use StructuredOutput (v3), verified with zero v1 traces.
-
-| Benchmark | Source | Episodes |
+| Component | Status | Location |
 |-----------|--------|----------|
-| GPQA | `analysis/run/gpqa/sonnet_no_integrate{,_run1..5}/run_*/trajectories/` | 198 * 6 = 1188 |
-| HLE | `analysis/run/hle/sonnet_no_integrate/run_*/trajectories/` | 100 |
-| LCB | `analysis/run/lcb/sonnet_no_integrate/run_*/trajectories/` | 175 |
-| BabyVision | `analysis/run/babyvision/sonnet_no_integrate/run_*/trajectories/` | 388 |
-| **Total** | | **~1851** |
+| Trajectory parser | Done | `training/build_sft_data.py` |
+| SFT data (298 episodes) | Done | `training_data/sft_all.jsonl` (GPQA 198 + HLE 100) |
+| LLaMA-Factory configs | Done | `training/sft_config*.yaml` + `training/dataset_info.json` |
+| SFT training (Qwen3-8B) | Done | `checkpoints/sft_qwen3_8b/` (3 epochs, loss 1.19->0.14) |
+| SFT training (Qwen3.5-9B) | Done | `checkpoints/sft_qwen35_test/` (1 epoch, loss 0.66->0.31) |
+| vLLM backend | Done | `backends/vllm.py` (text-based tool_call parsing) |
+| GPQA eval (SFT) | **Complete** | 148/198 = **74.7%** (Sonnet: 80.81%) |
+| LCB eval (SFT) | **Partial** | 39/44 = **88.6%** (Sonnet: 82.29%), died at 44/175 |
+| vLLM server | Running | GPU 0, port 8000, models: [Qwen/Qwen3-8B, atts-orch] |
+| HLE pre-cache (Haiku) | Paused | 2,877/5,344 explores (259/668 questions complete) |
+| wandb integration | Config ready | `report_to: wandb` in all YAML configs |
 
-**Filtering**: Use ALL episodes regardless of correctness. Tag each with metadata `{"correct": bool, "num_explores": int, "benchmark": str}` for downstream analysis. No filtering by default.
+### What's IN PROGRESS / BLOCKED
 
-### 1.2 Trajectory Parsing (markdown -> structured messages)
+| Component | Status | Blocker |
+|-----------|--------|---------|
+| LCB eval | Died at 44/175 | StructuredOutput parse fail on some questions (invalid JSON escapes); need resume |
+| HLE eval | Blocked | Grading needs `claude_agent_sdk` (not in verl env); run in `explain` env instead |
+| BabyVision eval | N/A | Qwen3-8B is text-only; BabyVision is multimodal |
+| GRPO training | Not started | Needs sglang install; data prep; tool implementation |
 
-Each trajectory is in `trajectory.md` as markdown. There is NO structured JSON representation. The data pipeline must parse markdown into structured multi-turn conversation format.
+### Key Results
 
-**Input file**: `<run_dir>/trajectories/<qid>/trajectory.md`
-**Companion file**: `<run_dir>/trajectories/<qid>/input.md` (system prompt + user message)
+| Benchmark | Sonnet Orchestrator | Qwen3-8B SFT-only | Notes |
+|-----------|--------------------|--------------------|-------|
+| GPQA (198) | 80.81% | **74.7%** | Complete. 92.5% of Sonnet. |
+| LCB (44/175) | 82.29% | **88.6%** | Partial (died at 44). Exceeds Sonnet on early questions. |
+| HLE (100) | 56.00% | TBD | Blocked on judge SDK in verl env |
+| BabyVision (388) | 23.20% | N/A | Text-only model can't handle multimodal |
 
-**Parsing rules** (delimiters in `trajectory.md`):
+### Known Issues
 
-| Markdown pattern | Message role | Content |
-|------------------|-------------|---------|
-| `<thinking>...</thinking>` | (see below) | Chain-of-thought reasoning |
-| Plain text between markers | assistant | Text output |
-| `**Tool call**: <name>` | assistant | Tool call (extract name) |
-| `<details><summary>Tool result...</summary>...` | tool | Tool result (extract text inside code fence) |
-| `<details><summary><b>StructuredOutput</b></summary>...` | assistant | StructuredOutput tool call (extract JSON from code fence) |
+1. **StructuredOutput JSON parsing**: Model sometimes generates invalid unicode escapes (e.g. `\u208i` where `i` is not hex). Fixed with `_fix_json_string()` in `backends/vllm.py` but edge cases still occur. Some LCB questions fail.
 
-**Thinking block handling**: Convert `<thinking>` blocks to regular CoT text PREPENDED to the assistant turn. The 7B model generates CoT as regular text, followed by a `<tool_call>` tag. The `<tool_call>` marker provides the clean boundary between reasoning and action.
+2. **HLE grading**: HLE uses LLM judge (`claude-haiku-4-5-20251001`). When `--backend vllm`, grading tries to call the judge via vLLM (wrong). Fixed in `benchmarks/base.py` to route grading to Claude backend, but `claude_agent_sdk` is not in verl env. Run HLE eval from `explain` env instead.
 
-**Output format**: Qwen2.5 ChatML with native tool calling:
-
-```json
-{
-  "messages": [
-    {"role": "system", "content": "<orchestrator system prompt>"},
-    {"role": "user", "content": "<problem text>"},
-    {"role": "assistant", "content": "<CoT reasoning>\n<tool_call>\n{\"name\": \"explore\", \"arguments\": {}}\n</tool_call>"},
-    {"role": "tool", "content": "Candidate #1 recorded.\n- Answer: B\n- Confidence: 0.92\n..."},
-    {"role": "assistant", "content": "<CoT reasoning>\n<tool_call>\n{\"name\": \"explore\", \"arguments\": {}}\n</tool_call>"},
-    {"role": "tool", "content": "Candidate #2 recorded.\n..."},
-    {"role": "assistant", "content": "<CoT synthesis reasoning>\n<tool_call>\n{\"name\": \"StructuredOutput\", \"arguments\": {\"answer\": \"B\", \"reasoning\": \"...\", ...}}\n</tool_call>"}
-  ],
-  "tools": [
-    {"type": "function", "function": {"name": "explore", "description": "...", "parameters": {}}},
-    {"type": "function", "function": {"name": "StructuredOutput", "description": "Submit final answer", "parameters": {"type": "object", "properties": {"answer": ..., "reasoning": ...}}}}
-  ],
-  "metadata": {"correct": true, "num_explores": 2, "benchmark": "gpqa", "qid": "recWXwn9v4IG9ZrM6"}
-}
-```
-
-**Key details**:
-- The `tools` array includes `StructuredOutput` as an explicit tool with the benchmark-specific answer schema as its parameter schema (GPQA: answer is A/B/C/D, LCB: answer is code string, BabyVision: answer is free-form text)
-- Each episode is self-contained: tool definitions + system prompt + conversation
-- The system prompt comes from `prompts.py` (`_ORCHESTRATOR_BASE` + v3 finalize/stop instructions)
-
-### 1.3 Implementation: `scripts/build_sft_data.py`
-
-```
-Input:  trajectory directories across all benchmarks
-Output: training_data/sft_train.jsonl, training_data/sft_eval.jsonl
-Split:  80% train, 20% eval (stratified by benchmark)
-```
-
-Steps:
-1. For each benchmark, load `BenchmarkConfig` to get the StructuredOutput schema
-2. For each run directory, iterate over trajectory directories
-3. Parse `input.md` to extract system prompt + user message
-4. Parse `trajectory.md` using the delimiter rules above
-5. Convert thinking blocks to CoT text
-6. Format as Qwen2.5 ChatML with tool definitions
-7. Tag with metadata (correctness from `trajectory.md` grading section)
-8. Split 80/20 stratified by benchmark
-9. Write to JSONL
-
-### 1.4 Train/Eval Split
-
-| Benchmark | Train | Eval |
-|-----------|-------|------|
-| GPQA | 158 questions (all episodes from these questions) | 40 questions |
-| HLE | 80 | 20 |
-| LCB | 140 | 35 |
-| BabyVision | 310 | 78 |
-
-Split is BY QUESTION (not by episode) to prevent data leakage — all episodes from the same question go to the same split.
+3. **Context overflow**: Some long conversations (8+ explores) exceed 16K tokens. vLLM server now runs with `--max-model-len 32768` and backend uses `max_tokens=4096`.
 
 ---
 
-## Phase 2: SFT Training
+## Phase 1: Data Pipeline (DONE)
 
-### 2.1 Configuration
+### SFT Data
+
+Source: existing ATTS trajectories (Sonnet orchestrator).
+
+| Benchmark | Episodes | Correct | Source |
+|-----------|----------|---------|--------|
+| GPQA | 198 | 164 (83%) | `analysis/run/gpqa/sonnet_no_integrate/run_20260317_181859` |
+| HLE | 100 | 56 (56%) | `analysis/run/hle/sonnet_no_integrate/run_20260319_003712` |
+| **Total** | **298** | **220** | |
+
+Parser: `training/build_sft_data.py` converts `trajectory.md` + `input.md` into JSONL with Qwen-style `<tool_call>` formatting.
+
+### Train/Test Contamination Strategy
+
+For the paper's main table (Path 2: comparable numbers on full benchmarks):
+- Train on HLE remaining questions (101-668, ~568 questions) — NOT the 100 eval questions
+- Evaluate cleanly on all 4 paper benchmarks (GPQA, LCB, HLE, BabyVision all unseen during training)
+
+Current SFT uses existing GPQA+HLE eval trajectories for pipeline validation only. Final training will use HLE training set exclusively.
+
+### HLE Pre-Cache Status
+
+Pre-caching Haiku explores for HLE training questions. Paused (rate limit + cost).
+
+| Metric | Value |
+|--------|-------|
+| Target | 668 questions x 8 explores = 5,344 |
+| Completed | 2,877 explores (259 complete questions + 1 partial) |
+| Cost so far | ~$173 |
+| Estimated total | ~$470 |
+
+---
+
+## Phase 2: SFT Training (DONE)
+
+Uses LLaMA-Factory (no custom training code needed).
+
+### Configuration
 
 | Parameter | Value |
 |-----------|-------|
-| Base model | `Qwen/Qwen2.5-7B-Instruct` |
-| Method | LoRA |
-| LoRA rank | 64 |
-| LoRA alpha | 128 |
-| LoRA target modules | `q_proj, k_proj, v_proj, o_proj, gate_proj, up_proj, down_proj` |
-| Learning rate | 2e-4 |
+| Framework | LLaMA-Factory 0.9.5.dev0 |
+| Base model | Qwen/Qwen3-8B |
+| Method | LoRA (r=64, alpha=128, target=all) |
+| Template | qwen3 |
 | Epochs | 3 |
-| Effective batch size | 32 |
-| Per-device batch size | 1 |
-| Gradient accumulation | 8 |
-| GPUs | 4x A100 80GB |
-| DeepSpeed | ZeRO Stage 2 |
-| Max sequence length | 16384 tokens |
-| Sequence packing | Yes (episodes range from ~3K to ~20K tokens) |
-| Framework | TRL `SFTTrainer` + PEFT |
-| Training targets | Assistant messages only (CoT + tool calls) |
+| Learning rate | 2e-4 |
+| Effective batch | 8 (bs=1, grad_accum=8) |
+| Max seq length | 16384 |
+| GPU | Single A100 80GB |
+| Time | ~21 min |
+| Loss | 1.19 -> 0.14 (train), 0.49 (eval) |
 
-### 2.2 Implementation: `scripts/train_sft.py`
-
-```python
-# Pseudocode
-from trl import SFTTrainer, SFTConfig
-from peft import LoraConfig
-from transformers import AutoModelForCausalLM, AutoTokenizer
-
-model = AutoModelForCausalLM.from_pretrained("Qwen/Qwen2.5-7B-Instruct")
-tokenizer = AutoTokenizer.from_pretrained("Qwen/Qwen2.5-7B-Instruct")
-
-lora_config = LoraConfig(
-    r=64, lora_alpha=128,
-    target_modules=["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
-    task_type="CAUSAL_LM",
-)
-
-sft_config = SFTConfig(
-    output_dir="checkpoints/sft",
-    num_train_epochs=3,
-    per_device_train_batch_size=1,
-    gradient_accumulation_steps=8,
-    learning_rate=2e-4,
-    max_seq_length=16384,
-    packing=True,
-    deepspeed="configs/ds_zero2.json",
-)
-
-trainer = SFTTrainer(
-    model=model, tokenizer=tokenizer,
-    train_dataset=load_dataset("json", data_files="training_data/sft_train.jsonl"),
-    eval_dataset=load_dataset("json", data_files="training_data/sft_eval.jsonl"),
-    peft_config=lora_config,
-    args=sft_config,
-)
-trainer.train()
-```
-
-### 2.3 SFT Validation
-
-After SFT, verify the model can:
-1. Generate valid `<tool_call>` JSON (not malformed)
-2. Produce CoT reasoning before tool calls
-3. Call `explore` and `StructuredOutput` tools correctly
-4. Stop after a reasonable number of explores (not always 1, not always 8)
-
-Run on 10 eval questions manually to sanity-check before proceeding to RL.
-
----
-
-## Phase 3: RL with VOC Reward
-
-### 3.1 Environment: Cached Explore Simulator
-
-The RL environment simulates the ATTS loop using cached explores. No API calls needed.
-
-**State**: (system prompt, user message with problem, tool definitions, conversation history so far)
-
-**Actions**: The model generates text. The environment parses it:
-- If `<tool_call>{"name": "explore", ...}</tool_call>` → load next cached candidate, append tool result to conversation, continue
-- If `<tool_call>{"name": "StructuredOutput", "arguments": {...}}</tool_call>` → episode ends, extract answer for grading
-- If no valid tool call detected → episode ends with error (reward = -1)
-- If explore count reaches budget T=8 → force stop, grade whatever answer is available (or reward = 0 if none)
-
-**Cached explores location**:
-- GPQA: `analysis/cache/gpqa/sonnet/<qid>/explore_<n>/result.json`
-- LCB: `analysis/cache/lcb/sonnet/<qid>/explore_<n>/result.json`
-- BabyVision: `analysis/cache/babyvision/sonnet/<qid>/explore_<n>/result.json`
-- HLE: NOT AVAILABLE (no precached explores)
-
-Each `result.json` contains `{approach, reasoning, answer, confidence}` or `{timed_out: true}`. Timed-out explores are presented to the model as "Candidate #N: TIMED OUT (solver exceeded time limit)".
-
-### 3.2 Reward Function
-
-**Terminal reward (applied at episode end)**:
-
-```
-R = correct(final_answer) - lambda * num_explores * C
-```
-
-Where:
-- `correct(final_answer)` = 1 if grading passes, 0 otherwise
-- `lambda` = cost tradeoff hyperparameter (tune: start with lambda=0.05)
-- `num_explores` = number of explore() calls in the episode
-- `C` = normalized cost per explore = 1.0 (so lambda directly controls the penalty scale)
-
-**Grading per benchmark**:
-- GPQA: exact letter match (A/B/C/D)
-- LCB: code execution (run test cases) — adds latency per episode
-- BabyVision: LLM judge — adds API cost per episode
-
-**Practical simplification**: RL training uses GPQA only (fast, deterministic grading). LCB/BabyVision are evaluation-only.
-
-### 3.3 Curriculum
-
-**Phase 2a — Stopping policy only (GPQA)**:
-- Oracle synthesis: majority vote on candidate answer letters seen so far
-- The model only decides WHEN to stop (explore vs stop actions)
-- At stop: the oracle computes majority vote → grade → reward
-- This isolates the stopping policy from synthesis quality
-- Only works on GPQA (multiple-choice with categorical answers)
-
-**Phase 2b — End-to-end (GPQA, extend to LCB/BabyVision for eval)**:
-- The model's own synthesis (StructuredOutput) is graded
-- Full reward: accuracy of model's own answer - lambda * cost
-- This trains both stopping AND synthesis
-
-### 3.4 GRPO Configuration
-
-| Parameter | Value |
-|-----------|-------|
-| Algorithm | GRPO (Group Relative Policy Optimization) |
-| Rollouts per question (K) | 8 |
-| Learning rate | 5e-6 |
-| KL penalty (beta) | 0.05 |
-| Epochs per RL iteration | 3 |
-| Temperature during rollouts | 0.7 |
-| RL training set | GPQA train split (158 questions) |
-| RL iterations | 5-10 (monitor for convergence) |
-| Framework | Custom rollout engine + TRL GRPO loss |
-
-### 3.5 Custom Rollout Engine (~500 LOC)
-
-This is the riskiest component. It must:
-
-1. **Serve the model**: Use vLLM for fast inference (1 GPU dedicated to serving)
-2. **Simulate ATTS loop**: For each question, run K=8 rollouts:
-   - Format system prompt + tools + problem as Qwen2.5 ChatML
-   - Generate model output (with temperature=0.7)
-   - Parse output: detect `<tool_call>` tag
-   - If explore: load `cache/<qid>/explore_<n>/result.json`, format as tool result, append to conversation
-   - If StructuredOutput: extract answer, grade, compute reward
-   - If malformed: reward = -1
-   - If budget exhausted: reward = 0
-3. **Collect trajectories**: Record all tokens generated by the model (for GRPO loss)
-4. **Compute group-relative rewards**: For K rollouts of the same question, normalize rewards
-5. **Feed to GRPO loss**: Use TRL's loss computation on the collected trajectories
-
-**Key implementation detail**: vLLM serves the model for fast inference during rollout collection. After collecting a batch of rollouts, the LoRA weights are updated via TRL's GRPO loss on a separate GPU. Then vLLM reloads the updated weights. This alternation (collect → update → reload) repeats for each RL iteration.
-
-### 3.6 Implementation: `scripts/train_rl.py` + `rl/rollout_engine.py` + `rl/environment.py`
-
-```
-rl/
-  environment.py    # Cached explore simulator (~200 LOC)
-  rollout_engine.py # vLLM-based rollout collection (~300 LOC)
-  grpo_trainer.py   # GRPO loss + weight update (~200 LOC)
-  parsing.py        # Shared <tool_call> parsing (~200 LOC, shared with backends/vllm.py)
-scripts/
-  train_rl.py       # Main RL training loop
-```
-
----
-
-## Phase 4: Evaluation Backend
-
-### 4.1 `backends/vllm.py` (~300 LOC)
-
-New backend module implementing the same interface as `backends/claude.py`:
-
-```python
-async def run_tool_conversation(
-    *, system_prompt, user_message, image_data_url, model, tools,
-    max_turns, tool_handler, effort=None, output_format=None,
-    writer=None, quiet=True, on_structured_output=None,
-) -> tuple[float, dict[str, Any]]:
-```
-
-This module:
-1. Connects to a vLLM server (started separately via `vllm serve`)
-2. Formats messages as Qwen2.5 ChatML with tool definitions
-3. Generates → parses `<tool_call>` blocks → calls `tool_handler` → injects result → generates again
-4. Detects `StructuredOutput` calls and invokes `on_structured_output`
-5. Writes events via `writer` (for trajectory recording)
-6. Computes cost from token counts (using a configurable $/token rate for reporting)
-
-**Shared with RL engine**: The `<tool_call>` parsing logic (`rl/parsing.py`) is shared between this backend and the RL rollout engine.
-
-### 4.2 Evaluation Runs
-
-Run the trained 7B orchestrator in the full ATTS pipeline:
+### Commands
 
 ```bash
-# Start vLLM server
-vllm serve Qwen/Qwen2.5-7B-Instruct --lora-modules atts-orch=checkpoints/rl_final
+# Build SFT data
+cd /data3/peijia/dr-claw/Explain/Experiment/core_code
+python -m training.build_sft_data
 
-# Run evaluation (same eval.py, different backend)
-python eval.py --benchmark gpqa --backend vllm --method tts_agent \
-    --orchestrator-model atts-orch --cache-dirs analysis/cache/gpqa/sonnet --cache-only
+# Train
+CUDA_VISIBLE_DEVICES=0 conda run -n verl llamafactory-cli train training/sft_config_qwen3_8b.yaml
 ```
 
-### 4.3 Evaluation Metrics
+### Checkpoints
 
-| Metric | How measured |
-|--------|-------------|
-| **Accuracy** | Standard per-benchmark grading |
-| **Cost per question** | Token count * assumed $/token rate |
-| **Explores per question** | Count from trajectory |
-| **Stopping quality** | Compare explore count distribution with Sonnet's |
-| **Synthesis quality** | At matched stopping points: 7B answer vs Sonnet answer vs majority vote |
-
-### 4.4 Baselines
-
-| Baseline | Description |
-|----------|-------------|
-| Sonnet orchestrator | Current ATTS (from existing runs) |
-| 7B SFT-only | Before RL training |
-| 7B SFT+RL (VOC reward) | After RL with `R = correct - lambda * cost` |
-| 7B SFT+RL (accuracy-only) | After RL with `R = correct` (no cost penalty) — ablation |
-| Random stopping | Stop at random N in [1,8], use majority vote |
-| Always-8 | Use all 8 explores, majority vote |
+| Model | Location | Status |
+|-------|----------|--------|
+| Qwen3-8B SFT | `checkpoints/sft_qwen3_8b/` | 3 epochs, validated |
+| Qwen3.5-9B SFT | `checkpoints/sft_qwen35_test/` | 1 epoch, validated (vLLM blocked) |
 
 ---
 
-## Phase 5: Paper Integration
+## Phase 3: Evaluation (PARTIAL)
 
-If results meet success criteria, add to the paper:
+### vLLM Serving
 
-1. **Methodology**: Formalize the metalevel MDP (state/action/reward) connecting ATTS to rational metareasoning
-2. **Experiments**: New subsection "Learning the Orchestrator Policy" with:
-   - SFT vs SFT+RL comparison
-   - Stopping quality analysis
-   - VOC reward ablation
-   - Cost-accuracy frontier (7B vs Sonnet)
-3. **Theory connection**: The VOC-based reward is not just an interpretive lens — it's a validated design principle for training orchestrators
+```bash
+CUDA_VISIBLE_DEVICES=0 conda run -n verl vllm serve Qwen/Qwen3-8B \
+    --enable-lora --max-lora-rank 64 \
+    --lora-modules "atts-orch=checkpoints/sft_qwen3_8b" \
+    --max-model-len 32768 --port 8000 --dtype bfloat16 --trust-remote-code
+```
+
+Note: Do NOT use `--enable-auto-tool-choice --tool-call-parser hermes`. The hermes parser strips `<tool_call>` tags from content inconsistently on complex JSON. Use text-based parsing in `backends/vllm.py` instead.
+
+### Eval Commands
+
+```bash
+# GPQA (works)
+python eval.py --benchmark gpqa --backend vllm --method tts-agent \
+    --num 198 --seed 42 --num-explores 8 --num-workers 4 \
+    --log-dir ../analysis/run/gpqa/qwen3_8b_sft \
+    --orchestrator-model atts-orch --explore-model claude-sonnet-4-6 \
+    --integrate-model atts-orch \
+    --cache-dirs ../analysis/cache/gpqa/sonnet --no-integrate
+
+# LCB (works but some questions fail on JSON parsing)
+python eval.py --benchmark lcb --backend vllm --method tts-agent \
+    --num 175 --seed 42 --num-explores 8 --num-workers 1 \
+    --log-dir ../analysis/run/lcb/qwen3_8b_sft \
+    --orchestrator-model atts-orch --explore-model claude-sonnet-4-6 \
+    --integrate-model atts-orch \
+    --cache-dirs ../analysis/cache/lcb/sonnet --no-integrate
+
+# HLE (run from explain env due to claude_agent_sdk dependency)
+# Or install claude_agent_sdk in verl env
+```
 
 ---
 
-## Timeline
+## Phase 4: GRPO with VOC Reward (NOT STARTED)
 
-| Week | Deliverable |
-|------|-------------|
-| 1 | `build_sft_data.py` (trajectory parser + data pipeline), SFT training started |
-| 2 | SFT complete, `backends/vllm.py`, RL environment + rollout engine |
-| 3 | GRPO training (Phase 2a stopping-only, Phase 2b end-to-end) |
-| 4 | Evaluation + ablations + paper section draft |
-| 5 | Buffer / iteration |
+### Architecture (from research)
+
+verl 0.7.0 has built-in multi-turn tool-calling GRPO via `ToolAgentLoop`.
+
+**Required components:**
+1. `training/tools/atts_tools.py` — `ATTSExploreTool` and `ATTSStructuredOutputTool` (subclass `verl.tools.base_tool.BaseTool`)
+2. `training/tools_config.yaml` — tool registration
+3. `training/reward_fn.py` — `compute_score()`: R = correct(answer) - 0.05 * num_explores
+4. `training/build_grpo_data.py` — build parquet with `agent_name`, `tools_kwargs`, cached explores
+5. `scripts/training/run_grpo.sh` — launch command
+
+### Key Design Decisions
+
+- **Rollout engine**: Must use `sglang` (NOT vllm). verl's `ToolAgentLoop` only works with sglang async rollout.
+- **LoRA + SGLang**: Requires `lora.merge=True` (SGLang doesn't support native LoRA adapter loading).
+- **Tool response masking**: `response_mask=0` for tool outputs (model doesn't learn to predict explore results, only decisions).
+- **Data format**: Parquet with `agent_name="tool_agent"` column (CRITICAL — without it, tools silently never called).
+- **Reward**: Episode-level binary correctness + per-step -0.05 explore penalty. No dense shaping (causes reward hacking per literature).
+- **Format**: `multi_turn.format=hermes` for Qwen tool calling.
+
+### Blockers
+
+1. **sglang not installed** — `pip install "sglang[all]>=0.4.0"` in verl env
+2. **GRPO data not built** — Need `build_grpo_data.py` to convert cached explores to parquet
+3. **Tools not implemented** — Need `ATTSExploreTool` and `ATTSStructuredOutputTool`
+4. **Untested combination** — LoRA + multi-turn + SGLang hasn't been tested together
+
+### GRPO Training Command (Draft)
+
+```bash
+python3 -m verl.trainer.main_ppo \
+    algorithm.adv_estimator=grpo \
+    data.train_files=training/data/grpo_train.parquet \
+    data.val_files=training/data/grpo_val.parquet \
+    data.train_batch_size=64 \
+    data.max_prompt_length=2048 \
+    data.max_response_length=4096 \
+    data.return_raw_chat=True \
+    actor_rollout_ref.model.path=checkpoints/sft_qwen3_8b \
+    actor_rollout_ref.model.lora_rank=64 \
+    actor_rollout_ref.model.lora_alpha=128 \
+    actor_rollout_ref.model.lora.merge=True \
+    actor_rollout_ref.actor.optim.lr=5e-7 \
+    actor_rollout_ref.actor.use_kl_loss=True \
+    actor_rollout_ref.actor.kl_loss_coef=0.001 \
+    actor_rollout_ref.rollout.name=sglang \
+    actor_rollout_ref.rollout.n=4 \
+    actor_rollout_ref.rollout.temperature=0.7 \
+    actor_rollout_ref.rollout.multi_turn.enable=True \
+    actor_rollout_ref.rollout.multi_turn.tool_config_path=training/tools_config.yaml \
+    actor_rollout_ref.rollout.multi_turn.max_assistant_turns=10 \
+    actor_rollout_ref.rollout.multi_turn.format=hermes \
+    custom_reward_function.path=training/reward_fn.py \
+    custom_reward_function.name=compute_score \
+    trainer.n_gpus_per_node=4 \
+    trainer.total_epochs=3 \
+    trainer.project_name=atts_grpo \
+    trainer.experiment_name=qwen3_8b_grpo_v1 \
+    trainer.logger=['console','wandb']
+```
+
+---
+
+## Phase 5: Paper Integration (NOT STARTED)
+
+If results meet criteria, add to the paper:
+1. New row in main results table: "ATTS (Qwen3-8B)" with accuracy on GPQA, LCB, (HLE if available)
+2. New subsection "Learning the Orchestrator Policy" in Experiments
+3. Comparison: SFT-only vs SFT+GRPO vs Sonnet
+4. Stopping distribution analysis: 7B vs Sonnet explore counts
 
 ---
 
@@ -387,36 +280,45 @@ If results meet success criteria, add to the paper:
 Experiment/core_code/
   backends/
     claude.py          # Existing
-    vllm.py            # NEW: local model backend
-  rl/
-    environment.py     # NEW: cached explore simulator
-    rollout_engine.py  # NEW: vLLM-based rollout collection
-    grpo_trainer.py    # NEW: GRPO loss computation
-    parsing.py         # NEW: shared <tool_call> parsing
-  scripts/
-    build_sft_data.py  # NEW: trajectory -> SFT JSONL
-    train_sft.py       # NEW: SFT training script
-    train_rl.py        # NEW: RL training loop
-  configs/
-    ds_zero2.json      # NEW: DeepSpeed ZeRO-2 config
-  training_data/
-    sft_train.jsonl    # Generated
-    sft_eval.jsonl     # Generated
-  checkpoints/
-    sft/               # SFT checkpoint
-    rl_phase2a/        # RL Phase 2a checkpoint
-    rl_final/          # Final RL checkpoint
+    codex.py           # Existing
+    vllm.py            # NEW: local model backend (text-based tool_call parsing)
+  training/
+    __init__.py
+    build_sft_data.py  # NEW: trajectory.md -> SFT JSONL
+    dataset_info.json  # NEW: LLaMA-Factory dataset descriptor
+    sft_config.yaml    # NEW: LLaMA-Factory SFT config (generic)
+    sft_config_qwen3_8b.yaml   # NEW: Qwen3-8B specific
+    sft_config_qwen35.yaml     # NEW: Qwen3.5-9B specific
+    sft_config_test.yaml       # NEW: test config
+    tools/                     # TODO: verl BaseTool subclasses for GRPO
+    reward_fn.py               # TODO: GRPO reward function
+    build_grpo_data.py         # TODO: build GRPO parquet
+  scripts/training/
+    build_sft_data.sh
+    train_sft.sh
+    serve_vllm.sh
+    test_eval_vllm.sh
+    precache_hle_training.sh
+    generate_hle_trajectories.sh
+    resume_precache.sh
+    test_pipeline.sh
+    run_grpo.sh                # TODO
+  checkpoints/          # .gitignore'd
+    sft_qwen3_8b/       # Qwen3-8B LoRA adapter (3 epochs)
+    sft_qwen35_test/    # Qwen3.5-9B LoRA adapter (1 epoch)
+  training_data/        # .gitignore'd
+    sft_all.jsonl        # 298 episodes (GPQA 198 + HLE 100)
 ```
 
 ---
 
-## Risks
+## Next Steps (Priority Order)
 
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| 7B can't synthesize well from complex reasoning traces | High | Measure stopping vs synthesis separately; even with poor synthesis, stopping quality is a valid contribution |
-| Custom rollout engine bugs | High | Test extensively on 10 questions before full training; share parsing code with eval backend |
-| RL doesn't converge | Medium | SFT-only is the fallback result; curriculum (Phase 2a→2b) reduces difficulty |
-| 761 RL questions too few → overfitting | Medium | Train/eval split, cross-benchmark training, monitor per-question rewards |
-| Context too long for 7B (8-explore = ~20K tokens) | Low | Qwen2.5 supports 128K; max_seq_length=16384 covers >95% of episodes |
-| vLLM ↔ training weight sync issues | Medium | Use LoRA adapters loaded by vLLM; reload after each RL iteration |
+1. **Complete LCB eval** — Resume from 44/175. May need to add error handling for StructuredOutput parse failures (skip question instead of crash).
+2. **Run HLE eval** — Either install `claude_agent_sdk` in verl env, or run from `explain` env with vLLM backend.
+3. **Install sglang** — `pip install "sglang[all]>=0.4.0"` in verl env. Required for GRPO.
+4. **Implement GRPO tools** — `ATTSExploreTool`, `ATTSStructuredOutputTool`, `reward_fn.py`.
+5. **Build GRPO data** — Convert cached explores to parquet format with `agent_name`, `tools_kwargs`.
+6. **Run GRPO** — Train with VOC reward, evaluate improvement over SFT-only.
+7. **Scale data** — Resume HLE pre-cache (2,877/5,344), generate trajectories, retrain with more data.
+8. **Write paper section** — Add 7B orchestrator results to paper.
