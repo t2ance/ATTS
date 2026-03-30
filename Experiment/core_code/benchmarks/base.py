@@ -367,11 +367,15 @@ class BenchmarkConfig(ABC):
         """Grade a predicted answer. Returns (is_correct, judge_cost_usd)."""
         from benchmarks.grader import grade_answer
         judge_model = self.judge_model
-        if backend == "codex" and judge_model in self._JUDGE_MODEL_CODEX:
+        # Grading always uses Claude backend (vLLM serves the orchestrator, not the judge)
+        grade_backend = backend
+        if backend == "vllm":
+            grade_backend = "claude"
+        if grade_backend == "codex" and judge_model in self._JUDGE_MODEL_CODEX:
             judge_model = self._JUDGE_MODEL_CODEX[judge_model]
         return await grade_answer(
             predicted, gold, question, self.get_answer_type(row),
-            judge_model=judge_model, backend=backend, out_dir=out_dir,
+            judge_model=judge_model, backend=grade_backend, out_dir=out_dir,
         )
 
     def normalize_answer(self, text: str) -> str:

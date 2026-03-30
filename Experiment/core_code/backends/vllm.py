@@ -61,7 +61,7 @@ def _build_user_content(text: str, image_data_url: str | None) -> str | list:
 # ---------------------------------------------------------------------------
 
 _TOOL_CALL_RE = re.compile(
-    r"<tool_call>\s*(\{.*?\})\s*</tool_call>",
+    r"<tool_call>\s*(.*?)\s*</tool_call>",
     re.DOTALL,
 )
 
@@ -70,18 +70,75 @@ def parse_tool_calls(text: str) -> list[tuple[str, dict]]:
     """Parse all ``<tool_call>`` blocks from generated text.
 
     Returns list of (tool_name, arguments_dict).
+    Handles double-escaped JSON from vLLM responses.
     Skips blocks with malformed JSON.
     """
     results = []
     for m in _TOOL_CALL_RE.finditer(text):
-        try:
-            call = json.loads(m.group(1))
-        except json.JSONDecodeError:
+        raw = m.group(1).strip()
+        # Try parsing as-is first
+        call = _try_parse_tool_json(raw)
+        if call is None:
+            # vLLM sometimes double-escapes: \\" -> ", \\u -> \u
+            unescaped = raw.replace('\\\\"', '\x00QUOTE\x00').replace('\\"', '"').replace('\x00QUOTE\x00', '\\"')
+            call = _try_parse_tool_json(unescaped)
+        if call is None:
             continue
         name = call.get("name", "")
         args = call.get("arguments", {})
         results.append((name, args))
     return results
+
+
+_INVALID_UNICODE_RE = re.compile(r"\\u([0-9a-fA-F]{0,3}[^0-9a-fA-F])")
+
+
+_BAD_ESCAPE_RE = re.compile(r"\\(?![\"\\\/bfnrt]|u[0-9a-fA-F]{4})")
+
+
+def _fix_json_string(raw: str) -> str:
+    """Fix common JSON string issues from LLM output.
+
+    - Invalid \\uXXXX escapes (e.g. \\u208i)
+    - Unescaped control characters
+    """
+    # Remove invalid \uXXXX (non-hex chars after \u)
+    fixed = _INVALID_UNICODE_RE.sub(lambda m: "u" + m.group(1), raw)
+    # Escape any remaining invalid backslash sequences
+    fixed = _BAD_ESCAPE_RE.sub(lambda m: "\\\\" + m.group(0)[1:], fixed)
+    return fixed
+
+
+def _try_parse_tool_json(raw: str) -> dict | None:
+    """Try to parse a tool call JSON string, with progressive fixing."""
+    for attempt_raw in [raw, _fix_json_string(raw)]:
+        try:
+            return json.loads(attempt_raw)
+        except json.JSONDecodeError:
+            continue
+    # Last resort: extract name and try to build a minimal result
+    name_match = re.search(r'"name"\s*:\s*"([^"]+)"', raw)
+    args_match = re.search(r'"arguments"\s*:\s*\{(.*)\}\s*\}', raw, re.DOTALL)
+    if name_match and args_match:
+        # Try parsing just the arguments with fixes
+        args_raw = "{" + args_match.group(1) + "}"
+        args_fixed = _fix_json_string(args_raw)
+        try:
+            args = json.loads(args_fixed)
+            return {"name": name_match.group(1), "arguments": args}
+        except json.JSONDecodeError:
+            # Extract individual fields with regex
+            answer = re.search(r'"answer"\s*:\s*"([^"]*)"', raw)
+            if answer and name_match.group(1) == "StructuredOutput":
+                return {
+                    "name": "StructuredOutput",
+                    "arguments": {
+                        "answer": answer.group(1),
+                        "reasoning": "parsed from malformed JSON",
+                        "confidence": 0.5,
+                    },
+                }
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -180,27 +237,6 @@ async def run_tool_conversation(
             f"Schema:\n```json\n{schema_json}\n```\n"
         )
 
-    # Build OpenAI-style tools array (native tool calling)
-    openai_tools = []
-    for td in tools:
-        openai_tools.append({
-            "type": "function",
-            "function": {
-                "name": td["name"],
-                "description": td["description"],
-                "parameters": td["parameters"],
-            },
-        })
-    if output_format and output_format.get("schema"):
-        openai_tools.append({
-            "type": "function",
-            "function": {
-                "name": "StructuredOutput",
-                "description": "Submit your final answer.",
-                "parameters": output_format["schema"],
-            },
-        })
-
     messages: list[dict] = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": _build_user_content(user_message, image_data_url)},
@@ -213,8 +249,7 @@ async def run_tool_conversation(
             model=model,
             messages=messages,
             temperature=0.0,
-            max_tokens=8192,
-            tools=openai_tools,
+            max_tokens=4096,
         )
 
         choice = response.choices[0]
@@ -222,88 +257,39 @@ async def run_tool_conversation(
             total_usage["input_tokens"] += response.usage.prompt_tokens
             total_usage["output_tokens"] += response.usage.completion_tokens
 
-        # --- Path A: Native tool calls (OpenAI-style) ---
-        if choice.message.tool_calls:
-            # Write assistant reasoning text if present
-            assistant_text = choice.message.content or ""
-            if assistant_text and writer:
-                writer.write_text(assistant_text)
+        # --- Parse <tool_call> from text content ---
+        text_content = choice.message.content or ""
+        text_calls = parse_tool_calls(text_content) if text_content else []
 
-            # Process all tool calls
-            tool_results: list[dict] = []
-            should_stop = False
+        if not quiet:
+            print(f"[vllm turn {turn}] finish={choice.finish_reason} tools={len(text_calls)} content_len={len(text_content)}")
+            if len(text_calls) == 0 and "<tool_call>" in text_content:
+                print(f"[vllm WARN] <tool_call> in text but parse failed!")
+                # Debug: try manual extraction
+                tc_s = text_content.find("<tool_call>")
+                tc_e = text_content.find("</tool_call>")
+                if tc_s >= 0 and tc_e >= 0:
+                    inner = text_content[tc_s+11:tc_e].strip()
+                    print(f"[vllm WARN] inner[:80]: {inner[:80]!r}")
+                    print(f"[vllm WARN] inner[-80:]: {inner[-80:]!r}")
+                    try:
+                        json.loads(inner)
+                        print("[vllm WARN] json.loads succeeds on inner!")
+                    except json.JSONDecodeError as e:
+                        print(f"[vllm WARN] json.loads fails: {e}")
 
-            for tc in choice.message.tool_calls:
-                name = tc.function.name
-                try:
-                    args = json.loads(tc.function.arguments) if tc.function.arguments else {}
-                except json.JSONDecodeError:
-                    args = {}
+        if writer and text_content:
+            writer.write_text(text_content)
 
-                if name == "StructuredOutput":
-                    if not quiet:
-                        print(f"[structured_output] {args}")
-                    if writer:
-                        writer.write_tool_use("StructuredOutput", args)
-                    if on_structured_output:
-                        on_structured_output(args)
-                    return _estimate_cost_usd(total_usage, model), total_usage
-
-                if not quiet:
-                    print(f"[tool_use] {name}")
-                if writer:
-                    writer.write_tool_use(name, args)
-
-                result_text, stop = await tool_handler(name, args)
-                if writer:
-                    writer.write_tool_result(result_text)
-                if stop:
-                    should_stop = True
-
-                tool_results.append({
-                    "tool_call_id": tc.id,
-                    "role": "tool",
-                    "content": result_text,
-                })
-
-            # Append ONE assistant message with ALL tool_calls
-            messages.append({
-                "role": "assistant",
-                "content": assistant_text,
-                "tool_calls": [
-                    {
-                        "id": tc.id,
-                        "type": "function",
-                        "function": {
-                            "name": tc.function.name,
-                            "arguments": tc.function.arguments or "{}",
-                        },
-                    }
-                    for tc in choice.message.tool_calls
-                ],
-            })
-            # Append one tool result per call
-            messages.extend(tool_results)
-
-            if should_stop:
-                return _estimate_cost_usd(total_usage, model), total_usage
-            continue
-
-        # --- Path B: Text-based <tool_call> tags (fallback) ---
-        text = choice.message.content or ""
-        if writer:
-            writer.write_text(text)
-
-        calls = parse_tool_calls(text)
-        if not calls:
+        if not text_calls:
             if not quiet:
                 print("[orchestrator] no tool call in response, ending")
             break
 
         # Append assistant message once
-        messages.append({"role": "assistant", "content": text})
+        messages.append({"role": "assistant", "content": text_content})
 
-        for name, args in calls:
+        for name, args in text_calls:
             if name == "StructuredOutput":
                 if not quiet:
                     print(f"[structured_output] {args}")
