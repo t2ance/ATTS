@@ -427,7 +427,7 @@ class BenchmarkConfig(ABC):
         parser.add_argument("--shuffle", action="store_true")
 
     def add_model_args(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("--backend", type=str, required=True, choices=["codex", "claude"], help="API backend")
+        parser.add_argument("--backend", type=str, required=True, choices=["codex", "claude", "vllm"], help="API backend")
         parser.add_argument("--explore-model", type=str, required=True, help="Model for explore sub-model calls")
         parser.add_argument("--budget-tokens", type=int, default=32000, help="Thinking token budget for Claude backend (default: 32000)")
         parser.add_argument("--effort", choices=["low", "medium", "high", "max"], default="low", help="Reasoning effort level (default: low)")

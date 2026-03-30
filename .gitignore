@@ -31,6 +31,14 @@ Publication/paper/ref/
 .DS_Store
 Thumbs.db
 
+# Training artifacts (large)
+Experiment/core_code/checkpoints/
+Experiment/core_code/training_data/
+Experiment/core_code/wandb/
+
+# Downloaded paper sources
+Survey/arxiv_sources/
+
 # Misc
 tmp/
 *.log
