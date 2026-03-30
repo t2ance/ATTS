@@ -72,9 +72,9 @@ Scaling inference-time compute improves large language model reasoning, but how 
 
 Existing approaches answer this question with either open-loop heuristics or explicit micro-level search. Predictive routing methods such as DiffAdapt use lightweight difficulty estimates to select an inference regime before generation begins, but these decisions cannot react to evidence that appears during reasoning \citep{diffadapt_paper}. At the other extreme, Tree of Thoughts and process-reward frameworks such as Math-Shepherd perform closed-loop adaptation through explicit tree expansion and step-level verification \citep{tree_of_thoughts_paper,math_shepherd_paper}. Recent agentic test-time scaling methods add further variants, but many still rely on statistical control rules such as vote entropy or confidence-triggered halting \citep{catts_webagents_paper,tumix_paper,general_agentbench_tts_paper}. An underexplored alternative is to delegate compute allocation entirely to an LLM orchestrator that makes sequential explore-or-stop decisions based on its assessment of accumulated evidence, without requiring explicit search trees or statistical stopping criteria.
 
-We introduce \our{}, a delegated sequential test-time scaling framework that separates \emph{control} from \emph{solution generation}. A lightweight orchestrator manages a growing pool of candidate solutions through a single tool, \explore{}, which dispatches a fresh, independent solver on the original problem. When the orchestrator judges the accumulated evidence to be sufficient, it stops exploring and synthesizes the final answer directly. \our{} treats compute allocation as closed-loop decision-making over an extensible action space: each \explore{} call can in principle specify which solver to invoke, at what reasoning effort, and with what decomposition strategy. We evaluate the simplest instantiation---a single parameterless tool whose only decision is when to stop---and show that even this minimal agent achieves competitive accuracy at substantially lower cost. A multi-model variant that adds model selection to the action space yields further gains, supporting the principle that the orchestrator's value scales with the richness of its decision space.
+We introduce \our{}, a \textbf{delegated sequential} test-time scaling framework that separates \emph{control} from \emph{solution generation}. A lightweight orchestrator manages a growing pool of candidate solutions through a single tool, \explore{}, which dispatches a fresh, independent solver on the original problem. When the orchestrator judges the accumulated evidence to be sufficient, it stops exploring and synthesizes the final answer directly. \our{} treats compute allocation as closed-loop decision-making over an \emph{extensible action space}: each \explore{} call can in principle specify which solver to invoke, at what reasoning effort, and with what decomposition strategy. We evaluate the simplest instantiation---a single parameterless tool whose only decision is when to stop---and show that even this minimal agent achieves competitive accuracy at substantially lower cost. A multi-model variant that adds model selection to the action space yields further gains, supporting the principle that the orchestrator's value scales with the richness of its decision space.
 
-We evaluate \our{} across six benchmarks spanning mathematical reasoning, scientific question answering, code generation, and multimodal reasoning: HLE-Verified \citep{hle_verified_paper}, LiveCodeBench \citep{livecodebench_paper}, BabyVision \citep{babyvision_paper}, AIME 2025 and AIME 2026 \citep{matharena_aime2025,matharena_aime2026}, and GPQA-Diamond \citep{gpqa_paper}. Because the orchestrator is benchmark-agnostic, the same policy transfers across text-only and image-conditioned tasks.
+We evaluate \our{} across four benchmarks spanning scientific question answering, code generation, and multimodal reasoning: HLE-Verified \citep{hle_verified_paper}, LiveCodeBench \citep{livecodebench_paper}, BabyVision \citep{babyvision_paper}, and GPQA-Diamond \citep{gpqa_paper}. Because the orchestrator is benchmark-agnostic, the same policy transfers across text-only and image-conditioned tasks.
 
 Our contributions are as follows:
 \begin{enumerate}\setlength{\itemsep}{1pt}\setlength{\parskip}{0pt}
@@ -97,7 +97,7 @@ Our contributions are as follows:
 \section{Methodology}
 \label{sec:methodology}
 
-Test-time scaling is a resource allocation problem: given a budget of model calls, how should an agent decide what to compute next and when to stop? Drawing on the principle of rational metareasoning~\citep{russell1991right,hay_selecting_computations}---that an agent should reason about whether additional computation justifies its cost---we design \our{} as a delegated sequential framework in which a lightweight orchestrator manages a growing pool of candidate solutions, decides when to stop exploring, and synthesizes the final answer from the accumulated evidence.
+Test-time scaling is a resource allocation problem: given a budget of model calls, how should an agent decide what to compute next and when to stop? Drawing on the principle of \emph{rational metareasoning}~\citep{russell1991right,hay_selecting_computations}---that an agent should reason about whether additional computation justifies its cost---we design \our{} as a delegated sequential framework in which a lightweight orchestrator manages a growing pool of candidate solutions, decides when to stop exploring, and synthesizes the final answer from the accumulated evidence.
 
 \subsection{The \our{} Loop}
 
@@ -105,7 +105,7 @@ The orchestrator repeatedly decides whether to call \explore{} or to stop and sy
 
 \paragraph{Explore.} Each \explore{} call dispatches a fresh solver on the original problem \(x\). The solver works \emph{from scratch}---it does not see or continue previous candidates---and returns a structured candidate \(c_t = (\text{answer}, \text{reasoning}, \text{approach}, \text{confidence})\) that is appended to \(\mathcal{C}_t\). By construction, each explorer receives only the problem statement, guaranteeing that explore results are \emph{conditionally independent} given the problem. This independence means the orchestrator can assess the marginal contribution of each additional explore in isolation, without modeling interactions between future computations.
 
-\paragraph{Stopping.} The orchestrator can stop at any point before the exploration budget \(T\) is exhausted. The stopping decision is made by the orchestrator model itself based on its assessment of the candidate pool. The prompt encodes principles for this judgment: genuine convergence means independent solvers arriving at the same answer through different methods, repeated failures indicate the problem exceeds solver capability, and each additional explore call has a cost that must be justified by expected information gain. This judgment reflects the same cost-benefit tradeoff formalized by the value-of-computation criterion~\citep{hay_selecting_computations}: additional exploration is warranted only when the expected information gain justifies the cost.
+\paragraph{Stopping.} The orchestrator can stop at any point before the exploration budget \(T\) is exhausted. The stopping decision is made by the orchestrator model itself based on its assessment of the candidate pool. The prompt encodes principles for this judgment: genuine convergence means independent solvers arriving at the same answer through different methods, repeated failures indicate the problem exceeds solver capability, and each additional explore call has a cost that must be justified by expected information gain. This judgment reflects the same cost-benefit tradeoff formalized by the \emph{value-of-computation} criterion~\citep{hay_selecting_computations}: additional exploration is warranted only when the expected information gain justifies the cost.
 
 \paragraph{Synthesis.} When the orchestrator stops, it synthesizes the final answer directly from \(\mathcal{C}_t\). Because it has observed the full multi-turn history---each candidate's arrival, its reasoning, and its own deliberation about whether to continue---it has richer context than a separate aggregator that only sees the final pool.
 
@@ -144,11 +144,11 @@ We extend \our{} to multi-model deployment by adding model selection to the orch
 \section{Experiments}
 \label{sec:experiments}
 
-We evaluate on six benchmarks: HLE-Verified \citep{hle_verified_paper}, LiveCodeBench \citep{livecodebench_paper}, BabyVision \citep{babyvision_paper}, AIME 2025 and AIME 2026 \citep{matharena_aime2025,matharena_aime2026}, and GPQA-Diamond \citep{gpqa_paper}. The main text presents results on HLE-Verified, LiveCodeBench, BabyVision, and GPQA-Diamond, which collectively span mathematical reasoning, scientific question answering, code generation, and multimodal reasoning. AIME 2025 and AIME 2026 are deferred to Appendix~\ref{app:aime-results} because the backbone model already achieves near-ceiling accuracy on these 30-problem benchmarks, limiting the statistical resolution for method comparison. Appendix~\ref{app:benchmark-details} collects the full official task definitions, grading rules, source repositories, and leaderboard alignment notes for all benchmarks.
+We evaluate on four benchmarks: HLE-Verified \citep{hle_verified_paper}, LiveCodeBench \citep{livecodebench_paper}, BabyVision \citep{babyvision_paper}, and GPQA-Diamond \citep{gpqa_paper}, which collectively span scientific question answering, code generation, and multimodal reasoning. Appendix~\ref{app:benchmark-details} collects the full official task definitions, grading rules, source repositories, and leaderboard alignment notes for all benchmarks.
 
 \subsection{Experimental Setup}
 
-Across all experiments, the underlying backbone model is Claude Sonnet 4.6 (\texttt{claude-sonnet-4-6}), used for the orchestrator, explorer, and all baselines unless otherwise noted. Claude Haiku, Sonnet, and Opus are three capability tiers in the Claude model family, ordered from smallest/cheapest to largest/most capable. All generation uses the model's default sampling parameters (no explicit temperature or top-$p$ override) with extended thinking enabled at a budget of 32{,}000 tokens. Extended thinking allows the model to allocate a portion of its output budget to internal chain-of-thought reasoning before producing the final structured response; all baselines use the same setting for fair comparison. The exploration budget is $T{=}8$ \explore{} calls per question for single-model runs and $T{=}16$ for multi-model runs (per-model limits: Haiku~8, Sonnet~8, Opus~4).
+Across all experiments, the underlying backbone model is Claude Sonnet 4.6 (\texttt{claude-sonnet-4-6}), used for the orchestrator, explorer, and all baselines unless otherwise noted. Claude Haiku, Sonnet, and Opus are three capability tiers in the Claude model family, ordered from smallest/cheapest to largest/most capable. All generation uses the model's default sampling parameters (no explicit temperature or top-$p$ override) with extended thinking enabled at a budget of 32{,}000 tokens and the API's default reasoning effort (no explicit \texttt{effort} override). Extended thinking allows the model to allocate a portion of its output budget to internal chain-of-thought reasoning before producing the final structured response; all baselines use the same setting for fair comparison. The exploration budget is $T{=}8$ \explore{} calls per question for single-model runs and $T{=}16$ for multi-model runs (per-model limits: Haiku~8, Sonnet~8, Opus~4).
 
 We compare against six baselines, all sharing the same backbone model and answer interface so that only the inference-time strategy differs (full details in Appendix~\ref{app:implementation-details}): Pass@1 (single rollout), Majority Voting ($N{=}8$ independent candidates, most-frequent answer; reported only on benchmarks where direct answer aggregation is well-defined), Self-Refine~\citep{self_refine_paper} (iterative feedback-revision on a single draft), Budget Forcing~\citep{s1_budget_forcing_paper} ($N$ sequential rounds with forced continuation via ``Wait''), reward-model reranking using Skywork-Reward-V2~\citep{skywork_reward_v2_paper,skywork_reward_v2_hf} for text benchmarks or VisualPRM~\citep{visualprm_paper,visualprm_hf} for multimodal benchmarks, and LLM Selection ($N{=}8$), which feeds all pre-cached candidates to the backbone model in a single call and asks it to analyze, compare, and synthesize a final answer. LLM Selection isolates the contribution of LLM-based aggregation from adaptive sequential exploration.
 
@@ -341,7 +341,7 @@ Across all four benchmarks, adding a separate integrator does \emph{not} consist
 \paragraph{Orchestrator effectiveness is task-dependent, not capability-monotonic.}
 We ablate the orchestrator model while keeping the explorer fixed at Sonnet 4.6 (Table~\ref{tab:orch-ablation}, Figure~\ref{fig:orch-ablation}). The results show no monotonic relationship between model strength and orchestrator effectiveness: Opus achieves the highest accuracy on HLE (59\%) and LiveCodeBench (83.4\%), but drops to 77.16\% on GPQA---\emph{below} Sonnet's 80.81\%. Haiku performs comparably to Sonnet on HLE (57\% vs.\ 56\%).
 
-These differences are not explained by stopping behavior. All three orchestrators use similar numbers of explores on each benchmark (e.g.\ 2.15--2.43 on GPQA) and read from the same candidate cache. The gap is therefore attributable to synthesis quality: given similar evidence, the orchestrators produce different final answers. The pattern is benchmark-dependent rather than capability-monotonic---the strongest model is the best orchestrator on some benchmarks but the \emph{worst} on others. This indicates that orchestrator effectiveness depends on a task-specific interaction between the model's reasoning style and domain characteristics, not simply on model capability. Identifying the precise mechanism underlying this interaction remains an open question.
+These differences are not explained by stopping behavior. All three orchestrators use similar numbers of explores on each benchmark (e.g.\ 2.15--2.43 on GPQA) and read from the same candidate cache. The gap is therefore attributable to synthesis quality: given similar evidence, the orchestrators produce different final answers. The pattern is \emph{benchmark-dependent} rather than \emph{capability-monotonic}---the strongest model is the best orchestrator on some benchmarks but the \emph{worst} on others. This indicates that orchestrator effectiveness depends on a task-specific interaction between the model's reasoning style and domain characteristics, not simply on model capability. Identifying the precise mechanism underlying this interaction remains an open question.
 
 \begin{figure}[H]
 \centering
@@ -473,13 +473,13 @@ Schema: {analysis, final_answer, reasoning}
 \end{lstlisting}
 
 \paragraph{Schemas and benchmark-specific prompt instantiation.}
-Benchmark-specific adaptation is intentionally lightweight. Most answer-based tasks share the explorer schema \texttt{\{approach, reasoning, answer, confidence\}} and the integrator schema \texttt{\{analysis, final\_answer, reasoning\}}. Only the answer interface changes across tasks. LiveCodeBench uses code-generation fields, AIME requires an integer final answer, GPQA expects one option letter, and multimodal benchmarks pass the associated image with the text question. This design keeps the controller fixed while preserving each benchmark's native answer format and grading protocol.
+Benchmark-specific adaptation is intentionally lightweight. Most answer-based tasks share the explorer schema \texttt{\{approach, reasoning, answer, confidence\}} and the integrator schema \texttt{\{analysis, final\_answer, reasoning\}}. Only the answer interface changes across tasks. LiveCodeBench uses code-generation fields, GPQA expects one option letter, and multimodal benchmarks pass the associated image with the text question. This design keeps the controller fixed while preserving each benchmark's native answer format and grading protocol.
 
 \paragraph{Runtime behavior.}
 At runtime, the controller maintains the candidate pool and repeatedly calls \explore{} until the exploration budget is exhausted or the controller decides to stop and synthesize. The same implementation supports both text-only and image-conditioned tasks, and all runs can optionally record the controller trace and sub-model outputs for later inspection. These choices make the evaluation pipeline inspectable without changing the core decision process.
 
 \paragraph{Grading.}
-LiveCodeBench and AIME use deterministic grading (code execution and exact integer matching, respectively). GPQA-Diamond uses exact option-letter matching, consistent with the official GPQA evaluation protocol~\citep{gpqa_paper}; as with any regex-based extraction, minor formatting variations in model output may introduce small amounts of grading noise. HLE-Verified and BabyVision use an LLM judge (Claude Haiku 4.5) that compares the predicted answer against the reference answer.
+LiveCodeBench uses deterministic grading via code execution. GPQA-Diamond uses exact option-letter matching, consistent with the official GPQA evaluation protocol~\citep{gpqa_paper}; as with any regex-based extraction, minor formatting variations in model output may introduce small amounts of grading noise. HLE-Verified and BabyVision use an LLM judge (Claude Haiku 4.5) that compares the predicted answer against the reference answer.
 
 \paragraph{Baseline implementations.}
 All baselines use the same backbone model and the same benchmark-specific answer format as \our{}, so the comparison isolates the inference-time strategy.
@@ -493,89 +493,6 @@ All baselines use the same backbone model and the same benchmark-specific answer
 \emph{Budget Forcing}~\citep{s1_budget_forcing_paper} runs \(N\) sequential rounds on the same question. Round~1 generates an initial solution. Each subsequent round feeds the previous round's full reasoning trace back to the model with ``Wait'' appended, suppressing premature termination and forcing the model to continue deliberating before producing a new answer. All \(N\) rounds run unconditionally, and the final round's answer is returned. Because continuation rounds extend the existing reasoning rather than solving from scratch, they tend to produce shorter completions and lower per-round cost.
 
 \emph{Reward-model reranking} (Skywork-Reward-V2 for text benchmarks, VisualPRM for multimodal benchmarks) draws the same \(N=8\) independent candidates, then scores each with a separately trained reward model and returns the highest-scoring answer. Skywork-Reward-V2 is an outcome reward model that assigns a single scalar score per response; VisualPRM is a process reward model that aggregates per-step scores. The reward models run locally and incur no API cost, but the candidate generation cost is identical to that of Majority Voting.
-
-\section{AIME Results}
-\label{app:aime-results}
-
-AIME 2025 and AIME 2026 are 30-problem final-answer mathematics benchmarks with exact integer-answer grading. Because the backbone model already achieves near-ceiling accuracy on these benchmarks (93.33\% on AIME 2025 with a single attempt), the statistical resolution for method comparison is limited. We include them here for completeness.
-
-Table~\ref{tab:aime-results} presents the AIME 2025 and AIME 2026 results side by side. Full benchmark details including the official answer-space constraint, source repositories, and leaderboard alignment are in \hyperref[app:aime2025-details]{Appendix, AIME 2025} and \hyperref[app:aime2026-details]{Appendix, AIME 2026}.
-
-\begin{table}[H]
-\centering
-\caption{AIME results. Left: AIME 2025. Right: AIME 2026. Both are 30-problem final-answer benchmarks with exact integer-answer grading. Cited from official online records.}
-\label{tab:aime-results}
-\scriptsize
-\setlength{\tabcolsep}{3pt}
-\begin{minipage}[t]{0.48\textwidth}
-\centering
-\textit{(a) AIME 2025}\\[3pt]
-\begin{tabular}{l r r}
-\toprule
- & Acc. (\%) & \$/q \\
-\midrule
-\groupheader{3}{Zero-Shot Models}
-GPT-5.2 (high) & \textbf{100.00} & -- \\
-Step 3.5 Flash & 98.33 & -- \\
-Gemini 3 Flash & 97.50 & -- \\
-GLM 5 & 96.67 & -- \\
-DeepSeek-v3.2-Speciale & 95.83 & -- \\
-\midrule
-\groupheader{3}{Test-Time Scaling Methods}
-Pass@1 & \textbf{93.33} & \textbf{0.21} \\
-Majority Voting & \textbf{93.33} & 1.49 \\
-Self-Refine & \textbf{93.33} & 3.13 \\
-Budget Forcing & \textbf{93.33} & 0.52 \\
-Skywork-Reward-V2 & 90.00 & 1.49 \\
-\our{} (Ours) & \textbf{93.33} & 0.43 \\
-\bottomrule
-\end{tabular}
-\end{minipage}\hfill%
-\begin{minipage}[t]{0.48\textwidth}
-\centering
-\textit{(b) AIME 2026}\\[3pt]
-\begin{tabular}{l r r}
-\toprule
- & Acc. (\%) & \$/q \\
-\midrule
-\groupheader{3}{Zero-Shot Models}
-GPT-5.4 (xhigh) & \textbf{99.17} & -- \\
-GPT-5.2 (high) & 98.33 & -- \\
-Gemini 3.1 Pro Preview & 98.33 & -- \\
-Step 3.5 Flash & 96.67 & -- \\
-Claude-Opus-4.6 (High) & 96.67 & -- \\
-\midrule
-\groupheader{3}{Test-Time Scaling Methods}
-Pass@1 & \textbf{96.67} & \textbf{0.22} \\
-Majority Voting & 93.33 & 1.37 \\
-Self-Refine & 90.00 & 0.23 \\
-Budget Forcing & 93.33 & 0.60 \\
-Skywork-Reward-V2 & \textbf{96.67} & 1.37 \\
-\our{} (Ours) & \textbf{96.67} & 0.48 \\
-\bottomrule
-\end{tabular}
-\end{minipage}
-\end{table}
-
-\begin{figure}[H]
-\centering
-\begin{minipage}[t]{0.48\textwidth}
-\centering
-\includegraphics[width=\textwidth,trim=8 8 8 0,clip]{figures/aime2025_cost_vs_accuracy.pdf}
-\end{minipage}\hfill
-\begin{minipage}[t]{0.48\textwidth}
-\centering
-\includegraphics[width=\textwidth,trim=8 8 8 0,clip]{figures/aime2026_cost_vs_accuracy.pdf}
-\end{minipage}
-\caption{Cost-accuracy tradeoffs on AIME 2025 (left) and AIME 2026 (right).}
-\label{fig:aime-cost-accuracy}
-\end{figure}
-
-\paragraph{AIME 2025.}
-On AIME 2025, most test-time scaling methods converge to the same accuracy (93.33\%), with only Skywork-Reward-V2 falling behind at 90.00\%. The 30-problem dataset leaves little statistical room for differentiation, and the backbone model already solves 28 of 30 problems with a single attempt.
-
-\paragraph{AIME 2026.}
-On AIME 2026, Pass@1, \our{}, and Skywork-Reward-V2 all reach 96.67\% (29/30), confirming near-ceiling performance. Self-Refine drops to 90.00\%, likely because its feedback model misjudges some correct solutions and introduces errors during revision. As with AIME 2025, the small dataset size (30 problems) limits the granularity of method comparisons.
 
 \section{Ablation Data}
 \label{app:ablation-data}
@@ -826,13 +743,6 @@ We use the LiveCodeBench code generation release \texttt{livecodebench/code\_gen
 
 \paragraph{BabyVision.}\label{app:babyvision-details}
 We use the BabyVision dataset release \texttt{UnipatAI/BabyVision} \citep{babyvision_dataset_hf}, which contains 388 image-question pairs spanning four task families: Fine-grained Discrimination (163), Visual Tracking (83), Spatial Perception (91), and Visual Pattern Recognition (51) \citep{babyvision_paper}. The benchmark contains 135 multiple-choice items and 253 fill-in-the-blank items; in the official inference setup, each model is queried with a unified prompt template of the form ``\texttt{\{question\} Think about the question and give your final answer in \{format\}.}'', which standardizes answer formatting for downstream extraction and judging \citep{babyvision_paper}. Official scoring uses an LLM-as-judge pipeline: given a model answer and the gold answer, Qwen3-Max determines semantic equivalence under the benchmark's fixed judge prompt, which the authors report as having perfect agreement with their human evaluators on the benchmark responses they audited \citep{babyvision_paper}. The primary metric is \emph{Avg@3}, defined in the paper as the mean \emph{Pass@1} accuracy across three random runs, and the official tables additionally report the corresponding standard deviation; Table~\ref{tab:main-results}(c) follows the official overall-plus-family breakdown but keeps only the mean scores in the main text table. Our grading uses an LLM-as-judge pipeline with Claude Haiku 4.5 as the judge model, following the same semantic equivalence protocol as the official evaluation but substituting the judge model.
-
-\paragraph{AIME 2025.}\label{app:aime2025-details}
-AIME 2025 is treated as a final-answer mathematics benchmark on the MathArena competition table, which lists 30 problems for the 2025 competition and notes that each answer is an integer between 0 and 999 inclusive \citep{matharena_aime2025}. The task is constrained final-answer prediction: the model receives the official problem statement and is expected to return one final integer answer in the AIME answer space. Official grading is exact-answer grading against the released answer key, with no LLM judge and no partial credit, so each problem contributes a binary correct/incorrect label. The public leaderboard metric is \emph{Accuracy}, namely the percentage of the 30 official problems answered exactly correctly; Table~\ref{tab:aime-results}(a) reports that same public leaderboard metric. Our grading uses exact integer matching with no LLM judge, consistent with the official protocol.
-
-\paragraph{AIME 2026.}\label{app:aime2026-details}
-AIME 2026 appears on MathArena as another 30-problem final-answer competition, again with the official note that each answer is an integer between 0 and 999 inclusive \citep{matharena_aime2026}. The official task semantics match AIME 2025: the model is given the problem statement and must return one final integer answer. The benchmark performs exact-key grading with no LLM judge and no partial credit, and the leaderboard metric is therefore plain \emph{Accuracy} over the 30 released competition problems. Keeping the same final-answer protocol across 2025 and 2026 allows direct year-to-year comparison under the benchmark's official grading rule; the corresponding public references are shown in Table~\ref{tab:aime-results}(b). Our grading uses exact integer matching, consistent with the official protocol.
-
 
 \paragraph{GPQA-Diamond.}\label{app:gpqa-details}
 We use the GPQA release \texttt{Idavidrein/gpqa} \citep{gpqa_dataset_hf}, configuration \texttt{gpqa\_diamond}, which corresponds to the 198-question Diamond subset introduced in the GPQA paper \citep{gpqa_paper}. GPQA is a graduate-level four-option multiple-choice science benchmark spanning biology, physics, and chemistry, and GPQA-Diamond is the highest-stringency subset retained after expert-accuracy and non-expert-difficulty filtering \citep{gpqa_paper}. The official task is closed-book answer selection unless otherwise stated: the model is shown the question and four candidate options and must output exactly one final option. Scoring is exact option-key accuracy with no semantic judge and a random-guess baseline of \(25\%\) \citep{gpqa_paper}. In addition to Diamond-set accuracy, the original GPQA paper also reports accuracies on the Extended and Main sets and distinguishes closed-book few-shot/CoT baselines from an open-book GPT-4-with-search baseline; Table~\ref{tab:main-results}(d) keeps the main-text comparison focused on the Diamond-set accuracy column used by current public references. Our grading extracts the option letter (A--D) from the model response via regex and performs exact matching against the gold option key, with no LLM judge, consistent with the official protocol.
