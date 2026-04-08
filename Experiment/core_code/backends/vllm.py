@@ -5,15 +5,12 @@ Exposes the same transport primitives as claude.py:
   - run_tool_conversation(...)  -> (cost_usd, usage)
 
 Connects to a vLLM server (started separately via ``vllm serve``).
-Uses native OpenAI tool-calling API.  Falls back to ``<tool_call>`` tag
-parsing when the model does not emit native tool_calls.
+Uses vLLM native tool calling API (--enable-auto-tool-choice --tool-call-parser hermes).
 """
 
 from __future__ import annotations
 
 import json
-import re
-import time
 from typing import Any, Awaitable, Callable
 
 from openai import AsyncOpenAI
@@ -33,7 +30,7 @@ def _get_client() -> AsyncOpenAI:
     return _client
 
 
-# Cost estimation ($/1M tokens) — configurable for reporting
+# Cost estimation ($/1M tokens) -- configurable for reporting
 PRICING_PER_1M: dict[str, tuple[float, float]] = {
     "default": (0.0, 0.0),  # local models are "free"
 }
@@ -54,91 +51,6 @@ def _build_user_content(text: str, image_data_url: str | None) -> str | list:
         {"type": "text", "text": text},
         {"type": "image_url", "image_url": {"url": image_data_url}},
     ]
-
-
-# ---------------------------------------------------------------------------
-# <tool_call> parsing (fallback for text-mode tool calling)
-# ---------------------------------------------------------------------------
-
-_TOOL_CALL_RE = re.compile(
-    r"<tool_call>\s*(.*?)\s*</tool_call>",
-    re.DOTALL,
-)
-
-
-def parse_tool_calls(text: str) -> list[tuple[str, dict]]:
-    """Parse all ``<tool_call>`` blocks from generated text.
-
-    Returns list of (tool_name, arguments_dict).
-    Handles double-escaped JSON from vLLM responses.
-    Skips blocks with malformed JSON.
-    """
-    results = []
-    for m in _TOOL_CALL_RE.finditer(text):
-        raw = m.group(1).strip()
-        # Try parsing as-is first
-        call = _try_parse_tool_json(raw)
-        if call is None:
-            # vLLM sometimes double-escapes: \\" -> ", \\u -> \u
-            unescaped = raw.replace('\\\\"', '\x00QUOTE\x00').replace('\\"', '"').replace('\x00QUOTE\x00', '\\"')
-            call = _try_parse_tool_json(unescaped)
-        if call is None:
-            continue
-        name = call.get("name", "")
-        args = call.get("arguments", {})
-        results.append((name, args))
-    return results
-
-
-_INVALID_UNICODE_RE = re.compile(r"\\u([0-9a-fA-F]{0,3}[^0-9a-fA-F])")
-
-
-_BAD_ESCAPE_RE = re.compile(r"\\(?![\"\\\/bfnrt]|u[0-9a-fA-F]{4})")
-
-
-def _fix_json_string(raw: str) -> str:
-    """Fix common JSON string issues from LLM output.
-
-    - Invalid \\uXXXX escapes (e.g. \\u208i)
-    - Unescaped control characters
-    """
-    # Remove invalid \uXXXX (non-hex chars after \u)
-    fixed = _INVALID_UNICODE_RE.sub(lambda m: "u" + m.group(1), raw)
-    # Escape any remaining invalid backslash sequences
-    fixed = _BAD_ESCAPE_RE.sub(lambda m: "\\\\" + m.group(0)[1:], fixed)
-    return fixed
-
-
-def _try_parse_tool_json(raw: str) -> dict | None:
-    """Try to parse a tool call JSON string, with progressive fixing."""
-    for attempt_raw in [raw, _fix_json_string(raw)]:
-        try:
-            return json.loads(attempt_raw)
-        except json.JSONDecodeError:
-            continue
-    # Last resort: extract name and try to build a minimal result
-    name_match = re.search(r'"name"\s*:\s*"([^"]+)"', raw)
-    args_match = re.search(r'"arguments"\s*:\s*\{(.*)\}\s*\}', raw, re.DOTALL)
-    if name_match and args_match:
-        # Try parsing just the arguments with fixes
-        args_raw = "{" + args_match.group(1) + "}"
-        args_fixed = _fix_json_string(args_raw)
-        try:
-            args = json.loads(args_fixed)
-            return {"name": name_match.group(1), "arguments": args}
-        except json.JSONDecodeError:
-            # Extract individual fields with regex
-            answer = re.search(r'"answer"\s*:\s*"([^"]*)"', raw)
-            if answer and name_match.group(1) == "StructuredOutput":
-                return {
-                    "name": "StructuredOutput",
-                    "arguments": {
-                        "answer": answer.group(1),
-                        "reasoning": "parsed from malformed JSON",
-                        "confidence": 0.5,
-                    },
-                }
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -178,18 +90,7 @@ async def call_sub_model(
     }
     cost = _estimate_cost_usd(usage, model)
 
-    # Parse structured output — try direct JSON, then <tool_call>, then regex
-    result: dict = {}
-    try:
-        result = json.loads(text)
-    except json.JSONDecodeError:
-        calls = parse_tool_calls(text)
-        for name, args in calls:
-            if name == "StructuredOutput":
-                result = args
-                break
-
-    assert result, f"Sub-model returned unparseable output: {text[:200]}"
+    result = json.loads(text)
 
     trajectory = text
     if writer:
@@ -200,7 +101,7 @@ async def call_sub_model(
 
 
 # ---------------------------------------------------------------------------
-# Multi-turn tool-calling conversation
+# Multi-turn tool-calling conversation (native tool calling)
 # ---------------------------------------------------------------------------
 
 async def run_tool_conversation(
@@ -218,23 +119,33 @@ async def run_tool_conversation(
     quiet: bool = True,
     on_structured_output: Callable[[dict], None] | None = None,
 ) -> tuple[float, dict[str, Any]]:
-    """Run a multi-turn tool-calling conversation via vLLM OpenAI-compatible API.
-
-    Uses native OpenAI tool-calling API. Falls back to ``<tool_call>`` tag
-    parsing when the model does not emit native tool_calls.
-    """
+    """Run a multi-turn tool-calling conversation via vLLM native tool calling API."""
     client = _get_client()
 
-    # Append StructuredOutput schema to system prompt (same as claude.py)
+    # Convert Claude SDK tool format to OpenAI format if needed
+    openai_tools = []
+    for t in tools:
+        if "type" in t and "function" in t:
+            openai_tools.append(t)  # already OpenAI format
+        else:
+            openai_tools.append({"type": "function", "function": t})
+
+    # Add StructuredOutput tool from output_format schema
     if output_format and output_format.get("schema"):
-        schema_json = json.dumps(output_format["schema"], indent=2)
-        required = output_format["schema"].get("required", [])
+        schema = output_format["schema"]
+        openai_tools.append({
+            "type": "function",
+            "function": {
+                "name": "StructuredOutput",
+                "description": "Submit the final answer.",
+                "parameters": schema,
+            },
+        })
+        required = schema.get("required", [])
         system_prompt = (
             system_prompt
             + "\n\nWhen you are ready to submit your final answer, call the StructuredOutput tool. "
-            "Use strict JSON format for all parameters. "
-            f"All of these fields are required and must each be a separate JSON key: {', '.join(required)}.\n"
-            f"Schema:\n```json\n{schema_json}\n```\n"
+            f"All of these fields are required: {', '.join(required)}.\n"
         )
 
     messages: list[dict] = [
@@ -248,8 +159,10 @@ async def run_tool_conversation(
         response = await client.chat.completions.create(
             model=model,
             messages=messages,
+            tools=openai_tools,
+            tool_choice="auto",
             temperature=0.0,
-            max_tokens=4096,
+            max_tokens=16384,
         )
 
         choice = response.choices[0]
@@ -257,39 +170,42 @@ async def run_tool_conversation(
             total_usage["input_tokens"] += response.usage.prompt_tokens
             total_usage["output_tokens"] += response.usage.completion_tokens
 
-        # --- Parse <tool_call> from text content ---
-        text_content = choice.message.content or ""
-        text_calls = parse_tool_calls(text_content) if text_content else []
+        content = choice.message.content or ""
+        native_calls = choice.message.tool_calls or []
 
         if not quiet:
-            print(f"[vllm turn {turn}] finish={choice.finish_reason} tools={len(text_calls)} content_len={len(text_content)}")
-            if len(text_calls) == 0 and "<tool_call>" in text_content:
-                print(f"[vllm WARN] <tool_call> in text but parse failed!")
-                # Debug: try manual extraction
-                tc_s = text_content.find("<tool_call>")
-                tc_e = text_content.find("</tool_call>")
-                if tc_s >= 0 and tc_e >= 0:
-                    inner = text_content[tc_s+11:tc_e].strip()
-                    print(f"[vllm WARN] inner[:80]: {inner[:80]!r}")
-                    print(f"[vllm WARN] inner[-80:]: {inner[-80:]!r}")
-                    try:
-                        json.loads(inner)
-                        print("[vllm WARN] json.loads succeeds on inner!")
-                    except json.JSONDecodeError as e:
-                        print(f"[vllm WARN] json.loads fails: {e}")
+            print(f"[vllm turn {turn}] finish={choice.finish_reason} tools={len(native_calls)} content_len={len(content)}")
 
-        if writer and text_content:
-            writer.write_text(text_content)
+        if writer and content:
+            writer.write_text(content)
 
-        if not text_calls:
+        if not native_calls:
             if not quiet:
                 print("[orchestrator] no tool call in response, ending")
             break
 
-        # Append assistant message once
-        messages.append({"role": "assistant", "content": text_content})
+        # Build assistant message with tool_calls for conversation history
+        assistant_msg: dict[str, Any] = {"role": "assistant"}
+        if content:
+            assistant_msg["content"] = content
+        assistant_msg["tool_calls"] = [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {
+                    "name": tc.function.name,
+                    "arguments": tc.function.arguments,
+                },
+            }
+            for tc in native_calls
+        ]
+        messages.append(assistant_msg)
 
-        for name, args in text_calls:
+        # Process each tool call
+        for tc in native_calls:
+            name = tc.function.name
+            args = json.loads(tc.function.arguments)
+
             if name == "StructuredOutput":
                 if not quiet:
                     print(f"[structured_output] {args}")
@@ -308,10 +224,11 @@ async def run_tool_conversation(
             if writer:
                 writer.write_tool_result(result_text)
 
-            # Inject tool result as user message (Qwen convention)
+            # Native tool response format
             messages.append({
-                "role": "user",
-                "content": f"<tool_response>\n{result_text}\n</tool_response>",
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": result_text,
             })
 
             if should_stop:

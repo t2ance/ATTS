@@ -335,18 +335,19 @@ def main():
                 if ep is not None:
                     bm_episodes.append(ep)
 
-        correct = sum(1 for e in bm_episodes if e["metadata"].get("correct"))
+        correct_episodes = [e for e in bm_episodes if e["metadata"].get("correct")]
         avg_explores = (
-            sum(e["metadata"]["num_explores"] for e in bm_episodes) / len(bm_episodes)
-            if bm_episodes
+            sum(e["metadata"]["num_explores"] for e in correct_episodes) / len(correct_episodes)
+            if correct_episodes
             else 0
         )
         stats[benchmark] = {
             "total": len(bm_episodes),
-            "correct": correct,
+            "correct": len(correct_episodes),
+            "rejected": len(bm_episodes) - len(correct_episodes),
             "avg_explores": round(avg_explores, 2),
         }
-        all_episodes.extend(bm_episodes)
+        all_episodes.extend(correct_episodes)
 
     # Auto-discover HLE training runs
     hle_train_dir = experiment_dir / HLE_TRAINING_DIR
@@ -361,7 +362,8 @@ def main():
                 if ep is not None:
                     hle_train_episodes.append(ep)
         if hle_train_episodes:
-            correct = sum(1 for e in hle_train_episodes if e["metadata"].get("correct"))
+            hle_train_episodes = [e for e in hle_train_episodes if e["metadata"].get("correct")]
+            correct = len(hle_train_episodes)
             avg_explores = sum(e["metadata"]["num_explores"] for e in hle_train_episodes) / len(hle_train_episodes)
             stats["hle_train"] = {
                 "total": len(hle_train_episodes),

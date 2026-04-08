@@ -1,0 +1,27 @@
+hydra:
+  searchpath:
+    - pkg://verl.trainer.config
+
+defaults:
+  - ppo_trainer
+  - _self_
+
+data:
+  max_prompt_length: 4096
+  max_response_length: 8192
+  train_batch_size: 64
+  return_raw_chat: True
+  filter_overlong_prompts: True
+  truncation: error
+
+actor_rollout_ref:
+  hybrid_engine: True
+  rollout:
+    name: sglang
+    mode: async
+    multi_turn:
+      enable: True
+      max_assistant_turns: 10
+      max_tool_response_length: 4096
+      tool_response_truncate_side: right
+      format: hermes

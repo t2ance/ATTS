@@ -310,7 +310,8 @@ async def solve(
         enable_integrate=infra.enable_integrate,
     )
 
-    assert ctx.state.final_answer is not None, "Orchestrator did not submit a final answer"
+    if ctx.state.final_answer is None:
+        ctx.state.final_answer = ""
 
     if not ctx.quiet:
         print(f"\nTotal cost: ${ctx.cost.total_cost_usd}"
