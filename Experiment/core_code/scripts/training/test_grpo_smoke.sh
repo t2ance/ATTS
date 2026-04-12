@@ -2,8 +2,10 @@ set -x
 ulimit -n 65535
 
 export CUDA_VISIBLE_DEVICES=1
+export PYTORCH_ALLOC_CONF=expandable_segments:False
 export RAY_ADDRESS=local
 export RAY_memory_monitor_refresh_ms=0
+export RAY_grpc_keepalive_timeout_ms=60000
 
 GRPO_ENV="/home/peijia/miniconda3/envs/grpo"
 export LD_LIBRARY_PATH="$GRPO_ENV/lib/python3.12/site-packages/nvidia/cuda_runtime/lib:$GRPO_ENV/lib/python3.12/site-packages/torch/lib:${LD_LIBRARY_PATH:-}"
@@ -16,7 +18,7 @@ REWARD_FN="$CONFIG_PATH/reward_fn.py"
 
 export PYTHONPATH="$PROJECT_DIR:$PYTHONPATH"
 
-conda run -n grpo python3 -m training.grpo.run_grpo \
+conda run --no-capture-output -n grpo python3 -u -m verl.trainer.main_ppo \
     --config-path="$CONFIG_PATH" \
     --config-name='grpo_config' \
     algorithm.adv_estimator=grpo \
@@ -40,6 +42,7 @@ conda run -n grpo python3 -m training.grpo.run_grpo \
     actor_rollout_ref.actor.fsdp_config.optimizer_offload=False \
     actor_rollout_ref.rollout.name=sglang \
     actor_rollout_ref.rollout.mode=async \
+    actor_rollout_ref.rollout.response_length=4096 \
     actor_rollout_ref.rollout.gpu_memory_utilization=0.4 \
     actor_rollout_ref.rollout.tensor_model_parallel_size=1 \
     actor_rollout_ref.rollout.n=2 \
@@ -50,6 +53,7 @@ conda run -n grpo python3 -m training.grpo.run_grpo \
     actor_rollout_ref.rollout.multi_turn.tool_response_truncate_side=right \
     actor_rollout_ref.rollout.multi_turn.format=hermes \
     actor_rollout_ref.rollout.multi_turn.tool_config_path="$TOOL_CONFIG" \
+    actor_rollout_ref.rollout.agent.num_workers=2 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=2 \
     actor_rollout_ref.ref.fsdp_config.param_offload=False \
     algorithm.use_kl_in_reward=False \

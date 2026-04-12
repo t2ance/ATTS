@@ -1,10 +1,18 @@
-"""Entrypoint for ATTS GRPO training.
+"""GRPO training entrypoint with NCCL weight sync patch.
 
-Registers the ATTSAgentLoop before verl starts, then delegates to verl.
+Applies monkey patch to replace CUDA IPC weight sync with NCCL broadcast,
+then delegates to verl's main_ppo.
+
+Usage: python -m training.grpo.run_grpo [hydra args...]
 """
 
-import training.grpo.atts_agent_loop  # noqa: F401 -- registers atts_agent
-from verl.trainer.main_ppo import main
+from __future__ import annotations
 
-if __name__ == "__main__":
-    main()
+import training.grpo.nccl_weight_sync_patch
+
+training.grpo.nccl_weight_sync_patch.apply()
+
+# Now run verl's main_ppo (hydra entry point)
+import runpy
+
+runpy.run_module("verl.trainer.main_ppo", run_name="__main__")

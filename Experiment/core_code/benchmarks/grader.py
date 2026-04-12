@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from pathlib import Path
 from typing import Any
@@ -102,15 +103,19 @@ async def judge_answer(
         f"[correct_answer]: {gold}"
     )
     writer = TrajectoryWriter.create_simple(out_dir / "output.md") if out_dir else TrajectoryWriter.noop()
-    result, trajectory_text, cost_usd, usage = await call_sub_model(
-        backend=backend,
-        system_prompt=judge_prompt,
-        user_message=user_message,
-        image_data_url=None,
-        model=model,
-        output_schema=JUDGE_SCHEMA,
-        writer=writer,
-    )
+    try:
+        result, trajectory_text, cost_usd, usage = await call_sub_model(
+            backend=backend,
+            system_prompt=judge_prompt,
+            user_message=user_message,
+            image_data_url=None,
+            model=model,
+            output_schema=JUDGE_SCHEMA,
+            writer=writer,
+        )
+    except asyncio.TimeoutError:
+        print(f"  [judge] SDK timeout after all retries -- treating as incorrect")
+        return False, 0.0
     if out_dir is not None:
         save_sub_model_result(
             out_dir=out_dir,

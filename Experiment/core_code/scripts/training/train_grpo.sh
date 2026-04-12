@@ -2,8 +2,10 @@ set -x
 ulimit -n 65535
 
 export CUDA_VISIBLE_DEVICES=0,1,2,3
+export PYTORCH_ALLOC_CONF=expandable_segments:False
 export RAY_ADDRESS=local
 export RAY_memory_monitor_refresh_ms=0
+export RAY_grpc_keepalive_timeout_ms=60000
 
 # Fix SGLang subprocess CUDA import
 GRPO_ENV="/home/peijia/miniconda3/envs/grpo"
@@ -17,7 +19,7 @@ REWARD_FN="$CONFIG_PATH/reward_fn.py"
 
 export PYTHONPATH="$PROJECT_DIR:$PYTHONPATH"
 
-conda run -n grpo python3 -m training.grpo.run_grpo \
+conda run -n grpo python3 -m verl.trainer.main_ppo \
     --config-path="$CONFIG_PATH" \
     --config-name='grpo_config' \
     algorithm.adv_estimator=grpo \

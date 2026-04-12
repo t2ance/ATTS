@@ -166,3 +166,4 @@ class SolveResult:
     cost: CostTracker
     rounds: list[RoundLog] = field(default_factory=list)
     writer: TrajectoryWriter = field(default_factory=TrajectoryWriter.noop)
+    output_exceeded: bool = False

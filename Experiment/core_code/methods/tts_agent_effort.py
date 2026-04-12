@@ -187,7 +187,7 @@ async def _run_orchestrator_effort(
     tools = [EXPLORE_TOOL_EFFORT]
     output_format = {"type": "json_schema", "schema": ctx.benchmark.get_explore_schema()}
 
-    cost, usage = await backend_mod.run_tool_conversation(
+    cost, usage, _ = await backend_mod.run_tool_conversation(
         system_prompt=system_prompt,
         user_message=user_message_text,
         image_data_url=ctx.image_data_url,

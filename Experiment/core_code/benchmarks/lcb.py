@@ -162,10 +162,12 @@ Put your final solution code in the `final_code` field.
         return "\n".join(parts)
 
     def get_answer_from_explore(self, result: dict) -> str:
-        return result["code"]
+        # Empty dict means orchestrator submitted "no answer" (protocol-defined
+        # action when solvers fail). Returns empty string -> grade_code marks wrong.
+        return result.get("code", "")
 
     def get_answer_from_integrate(self, result: dict) -> str:
-        return result["final_code"]
+        return result.get("final_code", "")
 
     def add_dataset_args(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--difficulty", choices=["easy", "medium", "hard"], default=None)

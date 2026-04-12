@@ -3,6 +3,9 @@
 Reads sft_all.jsonl (for prompts and metadata) and cached explore results.
 Outputs train.parquet and val.parquet for verl training.
 
+Only includes episodes with complete cached explores (8/8) and excludes
+HLE eval set questions (first 100 Gold text-only).
+
 Usage:
     python -m training.grpo.prepare_data
 """
@@ -24,7 +27,7 @@ MAX_EXPLORES = 8
 
 
 def load_cached_explores(cache_dir: Path, qid: str) -> list[dict]:
-    """Load cached explore results for a question."""
+    """Load cached explore results for a question. Returns empty if incomplete."""
     qid_dir = cache_dir / qid
     if not qid_dir.exists():
         return []
@@ -41,7 +44,20 @@ def load_cached_explores(cache_dir: Path, qid: str) -> list[dict]:
             "approach": data.get("approach", ""),
             "reasoning": data.get("reasoning", ""),
         })
+    # Require complete explores
+    if len(explores) < MAX_EXPLORES:
+        return []
     return explores
+
+
+def _get_hle_eval_qids() -> set[str]:
+    """Load HLE eval set QIDs (first 100 Gold text-only)."""
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+    from benchmarks.hle import _load_hle_dataset, _filter_dataset
+    all_rows = _load_hle_dataset()
+    gold_text = _filter_dataset(all_rows, subset="gold", text_only=True)
+    return {r["id"] for r in gold_text[:100]}
 
 
 def main():
@@ -50,6 +66,9 @@ def main():
     sft_data_path = core_code / "training_data" / "sft_all.jsonl"
 
     assert sft_data_path.exists(), f"SFT data not found: {sft_data_path}"
+
+    hle_eval_qids = _get_hle_eval_qids()
+    print(f"Loaded {len(hle_eval_qids)} HLE eval QIDs to exclude")
 
     # Load SFT episodes
     episodes = []
@@ -62,11 +81,17 @@ def main():
     # Build verl-format rows
     rows = []
     skipped = 0
+    eval_filtered = 0
     for ep in episodes:
         meta = ep["metadata"]
         benchmark = meta["benchmark"]
         qid = meta["qid"]
         gold = meta.get("gold", "")
+
+        # Filter out HLE eval questions
+        if benchmark == "hle" and qid in hle_eval_qids:
+            eval_filtered += 1
+            continue
 
         # Resolve cache dir
         cache_key = benchmark if benchmark in CACHE_DIRS else None
@@ -93,7 +118,7 @@ def main():
 
         row = {
             "data_source": f"atts_{benchmark}",
-            "agent_name": "atts_agent",
+            "agent_name": "tool_agent",
             "prompt": prompt,
             "ability": "orchestration",
             "reward_model": {"style": "rule", "ground_truth": gold},
@@ -117,7 +142,7 @@ def main():
         }
         rows.append(row)
 
-    print(f"Prepared {len(rows)} GRPO rows, skipped {skipped}")
+    print(f"Prepared {len(rows)} GRPO rows, skipped {skipped}, eval-filtered {eval_filtered}")
 
     # Split: use first 10% as val
     val_size = max(1, len(rows) // 10)
@@ -131,18 +156,7 @@ def main():
     out_dir.mkdir(parents=True, exist_ok=True)
 
     for name, data in [("train", train_rows), ("val", val_rows)]:
-        # Convert to DataFrame -- store complex fields as JSON strings
-        df_rows = []
-        for r in data:
-            df_rows.append({
-                "data_source": r["data_source"],
-                "agent_name": r["agent_name"],
-                "prompt": json.dumps(r["prompt"], ensure_ascii=False),
-                "ability": r["ability"],
-                "reward_model": json.dumps(r["reward_model"], ensure_ascii=False),
-                "extra_info": json.dumps(r["extra_info"], ensure_ascii=False),
-            })
-        df = pd.DataFrame(df_rows)
+        df = pd.DataFrame(data)
         out_path = out_dir / f"{name}.parquet"
         df.to_parquet(out_path, index=False)
         print(f"Wrote {out_path} ({len(df)} rows)")

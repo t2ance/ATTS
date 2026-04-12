@@ -184,10 +184,15 @@ Qwen3-Max-Thinking & 48.48 & -- \\
 Pass@1 & 48.00 & 0.50 \\
 Self-Refine & 53.00 & \textbf{0.41} \\
 Budget Forcing & 51.00 & 0.60 \\
-Skywork-Reward-V2 & 52.00 & 4.41 \\
-LLM Selection ($N{=}8$) & \textbf{58.00} & 4.53 \\
-\our{} (Ours) & 56.00 & 1.90 \\
-\our{} Multi-model Med & 57.00 & 1.63 \\
+% Corrected: 10 compaction-failed explores in hle/sonnet/gold cache zeroed (cost_usd -> 0).
+% Skywork/LLM Selection read all 8 explores per question -> all 10 bad explores consumed -> -$79.40.
+% Skywork: ($440.73-$79.40)/100 = $3.61. LLM Selection: ($449.95-$79.40)/100 = $3.71.
+% ATTS (v3): 4 of 10 consumed -> -$31.68 -> ($190.47-$31.68)/100 = $1.59.
+% Multi-model Med: 1 of 10 consumed -> -$8.63 -> ($162.80-$8.63)/100 = $1.54.
+Skywork-Reward-V2 & 52.00 & 3.61 \\
+LLM Selection ($N{=}8$) & \textbf{58.00} & 3.71 \\
+\our{} (Ours) & 56.00 & 1.59 \\
+\our{} Multi-model Med & 57.00 & 1.54 \\
 \bottomrule
 \end{tabular}
 \end{minipage}\hfill%
@@ -280,7 +285,10 @@ LLM Selection ($N{=}8$) & \textbf{23.20} & 23.31 & 25.30 & 23.08 & 19.61 & 0.56 
 Table~\ref{tab:main-results} presents the main results across all four benchmarks. For each benchmark, the upper group reproduces published zero-shot references for context, and the lower group reports test-time scaling methods evaluated under our unified setup. Zero-shot references are cited from the respective benchmark papers and official leaderboards; they use different model configurations and are therefore not directly comparable to our test-time scaling rows. HLE-Verified zero-shot rows report Revised-subset Acc \citep{hle_verified_paper} while our rows evaluate a 100-sample Gold subset. LiveCodeBench references follow the public generation leaderboard \citep{livecodebench_paper}. BabyVision references are from \citet{babyvision_paper}. GPQA-Diamond references are from \citet{gpqa_paper} and official records. Full benchmark details including dataset releases, grading protocols, and subset definitions are in Appendix~\ref{app:benchmark-details}.
 
 \paragraph{HLE-Verified.}
-On HLE-Verified, \our{} achieves 56.00\% accuracy at \$1.90/q, outperforming Self-Refine (53.00\%) and Budget Forcing (51.00\%). LLM Selection reaches 58.00\% but at \$4.53/q---a $2.4\times$ cost increase for a 2-point gain---illustrating that single-pass aggregation achieves higher accuracy when cost is unconstrained, but adaptive exploration provides a more efficient operating point. The multi-model variant improves to 57.00\% at \$1.63/q, narrowing the accuracy gap while maintaining cost efficiency.
+% Corrected: HLE costs adjusted after zeroing 10 compaction-failed explores.
+% ATTS: $1.90 -> $1.59. LLM Selection: $4.53 -> $3.71. Multi-model Med: $1.63 -> $1.54.
+% Ratio: $3.71/$1.59 = 2.33 -> 2.3x (was $4.53/$1.90 = 2.38 -> 2.4x).
+On HLE-Verified, \our{} achieves 56.00\% accuracy at \$1.59/q, outperforming Self-Refine (53.00\%) and Budget Forcing (51.00\%). LLM Selection reaches 58.00\% but at \$3.71/q---a $2.3\times$ cost increase for a 2-point gain---illustrating that single-pass aggregation achieves higher accuracy when cost is unconstrained, but adaptive exploration provides a more efficient operating point. The multi-model variant improves to 57.00\% at \$1.54/q, narrowing the accuracy gap while maintaining cost efficiency.
 
 \paragraph{LiveCodeBench.}
 For LiveCodeBench, the single-model \our{} configuration reaches 82.29\% Pass@1 at \$0.53/q, improving over Self-Refine (80.57\%) and Budget Forcing (80.00\%). The gains concentrate on Hard problems: 67.50\% vs.\ 63.75\% for both Self-Refine and Budget Forcing, while Easy (100\%) and Medium (90.38\%) accuracies are at or near ceiling. The multi-model variant further improves to 85.63\% overall and 73.42\% on Hard.
@@ -299,7 +307,9 @@ Among test-time scaling methods, \our{} ties with Majority Voting and LLM Select
 \end{figure}
 
 \paragraph{Overall trends.}
-Across all four benchmarks, \our{} achieves the best or tied-best accuracy among test-time scaling methods while costing $1.7$--$2.4\times$ \emph{less} than alternatives of comparable accuracy. The gains are largest where one-shot generation leaves the most headroom: on GPQA-Diamond, \our{} improves over Pass@1 by 6.6 percentage points (74.24\% $\to$ 80.81\%) at \$0.34/q; on LiveCodeBench Hard problems, accuracy rises from 60.00\% to 67.50\%. On easy subtasks where the backbone is already near ceiling (100\% Easy on LiveCodeBench), additional exploration yields no benefit---and \our{} does not waste budget there. Where a higher-cost method edges ahead in accuracy---LLM Selection reaches 58.00\% on HLE versus \our{}'s 56.00\%---it does so at $2.4\times$ the cost. This pattern reflects the adaptive allocation at the core of the framework: explore when the current candidate pool is incomplete or inconsistent, and synthesize once the evidence suffices. The results support our main claim: even a purposefully constrained single-tool interface can turn test-time scaling into a semantic compute-allocation problem rather than a fixed sampling schedule.
+% Corrected: HLE cost ratio 2.4x -> 2.3x (LLM Selection $3.71 / ATTS $1.59 = 2.33).
+% Range upper bound: 2.4x -> 2.3x. Lower bound 1.7x unchanged (non-HLE benchmark).
+Across all four benchmarks, \our{} achieves the best or tied-best accuracy among test-time scaling methods while costing $1.7$--$2.3\times$ \emph{less} than alternatives of comparable accuracy. The gains are largest where one-shot generation leaves the most headroom: on GPQA-Diamond, \our{} improves over Pass@1 by 6.6 percentage points (74.24\% $\to$ 80.81\%) at \$0.34/q; on LiveCodeBench Hard problems, accuracy rises from 60.00\% to 67.50\%. On easy subtasks where the backbone is already near ceiling (100\% Easy on LiveCodeBench), additional exploration yields no benefit---and \our{} does not waste budget there. Where a higher-cost method edges ahead in accuracy---LLM Selection reaches 58.00\% on HLE versus \our{}'s 56.00\%---it does so at $2.3\times$ the cost. This pattern reflects the adaptive allocation at the core of the framework: explore when the current candidate pool is incomplete or inconsistent, and synthesize once the evidence suffices. The results support our main claim: even a purposefully constrained single-tool interface can turn test-time scaling into a semantic compute-allocation problem rather than a fixed sampling schedule.
 
 \subsection{Ablation Studies}
 
@@ -328,7 +338,9 @@ In the default \our{} architecture, the orchestrator produces the final answer d
 \cmidrule(lr){2-3}\cmidrule(lr){4-5}
  & Acc. (\%) & \$/q & Acc. (\%) & \$/q \\
 \midrule
-HLE-Verified & 56.00 & 1.90 & 57.00 & 2.66 \\
+% Corrected: Default $1.90->$1.59, +Integrator $2.66->$2.35.
+% Both consume 4 bad explores from hle/sonnet/gold cache -> -$31.68 each.
+HLE-Verified & 56.00 & 1.59 & 57.00 & 2.35 \\
 LiveCodeBench & 82.29 & 0.53 & 80.57 & 0.72 \\
 BabyVision & 23.20 & 0.27 & 23.20 & 0.38 \\
 GPQA-Diamond & 80.81 & 0.34 & 76.14 & 0.44 \\
@@ -336,7 +348,9 @@ GPQA-Diamond & 80.81 & 0.34 & 76.14 & 0.44 \\
 \end{tabular}
 \end{table}
 
-Across all four benchmarks, adding a separate integrator does \emph{not} consistently improve accuracy and \emph{always} increases cost (Table~\ref{tab:integrator-ablation}). On GPQA-Diamond, accuracy drops from 80.81\% to 76.14\%; on LiveCodeBench, from 82.29\% to 80.57\%. On HLE-Verified, the integrator variant gains 1 point (57.00\% vs.\ 56.00\%) but at substantially higher cost (\$2.66/q vs.\ \$1.90/q). The degradation likely stems from the integrator having \emph{less} context for synthesis: it only sees the final candidate pool in a single-turn call, whereas the orchestrator has observed the full multi-turn conversation including each candidate's arrival and the reasoning behind its own exploration decisions.
+Across all four benchmarks, adding a separate integrator does \emph{not} consistently improve accuracy and \emph{always} increases cost (Table~\ref{tab:integrator-ablation}). On GPQA-Diamond, accuracy drops from 80.81\% to 76.14\%; on LiveCodeBench, from 82.29\% to 80.57\%.
+% Corrected: $2.66->$2.35, $1.90->$1.59 (compaction-failed explores zeroed).
+On HLE-Verified, the integrator variant gains 1 point (57.00\% vs.\ 56.00\%) but at substantially higher cost (\$2.35/q vs.\ \$1.59/q). The degradation likely stems from the integrator having \emph{less} context for synthesis: it only sees the final candidate pool in a single-turn call, whereas the orchestrator has observed the full multi-turn conversation including each candidate's arrival and the reasoning behind its own exploration decisions.
 
 \paragraph{Orchestrator effectiveness is task-dependent, not capability-monotonic.}
 We ablate the orchestrator model while keeping the explorer fixed at Sonnet 4.6 (Table~\ref{tab:orch-ablation}, Figure~\ref{fig:orch-ablation}). The results show no monotonic relationship between model strength and orchestrator effectiveness: Opus achieves the highest accuracy on HLE (59\%) and LiveCodeBench (83.4\%), but drops to 77.16\% on GPQA---\emph{below} Sonnet's 80.81\%. Haiku performs comparably to Sonnet on HLE (57\% vs.\ 56\%).
@@ -363,7 +377,8 @@ To evaluate whether \our{} generalizes beyond a single model family, we run the 
 \toprule
 Backbone & Effort & Benchmark & Pass@1 & ATTS & Gain & \$/q \\
 \midrule
-Claude Sonnet 4.6 & default & HLE & 48.00 & 56.00 & +8.0 & 1.90 \\
+% Corrected: $1.90->$1.59 (4 compaction-failed explores zeroed, same as Table 1).
+Claude Sonnet 4.6 & default & HLE & 48.00 & 56.00 & +8.0 & 1.59 \\
 Claude Sonnet 4.6 & default & GPQA & 74.24 & 80.81 & +6.6 & 0.34 \\
 \midrule
 GPT-5.2 & high & HLE & 55.00 & 57.00 & +2.0 & 0.26 \\
@@ -372,11 +387,33 @@ GPT-5.2 & high & GPQA & 56.06 & \textbf{71.07} & \textbf{+15.0} & \textbf{0.16} 
 \end{tabular}
 \end{table}
 
-\our{} produces positive gains on both benchmarks for both model families (Table~\ref{tab:backbone-ablation}). On GPQA-Diamond, GPT-5.2 shows the largest absolute gain: +15.0 points over Pass@1 (56.06\% $\to$ 71.07\%), compared to Claude Sonnet's +6.6 points. The lower GPT-5.2 Pass@1 (56.06\% vs.\ the 90.3\% reported for GPT-5.2 in the GPQA leaderboard) reflects the use of \texttt{effort=low} for exploration, which limits reasoning tokens; the orchestrator operates at \texttt{effort=high} during synthesis. On HLE-Verified, the gain is smaller (+2.0 points) but still positive, and the cost is $7.3\times$ lower than Claude. These results demonstrate that \our{}'s adaptive exploration framework is not specific to any model family: the same prompts and control logic transfer to a different provider with consistent gains at substantially lower cost.
+\our{} produces positive gains on both benchmarks for both model families (Table~\ref{tab:backbone-ablation}). On GPQA-Diamond, GPT-5.2 shows the largest absolute gain: +15.0 points over Pass@1 (56.06\% $\to$ 71.07\%), compared to Claude Sonnet's +6.6 points. The lower GPT-5.2 Pass@1 (56.06\% vs.\ the 90.3\% reported for GPT-5.2 in the GPQA leaderboard) reflects the use of \texttt{effort=low} for exploration, which limits reasoning tokens; the orchestrator operates at \texttt{effort=high} during synthesis. % Corrected: $1.59/$0.26 = 6.12 -> 6.1x (was $1.90/$0.26 = 7.31 -> 7.3x).
+On HLE-Verified, the gain is smaller (+2.0 points) but still positive, and
+the cost is $6.1\times$ lower than Claude. These results demonstrate that \our{}'s adaptive exploration framework is not specific to any model family: the same prompts and control logic transfer to a different provider with consistent gains at substantially lower cost.
+
+\paragraph{Orchestrator reasoning contributes to synthesis quality.}
+We ablate the orchestrator's internal reasoning by disabling extended thinking (chain-of-thought) while keeping all other parameters identical: same model (Sonnet 4.6), same cached explores, same exploration budget ($T{=}8$), and same prompts. Without extended thinking, the orchestrator can still read candidate results, call tools, and submit answers---but cannot reason internally between turns.
+
+\begin{table}[H]
+\centering
+\caption{Effect of disabling orchestrator extended thinking on GPQA-Diamond. All other parameters are held constant. The orchestrator uses the same cached Sonnet explores in both conditions.}
+\label{tab:thinking-ablation}
+\small
+\begin{tabular}{l r r r}
+\toprule
+Condition & Acc. (\%) & \$/q & Explores/q \\
+\midrule
+Default (thinking enabled) & 82.83 & 0.35 & 2.15 \\
+Thinking disabled & 79.29 & 0.36 & 2.08 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Disabling thinking reduces accuracy by 3.5 points (82.83\% $\to$ 79.29\%) with no cost savings (Table~\ref{tab:thinking-ablation}). The exploration behavior is nearly identical (2.08 vs.\ 2.15 explores per question), indicating that the accuracy gap is attributable to synthesis quality, not stopping behavior. This result confirms that the orchestrator's internal reasoning---even when constrained to a pure orchestration role with no direct problem-solving---contributes meaningfully to evidence evaluation and answer selection.
 
 \section{Limitations}
 
-\our{} has four principal limitations. First, it can only synthesize evidence present in the candidate pool: if all candidates share the same misconception, the orchestrator cannot recover. Second, the framework provides no formal guarantees for stopping optimality, calibration, or budget efficiency; the orchestrator remains a learned heuristic. In practice, the orchestrator converges early: on GPQA, 82\% of questions use exactly two \explore{} calls before stopping, even though the oracle best-of-$N$ curve continues to climb through $N{=}8$. This conservative stopping leaves accuracy on the table, and learning a better stopping criterion remains an open problem. Third, \our{} increases latency and cost relative to direct generation on easy problems where exploration is unnecessary. Finally, the evaluation covers reasoning benchmarks with fixed answer interfaces, not open-ended tool-use agents; the results are evidence about reasoning-oriented test-time scaling, not a complete account of agentic decision-making.
+\our{} has four principal limitations. First, it can only synthesize evidence present in the candidate pool: if all candidates share the same misconception, the orchestrator cannot recover. Second, the framework provides no formal guarantees for stopping optimality, calibration, or budget efficiency; the orchestrator remains a learned heuristic. In practice, the orchestrator converges early: on GPQA, 82\% of questions use exactly two \explore{} calls before stopping, even though the oracle best-of-$N$ curve continues to climb through $N{=}8$. This conservative stopping leaves accuracy on the table, and learning a better stopping criterion remains an open problem. Third, \our{} increases latency and cost relative to direct generation on easy problems where exploration is unnecessary. Finally, the evaluation covers reasoning benchmarks with fixed answer interfaces, not open-ended tool-use agents; the results are evidence about reasoning-oriented test-time scaling, not a complete account of agentic decision-making. We additionally note that on a small fraction of questions ($6$ out of $860$ across the four benchmarks; see Figure~\ref{fig:explore-distribution-all}) the orchestrator produces an answer without issuing any \explore{} call, despite the prompt directing it to invoke \explore{} before synthesizing; the prompt is designed to suppress this behavior and the residual exceptions do not materially affect the aggregate results.
 
 \section{Conclusion}
 
@@ -509,7 +546,9 @@ All baselines use the same backbone model and the same benchmark-specific answer
 \cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
  & Acc. & \$/q & Acc. & \$/q & Acc. & \$/q \\
 \midrule
-HLE-Verified & 44.00 & 1.52 & 57.00 & 1.63 & 60.00 & 2.38 \\
+% Corrected: Low $1.52->$1.44, Med $1.63->$1.54. Each consumed 1 bad explore (-$8.63).
+% High $2.38 unchanged (0 bad explores consumed).
+HLE-Verified & 44.00 & 1.44 & 57.00 & 1.54 & 60.00 & 2.38 \\
 LiveCodeBench & 77.01 & 0.55 & 85.63 & 0.69 & 85.63 & 1.09 \\
 BabyVision & 19.85 & 0.31 & 22.42 & 0.43 & 22.16 & 0.77 \\
 GPQA-Diamond & 77.78 & 0.29 & 81.82 & 0.39 & 82.32 & 0.40 \\
@@ -529,7 +568,10 @@ GPQA-Diamond & 77.78 & 0.29 & 81.82 & 0.39 & 82.32 & 0.40 \\
 \cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
  & Acc. & \$/q & Acc. & \$/q & Acc. & \$/q \\
 \midrule
-HLE-Verified & 57.00 & 2.23 & 56.00 & 1.90 & 59.00 & 1.79 \\
+% Corrected: Haiku $2.23->$1.83 (5 bad consumed, -$40.28).
+% Sonnet $1.90->$1.59 (4 bad consumed, -$31.68). Opus $1.79->$1.50 (3 bad consumed, -$28.75).
+% All three orchestrators read from hle/sonnet/gold cache; different consumption due to stopping.
+HLE-Verified & 57.00 & 1.83 & 56.00 & 1.59 & 59.00 & 1.50 \\
 LiveCodeBench & 79.43 & 0.71 & 82.29 & 0.53 & 83.43 & 0.64 \\
 GPQA-Diamond & 80.20 & 0.36 & 80.81 & 0.34 & 77.16 & 0.34 \\
 \bottomrule
@@ -746,6 +788,35 @@ We use the BabyVision dataset release \texttt{UnipatAI/BabyVision} \citep{babyvi
 
 \paragraph{GPQA-Diamond.}\label{app:gpqa-details}
 We use the GPQA release \texttt{Idavidrein/gpqa} \citep{gpqa_dataset_hf}, configuration \texttt{gpqa\_diamond}, which corresponds to the 198-question Diamond subset introduced in the GPQA paper \citep{gpqa_paper}. GPQA is a graduate-level four-option multiple-choice science benchmark spanning biology, physics, and chemistry, and GPQA-Diamond is the highest-stringency subset retained after expert-accuracy and non-expert-difficulty filtering \citep{gpqa_paper}. The official task is closed-book answer selection unless otherwise stated: the model is shown the question and four candidate options and must output exactly one final option. Scoring is exact option-key accuracy with no semantic judge and a random-guess baseline of \(25\%\) \citep{gpqa_paper}. In addition to Diamond-set accuracy, the original GPQA paper also reports accuracies on the Extended and Main sets and distinguishes closed-book few-shot/CoT baselines from an open-book GPT-4-with-search baseline; Table~\ref{tab:main-results}(d) keeps the main-text comparison focused on the Diamond-set accuracy column used by current public references. Our grading extracts the option letter (A--D) from the model response via regex and performs exact matching against the gold option key, with no LLM judge, consistent with the official protocol.
+
+\section{Explore-Count Distributions}
+\label{app:explore-distributions}
+
+Figure~\ref{fig:explore-distribution-all} reports how many \explore{} calls the \our{} orchestrator issues per question on each of the four main benchmarks, under the default single-model configuration (Sonnet backbone, no separate integrator, exploration budget $T{=}8$). Each panel is a histogram whose $x$-axis is the number of \explore{} calls used for a question and whose $y$-axis is the number of questions at that count; bar heights are annotated with the exact counts. The panel titles report the benchmark name, the number of evaluated questions $n$, and the mean number of \explore{} calls per question.
+
+\begin{figure}[H]
+\centering
+\includegraphics[width=\textwidth]{figures/explore_distribution_all.pdf}
+\caption{Per-benchmark distribution of the number of \explore{} calls used by \our{} under the default single-model configuration. Top left: HLE-Verified (Gold subset). Top right: LiveCodeBench. Bottom left: GPQA-Diamond. Bottom right: BabyVision. Each bar reports the number of questions whose orchestrator issued exactly that many \explore{} calls; the upper budget cap is $T{=}8$. Panel titles include the sample size $n$ and the per-question mean.}
+\label{fig:explore-distribution-all}
+\end{figure}
+
+All four benchmarks share the same exploration budget $T{=}8$ and the same orchestrator prompt, so differences in the observed distributions reflect the orchestrator's input-conditioned stopping decisions rather than externally imposed budgets. We highlight five observations from this figure.
+
+\paragraph{Observation 1: Mean explore count tracks benchmark difficulty.}
+The per-benchmark mean \explore{} count ranges from $1.85$ on LiveCodeBench to $2.79$ on BabyVision, with GPQA-Diamond at $2.16$ and HLE-Verified at $2.39$. Harder benchmarks---those on which test-time scaling methods reach lower absolute accuracy in Table~\ref{tab:main-results}---receive more exploration per question on average. Given that all four benchmarks share the same budget and the same orchestrator prompt, this is a direct numerical expression of the adaptive compute allocation claim: the controller spends more calls where first-pass evidence is less conclusive.
+
+\paragraph{Observation 2: The modal behavior is ``explore twice,'' not ``explore once.''}
+Three of the four benchmarks (HLE-Verified, GPQA-Diamond, BabyVision) place their distribution mode at $n{=}2$ \explore{} calls, and the share of questions stopping at $n{=}1$ is below $15\%$ on each of these three benchmarks. LiveCodeBench is the only exception, with a bimodal distribution in which the first mode at $n{=}1$ ($72/175$ questions) is comparable in size to the second mode at $n{=}2$ ($84/175$). The default orchestrator behavior is therefore ``explore twice before synthesizing,'' not ``explore once and submit.'' This empirically counters the assumption that a confidence-based orchestrator collapses exploration to a single call on most questions.
+
+\paragraph{Observation 3: The budget cap $T{=}8$ is almost never reached.}
+Across the $860$ questions in the four benchmarks combined, exactly one question consumes the full exploration budget of $T{=}8$ (on LiveCodeBench). Questions using $n \ge 6$ \explore{} calls remain rare on every benchmark: $6$ on LiveCodeBench, $6$ on GPQA-Diamond, $2$ on HLE-Verified, and $19$ on BabyVision. The orchestrator terminates exploration well before the cap on virtually every question, supporting the interpretation that $T$ functions as a safety ceiling rather than a target.
+
+\paragraph{Observation 4: LiveCodeBench bimodality reflects per-problem difficulty recognition.}
+LiveCodeBench is the only benchmark with a substantial mass at $n{=}1$ ($41\%$ of questions). These single-explore questions likely correspond to problems for which the first candidate is obviously sufficient: LiveCodeBench's Easy tier already reaches $100\%$ Pass@1 in the main results (Table~\ref{tab:main-results}(b)), and a fraction of Medium problems are similarly unambiguous once a first candidate is produced. The orchestrator's ability to terminate immediately on such problems, rather than always continuing to the modal $n{=}2$ seen on the other three benchmarks, is direct evidence that the controller performs per-problem difficulty recognition rather than following a fixed exploration schedule.
+
+\paragraph{Observation 5: BabyVision is the inverse-pattern case.}
+BabyVision is the only benchmark on which the highest mean \explore{} count ($2.79$) co-occurs with the lowest accuracy among the four ($23.20\%$ in Table~\ref{tab:main-results}(c)). The orchestrator explores most aggressively on BabyVision---roughly half of all questions receive three or more \explore{} calls---yet the additional exploration does not translate into accuracy gains, and all test-time scaling methods on this benchmark cluster within a narrow $19$--$23\%$ band. The orchestrator detects that the first candidate is often insufficient and requests more evidence, but the backbone's visual reasoning ceiling bounds what additional exploration can recover. This exposes a boundary condition of test-time scaling in general: orchestrator-driven exploration helps only when the correct answer is reachable from the candidate pool, and on benchmarks where the backbone's capability ceiling is the binding constraint, the ``explore more'' signal has limited leverage.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 

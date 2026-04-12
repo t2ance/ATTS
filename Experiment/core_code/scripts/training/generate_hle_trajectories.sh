@@ -23,6 +23,7 @@ PYTHONUNBUFFERED=1 nohup python eval.py --benchmark hle \
     --explore-model claude-haiku-4-5-20251001 \
     --cache-dirs ../analysis/cache/hle/haiku/gold \
     --cache-only \
+    --max-output-chars 3500 \
     > ./tmp/generate_hle_trajectories.log 2>&1 &
 
 echo "Started trajectory generation. PID: $!"

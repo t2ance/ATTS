@@ -178,6 +178,8 @@ def parse_trajectory_md(path: Path) -> tuple[list[dict], dict]:
         metadata["gold"] = m.group(1).strip()
     if m := re.search(r"\*\*Rounds\*\*:\s*(\d+)", text):
         metadata["rounds"] = int(m.group(1))
+    if m := re.search(r"\*\*Cost\*\*:\s*\$([0-9.]+)", text):
+        metadata["cost_usd"] = float(m.group(1))
 
     # -- cut off summary / grading --
     body = re.split(r"\n---\n## Session Summary", text)[0]
@@ -296,20 +298,31 @@ SOURCES = {
     "gpqa": [
         "analysis/run/gpqa/sonnet_no_integrate/run_20260317_181859",
     ],
-    "hle": [
-        "analysis/run/hle/sonnet_no_integrate/run_20260319_003712",
-    ],
-    "lcb": [
-        "analysis/run/lcb/sonnet_no_integrate/run_20260311_022839",
-    ],
-    "babyvision": [
-        "analysis/run/babyvision/sonnet_no_integrate/run_20260311_033100",
-    ],
+    # HLE eval run REMOVED — contaminated (overlaps with eval set).
+    # HLE training data comes from HLE_TRAINING_DIR below.
 }
 
-# Additional sources for training data (HLE training trajectories).
-# Auto-discovered: any run_* directory under hle/sonnet_training/.
+# HLE training trajectories: auto-discovered from hle/sonnet_training/.
+# These are Sonnet orchestrator runs on Gold training pool questions (101-668),
+# using haiku cached explores in cache_only mode.
 HLE_TRAINING_DIR = "analysis/run/hle/sonnet_training"
+
+# First 100 Gold text-only questions are the eval set. Exclude from training.
+HLE_EVAL_QIDS: set[str] | None = None
+
+
+def _get_hle_eval_qids() -> set[str]:
+    """Load and cache HLE eval set QIDs (first 100 Gold text-only)."""
+    global HLE_EVAL_QIDS
+    if HLE_EVAL_QIDS is not None:
+        return HLE_EVAL_QIDS
+    import sys
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+    from benchmarks.hle import _load_hle_dataset, _classify_subset, _filter_dataset
+    all_rows = _load_hle_dataset()
+    gold_text = _filter_dataset(all_rows, subset="gold", text_only=True)
+    HLE_EVAL_QIDS = {r["id"] for r in gold_text[:100]}
+    return HLE_EVAL_QIDS
 
 
 def main():
@@ -336,6 +349,11 @@ def main():
                     bm_episodes.append(ep)
 
         correct_episodes = [e for e in bm_episodes if e["metadata"].get("correct")]
+        MAX_COST_USD = 0.5
+        before_cost = len(correct_episodes)
+        correct_episodes = [e for e in correct_episodes if e["metadata"].get("cost_usd", 0) <= MAX_COST_USD]
+        if before_cost > len(correct_episodes):
+            print(f"  Cost filter: removed {before_cost - len(correct_episodes)} episodes > ${MAX_COST_USD}")
         avg_explores = (
             sum(e["metadata"]["num_explores"] for e in correct_episodes) / len(correct_episodes)
             if correct_episodes
@@ -349,23 +367,35 @@ def main():
         }
         all_episodes.extend(correct_episodes)
 
-    # Auto-discover HLE training runs
+    # Auto-discover HLE training runs (exclude eval QIDs)
     hle_train_dir = experiment_dir / HLE_TRAINING_DIR
     if hle_train_dir.exists():
+        eval_qids = _get_hle_eval_qids()
         hle_train_episodes = []
+        hle_eval_filtered = 0
         for run_dir in sorted(hle_train_dir.iterdir()):
             if not run_dir.is_dir() or not run_dir.name.startswith("run_"):
                 continue
             traj_dirs = discover_trajectories(run_dir)
             for td in traj_dirs:
-                ep = parse_episode(td, "hle_train")
-                if ep is not None:
-                    hle_train_episodes.append(ep)
+                ep = parse_episode(td, "hle")
+                if ep is None:
+                    continue
+                if ep["metadata"]["qid"] in eval_qids:
+                    hle_eval_filtered += 1
+                    continue
+                hle_train_episodes.append(ep)
+        if hle_eval_filtered:
+            print(f"  HLE training: filtered out {hle_eval_filtered} eval-set episodes")
         if hle_train_episodes:
             hle_train_episodes = [e for e in hle_train_episodes if e["metadata"].get("correct")]
+            before_cost = len(hle_train_episodes)
+            hle_train_episodes = [e for e in hle_train_episodes if e["metadata"].get("cost_usd", 0) <= MAX_COST_USD]
+            if before_cost > len(hle_train_episodes):
+                print(f"  HLE cost filter: removed {before_cost - len(hle_train_episodes)} episodes > ${MAX_COST_USD}")
             correct = len(hle_train_episodes)
             avg_explores = sum(e["metadata"]["num_explores"] for e in hle_train_episodes) / len(hle_train_episodes)
-            stats["hle_train"] = {
+            stats["hle"] = {
                 "total": len(hle_train_episodes),
                 "correct": correct,
                 "avg_explores": round(avg_explores, 2),

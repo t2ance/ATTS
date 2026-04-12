@@ -24,6 +24,21 @@ from logger import RunLogger
 
 
 # ---------------------------------------------------------------------------
+# Path helpers
+# ---------------------------------------------------------------------------
+
+def _rollout_subpath(base: Path, qid: str, rollout_idx: int | None) -> Path:
+    """Return nested path when rollout_idx is set, flat path otherwise.
+
+    K=1 (rollout_idx=None) -> base/<qid>          (old behavior)
+    K>1 (rollout_idx=k)    -> base/<qid>/rollout_<k>
+    """
+    if rollout_idx is None:
+        return base / qid
+    return base / qid / f"rollout_{rollout_idx}"
+
+
+# ---------------------------------------------------------------------------
 # Grading helpers
 # ---------------------------------------------------------------------------
 
@@ -79,10 +94,22 @@ async def _grade_cached_explores(
             idx += 1
             continue
         ans = benchmark.get_answer_from_explore(d)
-        is_correct_exp, jc = await _grade_with_cache(
-            benchmark, ans, gold_answer, question, row,
-            backend=backend, grade_dir=grade_qid_dir / f"explore_{idx}", quiet=quiet,
-        )
+        # Explicit cache check: reuse grade from shared cache if available
+        cache_grade_path = cache_base / qid / f"explore_{idx}" / "grade.json"
+        judge_key = benchmark.judge_model or "none"
+        cached_grade = None
+        if cache_grade_path.exists():
+            cached_grade = json.loads(cache_grade_path.read_text(encoding="utf-8"))
+            if cached_grade.get("judge_model") != judge_key:
+                cached_grade = None
+        if cached_grade is not None:
+            is_correct_exp = cached_grade["is_correct"]
+            jc = 0.0
+        else:
+            is_correct_exp, jc = await _grade_with_cache(
+                benchmark, ans, gold_answer, question, row,
+                backend=backend, grade_dir=grade_qid_dir / f"explore_{idx}", quiet=quiet,
+            )
         candidates.append((benchmark.normalize_answer(ans), is_correct_exp, d.get("cost_usd", 0.0)))
         total_jc += jc
         idx += 1
@@ -97,9 +124,10 @@ async def _grade_question_explores(
     backend: str,
     traj_base_dir: Path,
     quiet: bool = True,
+    rollout_idx: int | None = None,
 ) -> tuple[list[Candidate3], float]:
     """Grade all explores for one question. Returns (candidates, judge_cost)."""
-    grade_qid_dir = traj_base_dir / "grading" / qid
+    grade_qid_dir = _rollout_subpath(traj_base_dir / "grading", qid, rollout_idx)
 
     if cache_dir is not None:
         return await _grade_cached_explores(
@@ -130,15 +158,17 @@ async def _grade_question_explores_multi(
     backend: str,
     traj_base_dir: Path,
     quiet: bool = True,
+    rollout_idx: int | None = None,
 ) -> tuple[dict[str, list[Candidate3]], float]:
     """Grade all cached explores per model for one question."""
     per_model: dict[str, list[Candidate3]] = {}
     total_jc = 0.0
+    grade_qid_dir = _rollout_subpath(traj_base_dir / "grading", qid, rollout_idx)
     for model_alias, cache_base in cache_dirs.items():
         cands, jc = await _grade_cached_explores(
             benchmark, qid, gold_answer, question, row,
             cache_base, backend,
-            traj_base_dir / "grading" / qid / model_alias,
+            grade_qid_dir / model_alias,
             quiet,
         )
         per_model[model_alias] = cands
@@ -163,9 +193,13 @@ async def evaluate(
     integrate_model: str = "gpt-5.2",
     dataset_config: dict | None = None,
     cache_dirs_multi: dict[str, Path] | None = None,
+    num_rollouts: int = 1,
 ) -> dict:
     """Run the TTS agent on dataset rows and record results."""
-    done_ids: set[str] = set()
+    # Resume uses composite key (qid, rollout_idx) so K>1 runs with duplicate
+    # qids can be resumed correctly. Old records without rollout_idx fall
+    # back to 0, preserving K=1 resume semantics.
+    done_ids: set[tuple[str, int]] = set()
     done_records: list[dict] = []
     if resume_run_dir is not None:
         results_path = Path(resume_run_dir) / "results.jsonl"
@@ -173,9 +207,9 @@ async def evaluate(
         with open(results_path) as f:
             for line in f:
                 rec = json.loads(line)
-                done_ids.add(rec["id"])
+                done_ids.add((rec["id"], rec.get("rollout_idx", 0)))
                 done_records.append(rec)
-        print(f"Resuming {resume_run_dir}: {len(done_ids)} questions already completed")
+        print(f"Resuming {resume_run_dir}: {len(done_ids)} rollouts already completed")
 
     benchmark = infra.benchmark
     cache_dir = infra.cache_dir
@@ -183,7 +217,10 @@ async def evaluate(
     quiet = infra.quiet
     num_explores = infra.max_iterations
 
-    pending = [r for r in rows if benchmark.get_id(r) not in done_ids]
+    def _row_key(r: dict) -> tuple[str, int]:
+        return (benchmark.get_id(r), r.get("_rollout_idx", 0) or 0)
+
+    pending = [r for r in rows if _row_key(r) not in done_ids]
     if num is not None:
         remaining = max(0, num - len(done_ids))
         pending = pending[:remaining]
@@ -246,8 +283,9 @@ async def evaluate(
     grade_done_count = 0
     grade_done_lock = asyncio.Lock()
 
-    # Build a lookup from id -> row for grading resumed records
-    row_by_id = {benchmark.get_id(r): r for r in rows}
+    # Build a lookup from (id, rollout_idx) -> row for grading resumed records
+    # rollout_idx=0 for K=1 rows so old resume behavior preserved.
+    row_by_id = {(benchmark.get_id(r), r.get("_rollout_idx") or 0): r for r in rows}
 
     # Count total candidates to grade and how many are already cached
     if done_records:
@@ -256,8 +294,9 @@ async def evaluate(
         already_cached = 0
         for rec in done_records:
             qid = rec["id"]
-            grade_qid_dir = logger.run_dir / "grading" / qid
-            # Count explores from cache_dir
+            rec_rollout = rec.get("rollout_idx")  # None = K=1 old behavior
+            grade_qid_dir = _rollout_subpath(logger.run_dir / "grading", qid, rec_rollout)
+            # Count explores from cache_dir (shared haiku cache; always uses real qid)
             if grade_cache_dir is not None:
                 idx = 1
                 seq = 0
@@ -286,26 +325,29 @@ async def evaluate(
     async def grade_done_record(idx: int, rec: dict) -> dict:
         nonlocal grade_done_count
         qid = rec["id"]
+        rec_rollout = rec.get("rollout_idx")  # None = K=1 old record
         gold_answer = str(rec["gold_answer"])
         question_text = rec.get("question", "")
         predicted = str(rec.get("predicted_answer", ""))
         num_exp = rec.get("num_explores", 0)
         # Use the original row if available, otherwise construct a minimal one
-        orig_row = row_by_id.get(qid, rec)
+        orig_row = row_by_id.get((qid, rec_rollout or 0), rec)
 
         async with grade_sem:
             cands, jc = await _grade_question_explores(
                 benchmark, qid, gold_answer, question_text, orig_row,
                 rec.get("rounds", []), grade_cache_dir, backend, logger.run_dir,
+                rollout_idx=rec_rollout,
             )
             pm_cands = None
             if cache_dirs_multi:
                 pm_cands, pm_jc = await _grade_question_explores_multi(
                     benchmark, qid, gold_answer, question_text, orig_row,
                     cache_dirs_multi, backend, logger.run_dir,
+                    rollout_idx=rec_rollout,
                 )
                 jc += pm_jc
-            grade_dir = logger.run_dir / "grading" / qid
+            grade_dir = _rollout_subpath(logger.run_dir / "grading", qid, rec_rollout)
             is_correct, jc_int = await _grade_with_cache(
                 benchmark, predicted, gold_answer, question_text, orig_row,
                 backend=backend, grade_dir=grade_dir,
@@ -353,13 +395,17 @@ async def evaluate(
         nonlocal correct, first_correct, errors, total_cost, total_judge_cost, bon_judge_cost
 
         qid = benchmark.get_id(row)
+        rollout_idx = row.get("_rollout_idx", None)  # None = K=1 old path
+        temperature = row.get("_temperature", None)  # None = backend default (0.0)
         question = benchmark.get_question(row)
         gold_answer = benchmark.get_answer(row)
         subset = benchmark.classify_subset(row)
         image_meta = redact_image_for_logs(row)
 
+        qid_label = qid if rollout_idx is None else f"{qid}/rollout_{rollout_idx}"
+
         async with sem:
-            print(f"  [{qid}] started")
+            print(f"  [{qid_label}] started")
 
             t0 = time.time()
             image_data_url = benchmark.get_image(row)
@@ -372,6 +418,8 @@ async def evaluate(
                 orchestrator_model=orchestrator_model,
                 explore_model=explore_model,
                 integrate_model=integrate_model,
+                temperature=temperature,
+                rollout_idx=rollout_idx,
             )
             predicted = result.answer
             question_cost = result.cost.total_cost_usd
@@ -385,9 +433,9 @@ async def evaluate(
             ]
 
             elapsed = time.time() - t0
-            traj_dir = logger.run_dir / "trajectories" / qid
+            traj_dir = _rollout_subpath(logger.run_dir / "trajectories", qid, rollout_idx)
             actual_explores = sum(1 for r in (result.rounds if result else []) if r.action == "explore")
-            grade_dir = logger.run_dir / "grading" / qid
+            grade_dir = _rollout_subpath(logger.run_dir / "grading", qid, rollout_idx)
             is_correct, judge_cost_1 = await _grade_with_cache(
                 benchmark, predicted, gold_answer, question, row,
                 backend=backend, grade_dir=grade_dir, quiet=quiet,
@@ -409,6 +457,7 @@ async def evaluate(
                 benchmark, qid, gold_answer, question, row,
                 round_logs, grade_cache_dir, backend, logger.run_dir,
                 quiet=quiet,
+                rollout_idx=rollout_idx,
             )
             pm_cands = None
             if cache_dirs_multi:
@@ -416,6 +465,7 @@ async def evaluate(
                     benchmark, qid, gold_answer, question, row,
                     cache_dirs_multi, backend, logger.run_dir,
                     quiet=quiet,
+                    rollout_idx=rollout_idx,
                 )
                 qbon_jc += pm_jc
 
@@ -423,6 +473,8 @@ async def evaluate(
             answer_type = row.get("answer_type", "exactMatch")
             record = {
                 "id": qid,
+                "rollout_idx": rollout_idx if rollout_idx is not None else 0,
+                "temperature": temperature if temperature is not None else 0.0,
                 "subset": subset,
                 "category": category,
                 "answer_type": answer_type,
@@ -442,6 +494,7 @@ async def evaluate(
                     {"normalized_answer": na, "is_correct": ic, "cost_usd": c}
                     for na, ic, c in question_cands
                 ],
+                "output_exceeded": result.output_exceeded if result else False,
                 **image_meta,
             }
 
@@ -473,7 +526,7 @@ async def evaluate(
             done_so_far = len(all_records)
             status = "correct" if is_correct else "wrong"
             predicted_short = predicted.replace("\n", " ")[:80]
-            print(f"  [{done_so_far}/{total}] {qid}: {status}, predicted={predicted_short}, cost=${question_cost}")
+            print(f"  [{done_so_far}/{total}] {qid_label}: {status}, predicted={predicted_short}, cost=${question_cost}")
 
             # Running summary
             metrics = benchmark.compute_metrics(all_candidates, all_integrated, all_subset_labels,
@@ -571,8 +624,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--exploration-effort", type=str, default=None,
                         choices=["low", "medium", "high"],
                         help="Exploration effort for multi-model: low (stop early), medium (cross-model verify), high (thorough)")
+    parser.add_argument("--num-rollouts", type=int, default=1,
+                        help="Number of rollouts per question for rejection sampling. Default 1 = old "
+                             "single-rollout behavior. When >1, each question runs K times: rollout 0 at "
+                             "temperature=0.0 (greedy best-effort), rollouts 1..K-1 at temperature=0.7 "
+                             "(diversity sampling). Per-rollout trajectories under trajectories/<qid>/rollout_<k>/.")
 
     args = parser.parse_args()
+    assert args.num_rollouts >= 1, f"--num-rollouts must be >= 1, got {args.num_rollouts}"
     args._benchmark = benchmark
     return args
 
@@ -669,6 +728,10 @@ async def async_main() -> None:
         random.seed(args.seed)
         random.shuffle(filtered)
 
+    if args.skip > 0:
+        print(f"Skipping first {args.skip} questions")
+        filtered = filtered[args.skip:]
+
     # Parse cache_dirs: plain path for single-model, model:path pairs for multi-model
     cache_dir = None
     if args.cache_dirs:
@@ -685,6 +748,34 @@ async def async_main() -> None:
         filtered = [r for r in filtered if benchmark.get_id(r) in cached_ids]
         print(f"{args.method}: {len(filtered)} questions with cache (from {before})")
 
+    # Expand rows for K-rollouts (rejection sampling). K=1 leaves rows untouched
+    # so all existing code paths are byte-identical to old behavior.
+    if args.num_rollouts > 1:
+        # Guard: temperature diversity is only wired into the tts-agent method
+        # with the vllm backend. Other methods/backends absorb the kwarg via
+        # **_extra and produce K identical outputs at K times the cost.
+        assert args.method == "tts-agent", (
+            f"--num-rollouts > 1 only supported for --method tts-agent, got {args.method}"
+        )
+        assert args.backend == "vllm", (
+            f"--num-rollouts > 1 only supported for --backend vllm (Claude SDK does not expose "
+            f"temperature); got {args.backend}"
+        )
+        question_rows = filtered if args.num is None else filtered[:args.num]
+        expanded: list[dict] = []
+        for row in question_rows:
+            for k in range(args.num_rollouts):
+                vrow = dict(row)  # shallow copy; preserves benchmark.get_id(r) -> real qid
+                vrow["_rollout_idx"] = k
+                vrow["_temperature"] = 0.0 if k == 0 else 0.7
+                expanded.append(vrow)
+        assert len(expanded) == len(question_rows) * args.num_rollouts
+        filtered = expanded
+        effective_num = len(expanded)
+        print(f"Rejection sampling: expanded {len(question_rows)} questions x {args.num_rollouts} rollouts = {effective_num} tasks")
+    else:
+        effective_num = args.num
+
     infra = InfraConfig(
         backend=args.backend,
         max_iterations=args.num_explores,
@@ -697,13 +788,14 @@ async def async_main() -> None:
         quiet=not args.verbose,
         logger=None,
         enable_integrate=not args.no_integrate,
+        max_output_chars=args.max_output_chars,
     )
 
     await evaluate(
         infra=infra,
         rows=filtered,
         solve_fn=solve,
-        num=args.num,
+        num=effective_num,
         num_workers=args.num_workers,
         resume_run_dir=args.resume,
         log_dir=args.log_dir,
@@ -716,8 +808,10 @@ async def async_main() -> None:
             "seed": args.seed,
             "shuffle": args.shuffle,
             "num": args.num,
+            "num_rollouts": args.num_rollouts,
         },
         cache_dirs_multi=getattr(args, "_cache_dirs_multi", None),
+        num_rollouts=args.num_rollouts,
     )
 
 

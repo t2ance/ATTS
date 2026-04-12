@@ -193,6 +193,22 @@ OURS_STYLES = {
     "ATTS Multi Med": {"color": "#00897B"},
 }
 
+# HLE cost correction: 10 compaction-failed explores in hle/sonnet/gold cache produced
+# garbage answers at high cost. Their cost_usd is zeroed. Each method consumed a different
+# subset depending on stopping behavior. Values verified against results.jsonl round-level
+# matching. See main.tex "% Corrected:" comments for full derivation per table cell.
+_HLE_COST_CORRECTIONS = {
+    # method_key: corrected $/q
+    "atts": 1.5879,            # v3 no_integrate: ($190.47 - $31.68) / 100
+    "rerank": 3.6133,          # Skywork: ($440.73 - $79.40) / 100, all-8 method
+    "llm_selection": 3.7055,   # standalone_integrator: ($449.95 - $79.40) / 100, all-8
+    "multi_med": 1.5417,       # effort_medium: ($162.80 - $8.63) / 100
+    "multi_low": 1.4355,       # effort_low: ($152.18 - $8.63) / 100
+    "haiku_orch": 1.8286,      # ($223.15 - $40.28) / 100, 5 bad consumed
+    "opus_orch": 1.4995,       # ($178.71 - $28.75) / 100, 3 bad consumed
+    # effort_high: not corrected (0 bad explores consumed)
+}
+
 
 def plot_benchmark(bench_key: str, bench_cfg: dict) -> None:
     """Main figure: baselines + ATTS + Multi Med + BoN curve."""
@@ -222,6 +238,8 @@ def plot_benchmark(bench_key: str, bench_cfg: dict) -> None:
 
     # Baseline methods
     rerank_cost = get_rerank_cost(bench_cfg["delegated"], delegated["total"])
+    if bench_key == "hle":
+        rerank_cost = _HLE_COST_CORRECTIONS["rerank"]
     for method_name, log_path in bench_cfg["methods"].items():
         if not log_path.exists():
             continue
@@ -242,23 +260,26 @@ def plot_benchmark(bench_key: str, bench_cfg: dict) -> None:
         llm_sel = read_mm_effort(llm_sel_dir)
         if llm_sel is not None:
             mcolor = BASELINE_STYLES["LLM Selection"]["color"]
-            ax.scatter([llm_sel["cost"]], [llm_sel["accuracy"]], color=mcolor,
+            llm_cost = _HLE_COST_CORRECTIONS["llm_selection"] if bench_key == "hle" else llm_sel["cost"]
+            ax.scatter([llm_cost], [llm_sel["accuracy"]], color=mcolor,
                        marker="o", s=80, zorder=5,
                        label=f"LLM Selection ({llm_sel['accuracy']:.1f}%)")
             all_accs.append(llm_sel["accuracy"])
-            all_costs.append(llm_sel["cost"])
+            all_costs.append(llm_cost)
 
     # ATTS (explore-only, from no_integrate log)
     ours_points = []
     if ni is not None:
-        ours_points.append(("ATTS", ni["agg_cost"], ni["integrated_pct"]))
+        atts_cost = _HLE_COST_CORRECTIONS["atts"] if bench_key == "hle" else ni["agg_cost"]
+        ours_points.append(("ATTS", atts_cost, ni["integrated_pct"]))
 
     # ATTS Multi Med only
     effort_dirs = bench_cfg.get("effort_dirs", {})
     if "Med" in effort_dirs:
         mm = read_mm_effort(effort_dirs["Med"])
         if mm is not None:
-            ours_points.append(("ATTS Multi Med", mm["cost"], mm["accuracy"]))
+            mm_cost = _HLE_COST_CORRECTIONS["multi_med"] if bench_key == "hle" else mm["cost"]
+            ours_points.append(("ATTS Multi Med", mm_cost, mm["accuracy"]))
 
     for label, cost, acc in ours_points:
         mcolor = OURS_STYLES.get(label, {}).get("color", "#E91E63")
@@ -309,6 +330,9 @@ def plot_effort_ablation() -> None:
                 continue
             mm = read_mm_effort(effort_dirs[level])
             if mm is not None:
+                hle_key = f"multi_{level.lower()}"
+                if bench_key == "hle" and hle_key in _HLE_COST_CORRECTIONS:
+                    mm = {**mm, "cost": _HLE_COST_CORRECTIONS[hle_key]}
                 pts[level] = mm
 
         if not pts:
@@ -368,14 +392,17 @@ def plot_orch_ablation() -> None:
         if "no_integrate" in bench_cfg and bench_cfg["no_integrate"].exists():
             ni = parse_delegated_log(bench_cfg["no_integrate"])
             if ni is not None:
-                pts["Sonnet"] = {"accuracy": ni["integrated_pct"], "cost": ni["agg_cost"]}
+                cost = _HLE_COST_CORRECTIONS["atts"] if bench_key == "hle" else ni["agg_cost"]
+                pts["Sonnet"] = {"accuracy": ni["integrated_pct"], "cost": cost}
 
         for key, label in [("haiku_orch", "Haiku"), ("opus_orch", "Opus")]:
             if key not in bench_cfg or not bench_cfg[key].exists():
                 continue
             vdata = parse_delegated_log(bench_cfg[key])
             if vdata is not None:
-                pts[label] = {"accuracy": vdata["integrated_pct"], "cost": vdata["agg_cost"]}
+                hle_key = f"{key.replace('_orch', '')}_orch"
+                cost = _HLE_COST_CORRECTIONS.get(hle_key, vdata["agg_cost"]) if bench_key == "hle" else vdata["agg_cost"]
+                pts[label] = {"accuracy": vdata["integrated_pct"], "cost": cost}
             else:
                 # Fallback: read from progress.json in the run directory
                 run_dirs = sorted(bench_cfg[key].parent.glob("run_*/progress.json"))
@@ -450,6 +477,8 @@ def plot_main_results_combined() -> None:
 
         # Baselines
         rerank_cost = get_rerank_cost(bench_cfg["delegated"], delegated["total"])
+        if bench_key == "hle":
+            rerank_cost = _HLE_COST_CORRECTIONS["rerank"]
         for method_name, log_path in bench_cfg["methods"].items():
             if not log_path.exists():
                 continue
@@ -469,21 +498,24 @@ def plot_main_results_combined() -> None:
             llm_sel = read_mm_effort(llm_sel_dir)
             if llm_sel is not None:
                 mcolor = BASELINE_STYLES["LLM Selection"]["color"]
-                ax.scatter([llm_sel["cost"]], [llm_sel["accuracy"]], color=mcolor,
+                llm_cost = _HLE_COST_CORRECTIONS["llm_selection"] if bench_key == "hle" else llm_sel["cost"]
+                ax.scatter([llm_cost], [llm_sel["accuracy"]], color=mcolor,
                            marker="o", s=100, zorder=5,
                            label="LLM Selection" if idx == 0 else "")
                 all_accs.append(llm_sel["accuracy"])
-                all_costs.append(llm_sel["cost"])
+                all_costs.append(llm_cost)
 
         # ATTS
         ours_points = []
         if ni is not None:
-            ours_points.append(("ATTS", ni["agg_cost"], ni["integrated_pct"]))
+            atts_cost = _HLE_COST_CORRECTIONS["atts"] if bench_key == "hle" else ni["agg_cost"]
+            ours_points.append(("ATTS", atts_cost, ni["integrated_pct"]))
         effort_dirs = bench_cfg.get("effort_dirs", {})
         if "Med" in effort_dirs:
             mm = read_mm_effort(effort_dirs["Med"])
             if mm is not None:
-                ours_points.append(("ATTS Multi Med", mm["cost"], mm["accuracy"]))
+                mm_cost = _HLE_COST_CORRECTIONS["multi_med"] if bench_key == "hle" else mm["cost"]
+                ours_points.append(("ATTS Multi Med", mm_cost, mm["accuracy"]))
 
         for label, cost, acc in ours_points:
             mcolor = OURS_STYLES.get(label, {}).get("color", "#E91E63")

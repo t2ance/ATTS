@@ -427,6 +427,7 @@ class BenchmarkConfig(ABC):
 
     def add_dataset_args(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--num", type=int, default=None, help="Number of questions")
+        parser.add_argument("--skip", type=int, default=0, help="Skip first N questions (applied after filtering, before --num)")
         parser.add_argument("--seed", type=int, default=42)
         parser.add_argument("--shuffle", action="store_true")
 
@@ -440,6 +441,8 @@ class BenchmarkConfig(ABC):
                             help="Cache directory for explore results. Single path for one model, or model:path pairs for multi-model (e.g. haiku:cache/haiku,sonnet:cache/sonnet)")
         parser.add_argument("--num-workers", type=int, default=1, help="Concurrent workers (default: 1)")
         parser.add_argument("--explore-timeout", type=float, default=1200, help="Timeout in seconds per explore call (default: 1200)")
+        parser.add_argument("--max-output-chars", type=int, default=None,
+                            help="Max orchestrator output chars (thinking+response). Kills session if exceeded. Default: no limit.")
 
     # -- Metrics --
 

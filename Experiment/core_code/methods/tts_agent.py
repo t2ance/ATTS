@@ -188,6 +188,7 @@ def _log_round(ctx: SolveContext, round_log: RoundLog) -> None:
             round_num=round_log.round_num,
             action=round_log.action,
             tool_input=round_log.tool_input,
+            rollout_idx=ctx.rollout_idx,
         )
 
 
@@ -198,6 +199,7 @@ async def _run_orchestrator(
     integrate_model: str,
     user_message_text: str,
     enable_integrate: bool = True,
+    temperature: float | None = None,
 ) -> None:
     """Run the orchestrator loop via the backend's run_tool_conversation."""
     backend_mod = import_module(f"backends.{ctx.backend}")
@@ -244,7 +246,7 @@ async def _run_orchestrator(
         tools = [EXPLORE_TOOL]
         output_format = {"type": "json_schema", "schema": ctx.benchmark.get_explore_schema()}
 
-    cost, usage = await backend_mod.run_tool_conversation(
+    cost, usage, output_exceeded = await backend_mod.run_tool_conversation(
         system_prompt=system_prompt,
         user_message=user_message_text,
         image_data_url=ctx.image_data_url,
@@ -257,7 +259,10 @@ async def _run_orchestrator(
         writer=ctx.writer,
         quiet=ctx.quiet,
         on_structured_output=make_structured_output_handler(ctx),
+        max_output_chars=ctx.max_output_chars,
+        temperature=temperature,
     )
+    ctx._output_exceeded = output_exceeded
     ctx.cost.add(cost, usage, component="orchestrator")
 
     ctx.writer.write_session_summary(ctx.cost.total_cost_usd, {
@@ -278,9 +283,15 @@ async def solve(
     orchestrator_model: str = "gpt-5.2",
     explore_model: str = "gpt-5.2",
     integrate_model: str = "gpt-5.2",
+    temperature: float | None = None,
+    rollout_idx: int | None = None,
     **_extra,
 ) -> SolveResult:
-    """Solve a problem using delegated test-time scaling."""
+    """Solve a problem using delegated test-time scaling.
+
+    temperature: orchestrator sampling temperature. None = old default (0.0 greedy).
+    rollout_idx: when set, trajectory goes to trajectories/<qid>/rollout_<k>/ for K>1 runs.
+    """
     user_message_text = build_user_message(problem, infra.max_iterations)
     writer_prompt = ORCHESTRATOR_NO_INTEGRATE_SYSTEM_PROMPT if not infra.enable_integrate else ORCHESTRATOR_SYSTEM_PROMPT
     ctx = create_solve_context(
@@ -296,6 +307,7 @@ async def solve(
             f"**Max iterations**: {infra.max_iterations}",
         ],
         writer_title_suffix="(delegated)",
+        rollout_idx=rollout_idx,
     )
 
     if not ctx.quiet:
@@ -308,6 +320,7 @@ async def solve(
     await _run_orchestrator(
         ctx, orchestrator_model, explore_model, integrate_model, user_message_text,
         enable_integrate=infra.enable_integrate,
+        temperature=temperature,
     )
 
     if ctx.state.final_answer is None:
@@ -317,4 +330,6 @@ async def solve(
         print(f"\nTotal cost: ${ctx.cost.total_cost_usd}"
               f" (input: {ctx.cost.total_input_tokens}, output: {ctx.cost.total_output_tokens})")
 
-    return ctx.result(ctx.state.final_answer)
+    result = ctx.result(ctx.state.final_answer)
+    result.output_exceeded = getattr(ctx, "_output_exceeded", False)
+    return result

@@ -35,6 +35,7 @@ class InfraConfig:
     quiet: bool
     logger: RunLogger | None
     enable_integrate: bool = True
+    max_output_chars: int | None = None
 
 
 @dataclass
@@ -79,6 +80,8 @@ class SolveContext:
     # Logging
     logger: RunLogger | None
     question_id: str | None
+    max_output_chars: int | None = None
+    rollout_idx: int | None = None
 
     async def call_sub_model(
         self,
@@ -318,8 +321,14 @@ def create_solve_context(
     writer_user_message: str,
     writer_header_lines: list[str],
     writer_title_suffix: str,
+    rollout_idx: int | None = None,
 ) -> SolveContext:
-    """Create common solve infrastructure shared by all methods."""
+    """Create common solve infrastructure shared by all methods.
+
+    When rollout_idx is None (default, K=1 path), trajectory is written to
+    trajectories/<qid>/ (flat, old behavior). When rollout_idx is set (K>1
+    path), trajectory is written to trajectories/<qid>/rollout_<k>/ (nested).
+    """
     if infra.cache_only:
         assert infra.cache_dir is not None, "cache_only=True requires cache_dir"
 
@@ -329,7 +338,10 @@ def create_solve_context(
 
     traj_dir = None
     if infra.logger and question_id:
-        traj_dir = infra.logger.run_dir / "trajectories" / question_id
+        if rollout_idx is None:
+            traj_dir = infra.logger.run_dir / "trajectories" / question_id
+        else:
+            traj_dir = infra.logger.run_dir / "trajectories" / question_id / f"rollout_{rollout_idx}"
         traj_dir.mkdir(parents=True, exist_ok=True)
 
     question_cache_dir = None
@@ -370,4 +382,6 @@ def create_solve_context(
         benchmark=infra.benchmark,
         logger=infra.logger,
         question_id=question_id,
+        max_output_chars=infra.max_output_chars,
+        rollout_idx=rollout_idx,
     )

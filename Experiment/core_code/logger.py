@@ -115,8 +115,14 @@ class RunLogger:
         action: str,
         tool_input: dict[str, Any],
         cost_usd: float = 0.0,
+        rollout_idx: int | None = None,
     ) -> None:
-        """Append a single round entry to rounds.jsonl (real-time)."""
+        """Append a single round entry to rounds.jsonl (real-time).
+
+        When rollout_idx is None (K=1 old behavior), the entry schema is
+        unchanged. When rollout_idx is set, it is added as a field so rounds
+        from different rollouts of the same question can be disambiguated.
+        """
         entry = {
             "timestamp": datetime.now().isoformat(),
             "question_id": question_id,
@@ -125,6 +131,8 @@ class RunLogger:
             "cost_usd": cost_usd,
             **tool_input,
         }
+        if rollout_idx is not None:
+            entry["rollout_idx"] = rollout_idx
         with open(self.run_dir / "rounds.jsonl", "a") as f:
             f.write(json.dumps(entry, ensure_ascii=False) + "\n")
 

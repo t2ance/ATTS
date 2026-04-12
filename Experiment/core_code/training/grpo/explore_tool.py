@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import random
 from typing import Any, Optional
 from uuid import uuid4
 
@@ -32,7 +33,13 @@ class ExploreTool(BaseTool):
         if instance_id is None:
             instance_id = str(uuid4())
         create_kwargs = kwargs.get("create_kwargs", {})
-        cached_explores = create_kwargs.get("cached_explores", [])
+        # Copy (do not mutate shared parquet-backed list) and shuffle per rollout.
+        # Diversity source: ATTS orchestration is order-sensitive (early stop,
+        # convergence detection), so the same 8 cached explores in different
+        # orders yield different trajectories. Combined with rollout temperature,
+        # this multiplies rollout variance at zero extra data cost.
+        cached_explores = list(create_kwargs.get("cached_explores", []))
+        random.shuffle(cached_explores)
         self._instances[instance_id] = {
             "cached_explores": cached_explores,
             "call_count": 0,

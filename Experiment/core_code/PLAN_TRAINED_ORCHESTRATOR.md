@@ -173,17 +173,15 @@ After verifying native tool calling, add: `--enable-auto-tool-choice --tool-call
 - `RAY_memory_monitor_refresh_ms=0` (disable Ray OOM killer, system has 251GB RAM)
 - `LD_LIBRARY_PATH=.../nvidia/cuda_runtime/lib:.../torch/lib` (fix SGLang subprocess CUDA import)
 
-### Completed work (2026-04-07)
+### Completed work (2026-04-08)
 
 1. **Tool implementations**: `training/grpo/explore_tool.py` (cached explores), `training/grpo/answer_tool.py` (StructuredOutput)
 2. **Tool config**: `training/grpo/tool_config.yaml` (fixed: `required: []` for explore)
 3. **Reward function**: `training/grpo/reward_fn.py` (R = correctness - 0.05 * num_explores)
-4. **Data preparation**: `training/grpo/prepare_data.py` (198 train, 22 val parquet, agent_name=atts_agent)
-5. **GRPO config**: `training/grpo/grpo_config.yaml` (Hydra, `pkg://verl.trainer.config`)
-6. **Launch script**: `scripts/training/train_grpo.sh` (env vars, uses run_grpo.py entrypoint)
+4. **Data preparation**: `training/grpo/prepare_data.py` (198 train, 22 val parquet, agent_name=tool_agent)
+5. **GRPO config**: `training/grpo/grpo_config.yaml` (Hydra, multi_turn + agent config, prompt/response_length)
+6. **Launch script**: `scripts/training/train_grpo.sh` (env vars, uses `verl.trainer.main_ppo` directly)
 7. **SFT merged model**: `checkpoints/sft_qwen3_8b_merged/` (16GB, contaminated data)
-8. **Custom agent loop**: `training/grpo/atts_agent_loop.py` (registered as `atts_agent`, direct cached explore lookup)
-9. **Entrypoint**: `training/grpo/run_grpo.py` (imports atts_agent_loop, delegates to verl)
 
 ### Verified stages
 
@@ -210,25 +208,20 @@ After verifying native tool calling, add: `--enable-auto-tool-choice --tool-call
 
 **Why we can't just upgrade sglang**: sglang 0.5.10 has breaking API changes (`_launch_subprocesses` moved to `Engine._launch_subprocesses`, different return signature, different required args). A simple shim doesn't work because deeper internal APIs also changed.
 
-### Fix 2: Custom ATTSAgentLoop (DONE)
+### Cleanup (2026-04-08): Removed custom AgentLoop
 
-`training/grpo/atts_agent_loop.py` registered as `atts_agent`. Benefits vs ToolAgentLoop:
-- No dependency on verl's tool registry (avoids schema validation issues)
-- Tool calling logic matches eval code exactly (train/eval consistency)
-- Cached explore lookup is direct Python, no HTTP tool calling overhead
-- Tool response format matches `tts_agent.py:102-109`
+Deleted `atts_agent_loop.py` and `run_grpo.py`. verl's default `ToolAgentLoop` (registered as `"tool_agent"`) handles everything: tool loading from config, `tools_kwargs` per-instance passing, multi-turn state, natural termination. Custom loop was unnecessary.
 
-Entrypoint: `training/grpo/run_grpo.py` imports agent loop, delegates to `verl.trainer.main_ppo`.
-Data format: `agent_name: "atts_agent"` in parquet rows.
+Also fixed latent bug: rollout-level `prompt_length`/`response_length` were unset (defaulting to 512), now set to 4096/8192 in `grpo_config.yaml`.
 
 Deleted: `patch_verl_sglang.py` (abandoned sglang 0.5.10 upgrade shim).
 
 ### Key design principle (CRITICAL)
 
-Train/eval harness MUST be identical. ATTSAgentLoop uses the same:
+Train/eval harness MUST be identical. Uses:
 - Tool calling protocol (hermes `<tool_call>` format via verl HermesToolParser)
-- Explore result format as `tts_agent.py`
-- StructuredOutput schema as `benchmarks/base.py` EXPLORE_SCHEMA
+- Explore result format matches `tts_agent.py`
+- StructuredOutput schema matches `benchmarks/base.py` EXPLORE_SCHEMA
 - Tool schemas match `tts_agent.py` EXPLORE_TOOL
 
 ### Next: end-to-end test
@@ -254,7 +247,7 @@ Add "ATTS (Qwen3-8B)" row to main results table. New subsection on learning the 
 5. **Train clean SFT** -- Rejection sampling on HLE training data only
 6. **Clean evaluation** -- GPQA, LCB, HLE (all unseen during training)
 7. **Assess cross-domain generalization** -- If poor, expand to multi-domain training data
-8. **GRPO** -- Both fixes implemented. Test with contaminated data first, then clean data after SFT
+8. **GRPO** -- Uses default ToolAgentLoop + sglang patch. Test with contaminated data first, then clean data after SFT
 9. **Paper section** -- Write results
 
 ## File Layout
@@ -268,12 +261,20 @@ Experiment/core_code/
     build_sft_data.py  # Trajectory parser (takes directory as argument)
     dataset_info.json  # LLaMA-Factory dataset descriptor
     sft_config_qwen3_8b.yaml  # Qwen3-8B config
-    preference.md      # User decisions log (this content merged into PLAN)
+    grpo/
+      explore_tool.py    # BaseTool: returns cached explores
+      answer_tool.py     # BaseTool: captures StructuredOutput
+      reward_fn.py       # compute_score() for GRPO reward
+      tool_config.yaml   # Tool schemas for verl ToolAgentLoop
+      grpo_config.yaml   # Hydra config (multi_turn, agent, lengths)
+      prepare_data.py    # Builds train/val parquet from SFT episodes
   scripts/training/
     precache_hle_training.sh
     generate_hle_trajectories.sh
     serve_vllm.sh
     train_sft.sh
+    train_grpo.sh        # 4xA100, 8B model
+    test_grpo_smoke.sh   # 1xGPU, 1.7B model
   checkpoints/          # .gitignore'd
     sft_qwen3_8b/       # Validation checkpoint (contaminated data)
 ```

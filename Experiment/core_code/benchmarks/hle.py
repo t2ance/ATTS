@@ -114,7 +114,7 @@ class HLEBenchmark(BenchmarkConfig):
     name = "hle"
     filter_keys = ("subset", "category", "text_only")
     majority_vote_compatible = False
-    judge_model = "claude-haiku-4-5-20251001"
+    judge_model = None  # TEMP 2026-04-11: disabled for smoke test (see feedback_defer_grading). Restore to "claude-haiku-4-5-20251001" after.
 
     def load_dataset(self) -> list[dict]:
         return _load_hle_dataset()
