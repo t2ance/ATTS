@@ -35,6 +35,9 @@ Thumbs.db
 Experiment/core_code/checkpoints/
 Experiment/core_code/training_data/
 Experiment/core_code/wandb/
+Experiment/core_code/outputs/
+outputs/
+wandb/
 
 # Downloaded paper sources
 Survey/arxiv_sources/
