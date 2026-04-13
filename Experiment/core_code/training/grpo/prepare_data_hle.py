@@ -27,6 +27,7 @@ sys.path.insert(0, str(CORE_CODE_DIR))
 
 from benchmarks.hle import _filter_dataset, _load_hle_dataset
 from prompts import ORCHESTRATOR_NO_INTEGRATE_SYSTEM_PROMPT, build_user_message
+from training.grpo.sync_tool_config import verify_tool_config_matches_canonical
 
 
 MAX_EXPLORES = 8
@@ -52,6 +53,7 @@ def load_cached_explores(qid: str) -> list[dict]:
             "confidence": data.get("confidence", 0.0),
             "approach": data.get("approach", ""),
             "reasoning": data.get("reasoning", ""),
+            "cost_usd": data.get("cost_usd", 0.0),
         })
     assert len(explores) == MAX_EXPLORES, f"{qid}: got {len(explores)} explores"
     return explores
@@ -77,12 +79,14 @@ def build_row(row: dict) -> dict:
         "reward_model": {"style": "rule", "ground_truth": gold},
         "extra_info": {
             "question_id": qid,
+            "question": problem,
             "benchmark": "hle",
             "need_tools_kwargs": True,
             "tools_kwargs": {
                 "explore": {
                     "create_kwargs": {
                         "cached_explores": cached_explores,
+                        "max_explores": MAX_EXPLORES,
                     },
                 },
                 "StructuredOutput": {
@@ -96,6 +100,11 @@ def build_row(row: dict) -> dict:
 
 
 def main() -> None:
+    # Fail loud if tool_config.yaml has drifted from the canonical
+    # EXPLORE_SCHEMA before building any training rows.
+    verify_tool_config_matches_canonical()
+    print("tool_config.yaml StructuredOutput schema matches EXPLORE_SCHEMA.")
+
     print(f"Loading HLE dataset from {EXPERIMENT_DIR}...")
     all_rows = _load_hle_dataset()
     gold_text = _filter_dataset(all_rows, subset="gold", text_only=True)

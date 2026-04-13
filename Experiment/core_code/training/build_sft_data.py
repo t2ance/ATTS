@@ -13,11 +13,19 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
 
+_CORE_CODE_DIR = Path(__file__).resolve().parent.parent
+if str(_CORE_CODE_DIR) not in sys.path:
+    sys.path.insert(0, str(_CORE_CODE_DIR))
 
-# -- Tool definitions for the orchestrator --
+from benchmarks.base import EXPLORE_SCHEMA, make_structured_output_function_schema  # noqa: E402
 
+
+# Tool definitions for the orchestrator. The `explore` tool takes no parameters;
+# the `StructuredOutput` tool's parameter schema is derived from the canonical
+# EXPLORE_SCHEMA, so any field change in benchmarks/base.py propagates here.
 TOOL_DEFS = [
     {
         "type": "function",
@@ -30,35 +38,7 @@ TOOL_DEFS = [
             "parameters": {"type": "object", "properties": {}},
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "StructuredOutput",
-            "description": "Submit the final answer.",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "approach": {
-                        "type": "string",
-                        "description": "What method/angle you used (one sentence)",
-                    },
-                    "reasoning": {
-                        "type": "string",
-                        "description": "Detailed step-by-step reasoning",
-                    },
-                    "answer": {
-                        "type": "string",
-                        "description": "The final answer only -- a short, direct value",
-                    },
-                    "confidence": {
-                        "type": "number",
-                        "description": "Your confidence in this answer (0.0 - 1.0)",
-                    },
-                },
-                "required": ["approach", "reasoning", "answer", "confidence"],
-            },
-        },
-    },
+    make_structured_output_function_schema(EXPLORE_SCHEMA),
 ]
 
 

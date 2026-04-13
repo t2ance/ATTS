@@ -45,6 +45,27 @@ EXPLORE_SCHEMA: dict[str, Any] = {
     "additionalProperties": False,
 }
 
+def make_structured_output_function_schema(
+    explore_schema: dict[str, Any],
+    name: str = "StructuredOutput",
+    description: str = "Submit the final answer.",
+) -> dict[str, Any]:
+    """Wrap an explore_schema into an OpenAI Function tool schema.
+
+    Single bridge between the canonical Python EXPLORE_SCHEMA and any consumer
+    that needs the OpenAI Function tool shape (verl tool_config.yaml,
+    SFT data builders, etc.).
+    """
+    return {
+        "type": "function",
+        "function": {
+            "name": name,
+            "description": description,
+            "parameters": explore_schema,
+        },
+    }
+
+
 INTEGRATION_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {

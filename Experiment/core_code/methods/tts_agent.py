@@ -11,6 +11,7 @@ from methods.base import (
     SolveContext,
     create_solve_context,
 )
+from methods.tool_io import CandidateRecord, FullRenderer
 from trajectory import RoundLog, SolveResult
 from prompts import (
     ORCHESTRATOR_SYSTEM_PROMPT,
@@ -65,26 +66,36 @@ def process_explore_result(
 ) -> str:
     """Process an explore result: update state, return tool result text.
 
-    Shared by single-model and multi-model explore.
+    Shared by single-model and multi-model explore. The returned text is
+    produced by `methods.tool_io.FullRenderer` -- the single source of truth
+    for candidate-text rendering, also consumed by the GRPO rollout tool and
+    the SFT data builder, so train and eval observe byte-identical strings.
     """
     state = ctx.state
     state.current_iteration += 1
     used = state.current_iteration
-    remaining = state.max_iterations - used
-    label = f" Model: {model_label}." if model_label else ""
+    label_suffix = f" ({model_label})" if model_label else ""
 
     if result.get("timed_out"):
         if not ctx.quiet:
-            print(f"  [sub-model] explore #{used}{(' (' + model_label + ')') if model_label else ''}: TIMED OUT -- recording empty candidate")
+            print(f"  [sub-model] explore #{used}{label_suffix}: TIMED OUT -- recording empty candidate")
         state.candidates.append(
             Candidate(answer="", reasoning="timed out", approach="", confidence=0.0, cost_usd=0.0)
         )
         ctx.writer.write_explore_timeout()
-        return (
-            f"Candidate #{used} recorded (timed out, empty answer).{label}\n"
-            f"Explore budget: {used}/{state.max_iterations} used, {remaining} remaining."
-            f"{extra_budget_text}"
-        )
+        return FullRenderer().render(CandidateRecord(
+            idx=used,
+            answer="",
+            confidence=0.0,
+            approach="",
+            reasoning="",
+            cost_usd=0.0,
+            used=used,
+            max_explores=state.max_iterations,
+            model_label=model_label,
+            extra_budget_text=extra_budget_text,
+            timed_out=True,
+        ))
 
     ctx.cost.add(explore_cost, explore_usage, component="explorer")
     answer = ctx.benchmark.get_answer_from_explore(result)
@@ -99,18 +110,20 @@ def process_explore_result(
         )
     )
 
-    text = (
-        f"Candidate #{used} recorded.{label}\n"
-        f"- Answer: {answer}\n"
-        f"- Confidence: {result.get('confidence', 'N/A')}\n"
-        f"- Approach: {result.get('approach', 'N/A')}\n"
-        f"- Reasoning: {result.get('reasoning', 'N/A')}\n"
-        f"- Cost: ${explore_cost:.2f}\n\n"
-        f"Explore budget: {used}/{state.max_iterations} used, {remaining} remaining."
-        f"{extra_budget_text}"
-    )
+    text = FullRenderer().render(CandidateRecord(
+        idx=used,
+        answer=answer,
+        confidence=float(result.get("confidence", 0.0)),
+        approach=result.get("approach", ""),
+        reasoning=result.get("reasoning", ""),
+        cost_usd=explore_cost,
+        used=used,
+        max_explores=state.max_iterations,
+        model_label=model_label,
+        extra_budget_text=extra_budget_text,
+    ))
     if not ctx.quiet:
-        print(f"  [sub-model] explore candidate #{len(state.candidates)}{(' (' + model_label + ')') if model_label else ''}: answer={answer}, confidence={result.get('confidence', 'N/A')}")
+        print(f"  [sub-model] explore candidate #{len(state.candidates)}{label_suffix}: answer={answer}, confidence={result.get('confidence', 'N/A')}")
     return text
 
 

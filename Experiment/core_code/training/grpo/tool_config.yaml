@@ -1,38 +1,44 @@
 tools:
-  - class_name: "training.grpo.explore_tool.ExploreTool"
-    config:
-      type: native
-    tool_schema:
-      type: "function"
-      function:
-        name: "explore"
-        description: "Dispatch a fresh, independent solver on the original problem. Returns a structured candidate with answer, reasoning, approach, and confidence."
-        parameters:
-          type: "object"
-          properties: {}
-          required: []
-
-  - class_name: "training.grpo.answer_tool.AnswerTool"
-    config:
-      type: native
-    tool_schema:
-      type: "function"
-      function:
-        name: "StructuredOutput"
-        description: "Submit the final answer."
-        parameters:
-          type: "object"
-          properties:
-            approach:
-              type: "string"
-              description: "What method/angle you used (one sentence)"
-            reasoning:
-              type: "string"
-              description: "Detailed step-by-step reasoning"
-            answer:
-              type: "string"
-              description: "The final answer only -- a short, direct value"
-            confidence:
-              type: "number"
-              description: "Your confidence in this answer (0.0 - 1.0)"
-          required: ["approach", "reasoning", "answer", "confidence"]
+- class_name: training.grpo.explore_tool.ExploreTool
+  config:
+    type: native
+  tool_schema:
+    type: function
+    function:
+      name: explore
+      description: Dispatch a fresh, independent solver on the original problem. Returns
+        a structured candidate with answer, reasoning, approach, and confidence.
+      parameters:
+        type: object
+        properties: {}
+        required: []
+- class_name: training.grpo.answer_tool.AnswerTool
+  config:
+    type: native
+  tool_schema:
+    type: function
+    function:
+      name: StructuredOutput
+      description: Submit the final answer.
+      parameters:
+        type: object
+        properties:
+          approach:
+            type: string
+            description: What method/angle you used (one sentence)
+          reasoning:
+            type: string
+            description: Detailed step-by-step reasoning
+          answer:
+            type: string
+            description: The final answer only -- a short, direct value (number, name,
+              letter, formula, etc.) with no preamble or explanation
+          confidence:
+            type: number
+            description: Your confidence in this answer (0.0 - 1.0)
+        required:
+        - approach
+        - reasoning
+        - answer
+        - confidence
+        additionalProperties: false

@@ -6,21 +6,35 @@ import json
 import logging
 import os
 import random
+import sys
+from pathlib import Path
 from typing import Any, Optional
 from uuid import uuid4
 
 from verl.tools.base_tool import BaseTool
 from verl.tools.schemas import OpenAIFunctionToolSchema, ToolResponse
 
+# Make `methods.tool_io` importable from inside verl's worker process.
+_CORE_CODE_DIR = Path(__file__).resolve().parent.parent.parent
+if str(_CORE_CODE_DIR) not in sys.path:
+    sys.path.insert(0, str(_CORE_CODE_DIR))
+
+from methods.tool_io import CandidateRecord, FullRenderer  # noqa: E402
+
 logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
+_RENDERER = FullRenderer()
 
 
 class ExploreTool(BaseTool):
     """Returns pre-cached explore results sequentially.
 
-    On create(), receives a list of cached explore result dicts.
-    Each execute() returns the next result formatted as the orchestrator expects.
+    On create(), receives a list of cached explore result dicts and the
+    max_explores budget cap. Each execute() returns the next cached result
+    rendered via the canonical `methods.tool_io.FullRenderer`, so the GRPO
+    rollout observes the same tool-return string format as the production
+    Claude orchestrator and the SFT data builder.
     """
 
     def __init__(self, config: dict, tool_schema: OpenAIFunctionToolSchema):
@@ -40,9 +54,11 @@ class ExploreTool(BaseTool):
         # this multiplies rollout variance at zero extra data cost.
         cached_explores = list(create_kwargs.get("cached_explores", []))
         random.shuffle(cached_explores)
+        max_explores = int(create_kwargs.get("max_explores", len(cached_explores)))
         self._instances[instance_id] = {
             "cached_explores": cached_explores,
             "call_count": 0,
+            "max_explores": max_explores,
         }
         return instance_id, ToolResponse()
 
@@ -57,15 +73,18 @@ class ExploreTool(BaseTool):
             return ToolResponse(text="No more cached explores available."), 0.0, {}
 
         explore = state["cached_explores"][idx]
-        candidate_num = idx + 1
-        text = (
-            f"Candidate #{candidate_num} recorded.\n"
-            f"- Answer: {explore['answer']}\n"
-            f"- Confidence: {explore['confidence']}\n"
-            f"- Approach: {explore['approach']}\n"
-            f"- Reasoning: {explore['reasoning']}"
+        used = idx + 1
+        record = CandidateRecord(
+            idx=used,
+            answer=explore["answer"],
+            confidence=float(explore["confidence"]),
+            approach=explore["approach"],
+            reasoning=explore["reasoning"],
+            cost_usd=float(explore.get("cost_usd", 0.0)),
+            used=used,
+            max_explores=state["max_explores"],
         )
-        return ToolResponse(text=text), 0.0, {}
+        return ToolResponse(text=_RENDERER.render(record)), 0.0, {}
 
     async def release(self, instance_id: str, **kwargs) -> None:
         self._instances.pop(instance_id, None)
