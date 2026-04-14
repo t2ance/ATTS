@@ -33,6 +33,7 @@ Thumbs.db
 
 # Training artifacts (large)
 Experiment/core_code/checkpoints/
+checkpoints/
 Experiment/core_code/training_data/
 Experiment/core_code/wandb/
 Experiment/core_code/outputs/
