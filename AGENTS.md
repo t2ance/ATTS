@@ -1,5 +1,7 @@
 # AGENTS.md
 
+## CRITICAL: GIVE A TLDR AFTER EACH OF YOUR RESPONSE FOR SUMMARY.
+
 ## Session Routing
 
 If the first user message includes `[Context: session-mode=workspace_qa]`, this is a lightweight workspace Q&A session.

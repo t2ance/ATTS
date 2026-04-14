@@ -166,7 +166,18 @@ async def call_sub_model(
         messages=messages,
         temperature=0.0,
         max_tokens=budget_tokens,
-        extra_body={"guided_json": output_schema} if output_schema else {},
+        response_format=(
+            {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": "structured_output",
+                    "schema": output_schema,
+                    "strict": True,
+                },
+            }
+            if output_schema
+            else None
+        ),
     )
 
     text = response.choices[0].message.content or ""

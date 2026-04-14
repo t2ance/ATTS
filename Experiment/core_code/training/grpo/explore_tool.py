@@ -83,6 +83,7 @@ class ExploreTool(BaseTool):
             cost_usd=float(explore.get("cost_usd", 0.0)),
             used=used,
             max_explores=state["max_explores"],
+            cache_id=str(explore.get("cache_id", "")),
         )
         return ToolResponse(text=_RENDERER.render(record)), 0.0, {}
 

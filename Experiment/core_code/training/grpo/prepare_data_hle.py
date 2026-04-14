@@ -44,16 +44,28 @@ def load_cached_explores(qid: str) -> list[dict]:
     assert qdir.exists(), f"cache dir missing: {qdir}"
     explores: list[dict] = []
     for i in range(1, MAX_EXPLORES + 1):
-        p = qdir / f"explore_{i}" / "result.json"
-        assert p.exists(), f"missing explore {i} for {qid}: {p}"
-        with open(p) as f:
+        explore_dir = qdir / f"explore_{i}"
+        result_path = explore_dir / "result.json"
+        grade_path = explore_dir / "grade.json"
+        assert result_path.exists(), f"missing explore {i} for {qid}: {result_path}"
+        assert grade_path.exists(), f"missing grade {i} for {qid}: {grade_path}"
+        with open(result_path) as f:
             data = json.load(f)
+        with open(grade_path) as f:
+            grade = json.load(f)
+        assert isinstance(grade.get("is_correct"), bool), (
+            f"bad cached grade for {qid} explore_{i}: {grade_path}"
+        )
         explores.append({
+            "cache_id": f"explore_{i}",
             "answer": data.get("answer", ""),
             "confidence": data.get("confidence", 0.0),
             "approach": data.get("approach", ""),
             "reasoning": data.get("reasoning", ""),
             "cost_usd": data.get("cost_usd", 0.0),
+            "is_correct": grade["is_correct"],
+            "judge_model": grade.get("judge_model", ""),
+            "judge_cost_usd": grade.get("judge_cost_usd", 0.0),
         })
     assert len(explores) == MAX_EXPLORES, f"{qid}: got {len(explores)} explores"
     return explores

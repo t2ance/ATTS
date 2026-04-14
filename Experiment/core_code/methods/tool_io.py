@@ -42,6 +42,7 @@ class CandidateRecord:
     used: int               # 1-based current iteration count after this call
     max_explores: int       # the budget cap (e.g. 8)
     model_label: str = ""   # "" if single-model
+    cache_id: str = ""      # stable opaque id for cached explore alignment
     extra_budget_text: str = ""   # multi-model / effort caller appends to budget line
     timed_out: bool = False
 
@@ -74,6 +75,7 @@ class FullRenderer(CandidateRenderer):
 
     7 lines for success records:
         Candidate #N recorded.{ Model: <label>}
+        - Cache ID: <cache_id>     (optional)
         - Answer: ...
         - Confidence: ...
         - Approach: ...
@@ -93,15 +95,18 @@ class FullRenderer(CandidateRenderer):
 
     def render(self, r: CandidateRecord) -> str:
         label = f" Model: {r.model_label}." if r.model_label else ""
+        cache_line = f"- Cache ID: {r.cache_id}\n" if r.cache_id else ""
         remaining = r.max_explores - r.used
         if r.timed_out:
             return (
                 f"Candidate #{r.idx} recorded (timed out, empty answer).{label}\n"
+                f"{cache_line}"
                 f"Explore budget: {r.used}/{r.max_explores} used, {remaining} remaining."
                 f"{r.extra_budget_text}"
             )
         return (
             f"Candidate #{r.idx} recorded.{label}\n"
+            f"{cache_line}"
             f"- Answer: {r.answer}\n"
             f"- Confidence: {r.confidence}\n"
             f"- Approach: {r.approach}\n"
@@ -182,6 +187,7 @@ def _self_check() -> None:
         used=1,
         max_explores=8,
         model_label="haiku",
+        cache_id="explore_1",
         extra_budget_text="\n  haiku: 2/8 remaining",
         timed_out=False,
     )

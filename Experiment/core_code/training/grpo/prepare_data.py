@@ -34,15 +34,28 @@ def load_cached_explores(cache_dir: Path, qid: str) -> list[dict]:
     explores = []
     for i in range(1, MAX_EXPLORES + 1):
         result_path = qid_dir / f"explore_{i}" / "result.json"
+        grade_path = qid_dir / f"explore_{i}" / "grade.json"
         if not result_path.exists():
             break
+        if not grade_path.exists():
+            raise FileNotFoundError(f"missing grade for cached explore: {grade_path}")
         with open(result_path) as f:
             data = json.load(f)
+        with open(grade_path) as f:
+            grade = json.load(f)
+        assert isinstance(grade.get("is_correct"), bool), (
+            f"bad cached grade for {qid} explore_{i}: {grade_path}"
+        )
         explores.append({
+            "cache_id": f"explore_{i}",
             "answer": data.get("answer", ""),
             "confidence": data.get("confidence", 0.0),
             "approach": data.get("approach", ""),
             "reasoning": data.get("reasoning", ""),
+            "cost_usd": data.get("cost_usd", 0.0),
+            "is_correct": grade["is_correct"],
+            "judge_model": grade.get("judge_model", ""),
+            "judge_cost_usd": grade.get("judge_cost_usd", 0.0),
         })
     # Require complete explores
     if len(explores) < MAX_EXPLORES:
