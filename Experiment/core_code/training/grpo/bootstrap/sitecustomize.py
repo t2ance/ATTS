@@ -39,14 +39,50 @@ in the vLLMHttpServer actor (which does NOT have WG_BACKEND set).
 """
 from __future__ import annotations
 
+import json
 import logging
 import os
 
 _logger = logging.getLogger("structural_tag_patch")
 
 # JSON constraint applied to the <tool_call>...</tool_call> region.
-# schema {"type": "object"} is permissive enough for all valid tool calls.
-_STRUCTURAL_TAG = '{"structures": [{"begin": "<tool_call>", "schema": {"type": "object"}, "end": "</tool_call>"}], "triggers": ["<tool_call>"]}'
+#
+# Prior schema was just {"type": "object"} -- technically valid but too
+# permissive. Observed failure (2026-04-17): greedy decode (temp=0) kept
+# emitting `,"arguments": {}` forever and never closed the object, because
+# the FSA allowed unlimited additionalProperties + duplicate keys + no
+# required fields. Model burned 16384-token response budget per rollout.
+#
+# Tightening below forces the FSA to accept ONLY:
+#   {"name": "explore"|"StructuredOutput", "arguments": {...}}
+# Once both keys appear, additionalProperties:false + required leave `}`
+# as the only legal next token, breaking the infinite-key-append loop.
+#
+# arguments schema stays {"type": "object"} on purpose -- real tool
+# arguments structure varies per tool, and tightening further risks
+# blocking legitimate calls. tool_agent_loop validates argument content
+# downstream.
+#
+# Revisit if: (a) xgrammar CUDA crashes worsen under tighter constraints
+# (see #24107), (b) model gets stuck generating minimal {"arguments":{}}
+# and never explores meaningfully, (c) new tool names are added and the
+# enum must be extended.
+_STRUCTURAL_TAG = json.dumps({
+    "structures": [{
+        "begin": "<tool_call>",
+        "schema": {
+            "type": "object",
+            "properties": {
+                "name": {"enum": ["explore", "StructuredOutput"]},
+                "arguments": {"type": "object"},
+            },
+            "required": ["name", "arguments"],
+            "additionalProperties": False,
+        },
+        "end": "</tool_call>",
+    }],
+    "triggers": ["<tool_call>"],
+})
 
 
 def _install_patch() -> None:

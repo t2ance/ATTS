@@ -53,6 +53,7 @@ sys.path.insert(0, str(CORE_CODE_DIR))
 from prompts import ORCHESTRATOR_NO_INTEGRATE_SYSTEM_PROMPT, build_user_message
 from benchmarks.hle import _filter_dataset, _load_hle_dataset
 from methods.tool_io import CandidateRecord, FullRenderer
+from methods.tool_state import ExploreStepState, advance
 
 RUN_DIR = (
     EXPERIMENT_DIR
@@ -185,12 +186,12 @@ def build_messages(
         {"role": "user", "content": build_user_message(problem, MAX_EXPLORES)},
     ]
 
-    explore_idx = 0
+    explore_state = ExploreStepState(max_explores=MAX_EXPLORES)
     submitted = False
     for r, think in zip(rounds, thinks):
         action = r.get("action")
         if action == "explore":
-            explore_idx += 1
+            explore_state = advance(explore_state)
             messages.append(
                 {
                     "role": "assistant",
@@ -201,7 +202,7 @@ def build_messages(
                 {
                     "role": "tool",
                     "content": candidate_text(
-                        explore_idx,
+                        explore_state.used,
                         r.get("answer"),
                         r.get("confidence"),
                         r.get("approach"),

@@ -176,7 +176,7 @@ async def _run_orchestrator_multi(
             if len(ctx.state.candidates) > n_before:
                 cand = ctx.state.candidates[-1]
                 _log_round(ctx, RoundLog(
-                    round_num=ctx.state.current_iteration,
+                    round_num=ctx.state.explore.used,
                     action="explore",
                     tool_input={
                         "model": model_alias,
@@ -201,7 +201,7 @@ async def _run_orchestrator_multi(
         image_data_url=ctx.image_data_url,
         model=orchestrator_model,
         tools=tools,
-        max_turns=ctx.state.max_iterations + 2,
+        max_turns=ctx.state.explore.max_explores + 2,
         tool_handler=tool_handler,
         effort=ctx.effort,
         output_format=output_format,

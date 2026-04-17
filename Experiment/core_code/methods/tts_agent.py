@@ -12,6 +12,7 @@ from methods.base import (
     create_solve_context,
 )
 from methods.tool_io import CandidateRecord, FullRenderer
+from methods.tool_state import advance
 from trajectory import RoundLog, SolveResult
 from prompts import (
     ORCHESTRATOR_SYSTEM_PROMPT,
@@ -72,8 +73,8 @@ def process_explore_result(
     the SFT data builder, so train and eval observe byte-identical strings.
     """
     state = ctx.state
-    state.current_iteration += 1
-    used = state.current_iteration
+    state.explore = advance(state.explore)
+    used = state.explore.used
     label_suffix = f" ({model_label})" if model_label else ""
 
     if result.get("timed_out"):
@@ -91,7 +92,7 @@ def process_explore_result(
             reasoning="",
             cost_usd=0.0,
             used=used,
-            max_explores=state.max_iterations,
+            max_explores=state.explore.max_explores,
             model_label=model_label,
             extra_budget_text=extra_budget_text,
             timed_out=True,
@@ -118,7 +119,7 @@ def process_explore_result(
         reasoning=result.get("reasoning", ""),
         cost_usd=explore_cost,
         used=used,
-        max_explores=state.max_iterations,
+        max_explores=state.explore.max_explores,
         model_label=model_label,
         extra_budget_text=extra_budget_text,
     ))
@@ -135,7 +136,7 @@ def make_structured_output_handler(ctx: SolveContext):
         if not ctx.quiet:
             print(f"[structured_output] answer={ctx.state.final_answer}")
         _log_round(ctx, RoundLog(
-            round_num=ctx.state.current_iteration + 1,
+            round_num=ctx.state.explore.call_count + 1,
             action="submit_answer",
             tool_input=result,
         ))
@@ -144,7 +145,7 @@ def make_structured_output_handler(ctx: SolveContext):
 
 async def run_explore(ctx: SolveContext, explore_model: str) -> str:
     """Run an explore sub-model call. Returns tool result text."""
-    explore_idx = ctx.state.current_iteration + 1
+    explore_idx = ctx.state.explore.call_count + 1
     user_msg = ctx.benchmark.build_explorer_message(ctx.state.problem)
     explorer_system_prompt = ctx.benchmark.get_explorer_system_prompt(ctx.backend)
     explore_schema = ctx.benchmark.get_explore_schema()
@@ -174,7 +175,7 @@ async def run_integrate(ctx: SolveContext, integrate_model: str) -> str:
         user_message=user_msg,
         model=integrate_model,
         output_schema=integrate_schema,
-        cache_key=f"integrate_{state.current_iteration + 1}",
+        cache_key=f"integrate_{state.explore.call_count + 1}",
     )
     ctx.cost.add(cost_usd, usage, component="integrator")
 
@@ -224,7 +225,7 @@ async def _run_orchestrator(
             if len(ctx.state.candidates) > n_before:
                 cand = ctx.state.candidates[-1]
                 _log_round(ctx, RoundLog(
-                    round_num=ctx.state.current_iteration,
+                    round_num=ctx.state.explore.used,
                     action="explore",
                     tool_input={
                         "answer": cand.answer,
@@ -238,7 +239,7 @@ async def _run_orchestrator(
         elif name == "integrate":
             result_text = await run_integrate(ctx, integrate_model)
             _log_round(ctx, RoundLog(
-                round_num=ctx.state.current_iteration + 1,
+                round_num=ctx.state.explore.call_count + 1,
                 action="integrate",
                 tool_input={
                     "final_answer": ctx.state.final_answer,
@@ -265,7 +266,7 @@ async def _run_orchestrator(
         image_data_url=ctx.image_data_url,
         model=orchestrator_model,
         tools=tools,
-        max_turns=ctx.state.max_iterations + 2,
+        max_turns=ctx.state.explore.max_explores + 2,
         tool_handler=tool_handler,
         effort=ctx.effort,
         output_format=output_format,

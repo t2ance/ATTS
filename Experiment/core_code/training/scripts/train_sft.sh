@@ -1,3 +1,3 @@
-#!/bin/bash
+set -x
 cd /data3/peijia/dr-claw/Explain/Experiment/core_code
-CUDA_VISIBLE_DEVICES=0,1,2,3 conda run -n verl llamafactory-cli train training/sft_config.yaml
+conda run --no-capture-output -n verl llamafactory-cli train training/sft_config_qwen3_8b.yaml

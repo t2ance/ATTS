@@ -3,7 +3,7 @@ set -x
 ADAPTER_PATH="/data3/peijia/dr-claw/Explain/Experiment/core_code/checkpoints/sft_qwen3_8b"
 OUTPUT_PATH="/data3/peijia/dr-claw/Explain/Experiment/core_code/checkpoints/sft_qwen3_8b_merged"
 
-conda run -n grpo python3 -c "
+conda run --no-capture-output -n grpo python3 -c "
 from peft import PeftModel
 from transformers import AutoModelForCausalLM, AutoTokenizer
 import torch

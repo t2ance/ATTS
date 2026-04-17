@@ -25,9 +25,21 @@ from __future__ import annotations
 import json
 import logging
 import re
+import sys
+from pathlib import Path
 from typing import Any
 
 from openai import OpenAI
+
+# Reuse the canonical FullRenderer.parse so reward_fn is not coupled to the
+# rendered tool-response format. See methods/tool_io.py for the contract.
+_CORE_CODE_DIR = Path(__file__).resolve().parent.parent.parent
+if str(_CORE_CODE_DIR) not in sys.path:
+    sys.path.insert(0, str(_CORE_CODE_DIR))
+
+from methods.tool_io import FullRenderer  # noqa: E402
+
+_RENDERER = FullRenderer()
 
 
 # ---------- Hyperparameters (L3, from principles) ----------
@@ -62,7 +74,6 @@ _JUDGE_SCHEMA: dict[str, Any] = {
 }
 
 _JUDGE_CLIENT: OpenAI | None = None
-_JUDGE_ERROR_COUNT = 0
 _LOGGER = logging.getLogger(__name__)
 
 
@@ -76,51 +87,56 @@ def _get_judge_client() -> OpenAI:
 # ---------- LLM judge ----------
 
 
+def _string_match_grade(predicted: str, ground_truth: str) -> float:
+    """Fallback when judge truncates: normalized exact string match."""
+    def _norm(s: str) -> str:
+        s = str(s).strip()
+        s = re.sub(r"^\$+|\$+$", "", s)
+        s = re.sub(r"^\\boxed\{(.+)\}$", r"\1", s)
+        s = re.sub(r"\s+", " ", s).strip()
+        return s.lower()
+    return 1.0 if _norm(predicted) == _norm(ground_truth) else 0.0
+
+
 def _judge_remote(predicted: str, ground_truth: str, question: str) -> float:
-    """Call deployed model judge; returns 1.0 / 0.0. Falls back to 0.0 with error log on failure."""
-    global _JUDGE_ERROR_COUNT
-    try:
-        client = _get_judge_client()
-        user = f"[question]: {question}\n[response]: {predicted}\n[correct_answer]: {ground_truth}"
-        resp = client.chat.completions.create(
-            model=JUDGE_MODEL,
-            messages=[
-                {"role": "system", "content": _JUDGE_SYSTEM},
-                {"role": "user", "content": user},
-            ],
-            temperature=0.0,
-            max_tokens=4096,
-            response_format={
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "judge_result",
-                    "schema": _JUDGE_SCHEMA,
-                    "strict": True,
-                },
+    """Call deployed model judge; returns 1.0 / 0.0. Raises on any failure."""
+    client = _get_judge_client()
+    user = f"[question]: {question}\n[response]: {predicted}\n[correct_answer]: {ground_truth}"
+    resp = client.chat.completions.create(
+        model=JUDGE_MODEL,
+        messages=[
+            {"role": "system", "content": _JUDGE_SYSTEM},
+            {"role": "user", "content": user},
+        ],
+        temperature=0.0,
+        max_tokens=4096,
+        response_format={
+            "type": "json_schema",
+            "json_schema": {
+                "name": "judge_result",
+                "schema": _JUDGE_SCHEMA,
+                "strict": True,
             },
-            extra_body={
-                "chat_template_kwargs": {"enable_thinking": False},
-                "repetition_penalty": 1.1,
-            },
+        },
+        extra_body={
+            "chat_template_kwargs": {"enable_thinking": False},
+            "repetition_penalty": 1.1,
+        },
+    )
+    content = resp.choices[0].message.content or ""
+    finish_reason = resp.choices[0].finish_reason
+    assert content.strip(), f"judge returned empty content, finish={finish_reason}"
+    if finish_reason == "length":
+        score = _string_match_grade(predicted, ground_truth)
+        _LOGGER.warning(
+            "judge truncated (max_tokens=4096), falling back to string match: "
+            "score=%s pred=%r gold=%r", score, predicted[:100], ground_truth[:100],
         )
-        content = resp.choices[0].message.content or ""
-        finish_reason = resp.choices[0].finish_reason
-        assert content.strip(), f"judge returned empty content, finish={finish_reason}"
-        assert finish_reason == "stop", (
-            f"judge truncated (finish={finish_reason}, max_tokens=4096). "
-            f"reasoning field likely too long for budget. content[:500]={content[:500]!r}"
-        )
-        result = json.loads(content)
-        assert isinstance(result.get("correct"), bool), f"judge bad correct field: {result}"
-        return 1.0 if result["correct"] else 0.0
-    except Exception as exc:
-        _JUDGE_ERROR_COUNT += 1
-        _LOGGER.exception(
-            "[reward_fn] judge failed; fallback score=0.0 (count=%d): %s",
-            _JUDGE_ERROR_COUNT,
-            exc,
-        )
-        return 0.0
+        return score
+    assert finish_reason == "stop", f"judge unexpected finish_reason={finish_reason!r}"
+    result = json.loads(content)
+    assert isinstance(result.get("correct"), bool), f"judge bad correct field: {result}"
+    return 1.0 if result["correct"] else 0.0
 
 
 # ---------- Per-step parsers for L3 ----------
@@ -130,7 +146,14 @@ _EXPLORE_TOOL_CALL_RE = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
 _STRUCT_OUTPUT_ANSWER_RE = re.compile(
     r'"name"\s*:\s*"StructuredOutput".*?"answer"\s*:\s*"([^"]*)"', re.DOTALL
 )
-_EXPLORE_CACHE_ID_RE = re.compile(r"- Cache ID:\s*([^\n]+)")
+_TOOL_RESPONSE_RE = re.compile(r"<tool_response>(.*?)</tool_response>", re.DOTALL)
+_THINK_BLOCK_RE = re.compile(r"<think>.*?</think>", re.DOTALL)
+
+
+def _strip_think_blocks(text: str) -> str:
+    """Remove <think>...</think> blocks to prevent hallucinated content
+    inside thinking from being parsed as real tool calls/responses."""
+    return _THINK_BLOCK_RE.sub("", text)
 
 
 def _extract_final_answer(solution_str: str) -> str:
@@ -139,56 +162,23 @@ def _extract_final_answer(solution_str: str) -> str:
     return matches[-1] if matches else ""
 
 
-def _extract_explore_tool_responses(solution_str: str) -> list[tuple[str, str]]:
-    """Extract explorer cache ids + self-reported answers from tool RESPONSES.
+def _extract_explore_tool_responses(solution_str: str) -> list[tuple[int, str]]:
+    """Extract explorer (idx, self-reported answer) pairs from each
+    <tool_response>...</tool_response> block.
 
-    ExploreTool.execute (training/grpo/explore_tool.py) returns plain text:
-        Candidate #N recorded.
-        - Answer: <answer>
-        - Confidence: <confidence>
-        - Approach: <approach>
-        - Reasoning: <reasoning>
-
-    verl's ToolAgentLoop wraps that as {"role": "tool", "content": <text>} and
-    Qwen's chat template emits it inside <tool_response>...</tool_response>.
-    We walk each <tool_response> block and pull the text between
-    `- Answer: ` and the next `\\n- Confidence:` line (the answer itself is
-    emitted on one line by the f-string, but we DOTALL-match for safety).
+    Returns 1-based Candidate #N idx instead of cache_id. Caller indexes
+    cached_explores[idx-1] directly (offline-shuffled order from parquet).
+    Timeout candidates and empty-answer responses are skipped.
     """
-    responses: list[tuple[str, str]] = []
-    for m in re.finditer(r"<tool_response>(.*?)</tool_response>", solution_str, re.DOTALL):
-        body = m.group(1)
-        cache_match = _EXPLORE_CACHE_ID_RE.search(body)
-        ans_match = re.search(r"- Answer:\s*(.*?)\s*\n- Confidence:", body, re.DOTALL)
-        if ans_match and cache_match:
-            responses.append((cache_match.group(1).strip(), ans_match.group(1).strip()))
+    responses: list[tuple[int, str]] = []
+    for m in _TOOL_RESPONSE_RE.finditer(solution_str):
+        body = m.group(1).strip()
+        if not body.startswith("Candidate #"):
+            continue
+        rec = _RENDERER.parse(body)
+        if rec.answer:
+            responses.append((rec.idx, rec.answer))
     return responses
-
-
-def _extract_cached_explore_grades(extra_info: dict | None) -> dict[str, float]:
-    """Build strict cache-id -> correctness map from exported cached explores.
-
-    If cached explores are present, every entry must carry both `cache_id` and
-    `is_correct`; otherwise we raise loudly rather than silently re-grade.
-    """
-    if extra_info is None:
-        return {}
-    tools_kwargs = extra_info.get("tools_kwargs") or {}
-    explore_kwargs = ((tools_kwargs.get("explore") or {}).get("create_kwargs") or {})
-    cached_explores = explore_kwargs.get("cached_explores") or []
-    if not cached_explores:
-        return {}
-
-    grade_by_cache_id: dict[str, float] = {}
-    for idx, explore in enumerate(cached_explores, start=1):
-        cache_id = str(explore.get("cache_id", "")).strip()
-        if not cache_id:
-            raise ValueError(f"cached explore #{idx} missing cache_id")
-        is_correct = explore.get("is_correct")
-        if not isinstance(is_correct, bool):
-            raise ValueError(f"cached explore {cache_id} missing bool is_correct")
-        grade_by_cache_id[cache_id] = 1.0 if is_correct else 0.0
-    return grade_by_cache_id
 
 
 def _count_explore_tool_calls(solution_str: str) -> int:
@@ -229,21 +219,40 @@ def compute_score(
     question = ""
     if extra_info is not None:
         question = extra_info.get("question", "") or ""
-    cached_explore_grades = _extract_cached_explore_grades(extra_info)
+
+    tools_kwargs = (extra_info or {}).get("tools_kwargs") or {}
+    explore_kwargs = ((tools_kwargs.get("explore") or {}).get("create_kwargs") or {})
+    cached_explores_ordered = explore_kwargs.get("cached_explores") or []
+    assert cached_explores_ordered, (
+        "extra_info.tools_kwargs.explore.create_kwargs.cached_explores missing; "
+        "explore grading requires offline-prepared cached explores"
+    )
+
+    # Strip <think> blocks before parsing to prevent hallucinated tool
+    # calls/responses inside thinking from being matched by regexes.
+    solution_str = _strip_think_blocks(solution_str)
 
     # Final answer correctness y_T via deployed judge
     final_answer = _extract_final_answer(solution_str)
     y_T = _judge_remote(final_answer, ground_truth, question) if final_answer else 0.0
 
-    # Per-step explorer answers and y_{1:N}. When cached explores are present,
-    # consume their exported grades directly instead of re-grading.
+    # Per-step explorer answers and y_{1:N}. Consume pre-computed is_correct
+    # grades by positional index into the offline-shuffled cached_explores.
     explore_answers = _extract_explore_tool_responses(solution_str)
-    assert cached_explore_grades, "no cached_explore_grades: explore grading requires pre-computed cache"
     y_per_step = []
-    for cache_id, answer in explore_answers:
-        if cache_id not in cached_explore_grades:
-            raise ValueError(f"tool response referenced unknown cached explore {cache_id}")
-        y_per_step.append(cached_explore_grades[cache_id] if answer else 0.0)
+    for idx, answer in explore_answers:
+        if idx < 1 or idx > len(cached_explores_ordered):
+            raise ValueError(
+                f"Candidate #{idx} out of range; "
+                f"cached_explores has {len(cached_explores_ordered)} entries"
+            )
+        is_correct = cached_explores_ordered[idx - 1].get("is_correct")
+        if not isinstance(is_correct, bool):
+            raise ValueError(
+                f"cached_explores[{idx-1}] missing bool is_correct: "
+                f"{cached_explores_ordered[idx-1]}"
+            )
+        y_per_step.append(1.0 if (is_correct and answer) else 0.0)
     V_star_N = max(y_per_step) if y_per_step else 0.0
 
     # Explore count N (for cost)

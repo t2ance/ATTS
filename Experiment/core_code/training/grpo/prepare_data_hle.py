@@ -1,9 +1,9 @@
-"""Build verl GRPO parquet data source from HLE q101-300 with cached haiku explores.
+"""Build verl GRPO parquet data source from HLE q101-400 with cached haiku explores.
 
 Replaces the old prepare_data.py pipeline (which read sft_all.jsonl that contained
-only 56 HLE episodes, all from outside the q101-300 range). This script constructs
+only 56 HLE episodes, all from outside the q101-400 range). This script constructs
 the training data directly from the HLE dataset + cached haiku explores for the
-clean q101-300 training pool used in the RFT/GRPO experiments (2026-04-11).
+clean q101-400 training pool used in the RFT/GRPO experiments (2026-04-15).
 
 Output schema matches prepare_data.py exactly so verl's tool_agent_loop continues
 to consume the rows without changes.
@@ -14,7 +14,10 @@ Usage:
 
 from __future__ import annotations
 
+import copy
+import itertools
 import json
+import random
 import sys
 from pathlib import Path
 
@@ -31,11 +34,31 @@ from training.grpo.sync_tool_config import verify_tool_config_matches_canonical
 
 
 MAX_EXPLORES = 8
+TRAIN_PERMUTATIONS_PER_QID = 5
+VAL_PERMUTATIONS_PER_QID = 1
 SKIP = 100         # first 100 HLE gold text-only questions are the held-out eval set
-NUM_TRAIN_POOL = 200  # q101-300 (after skip)
-VAL_FRACTION = 0.10   # first 10% of the pool becomes val (20 questions)
+NUM_TRAIN_POOL = 300  # q101-400 (after skip)
+VAL_FRACTION = 0.20   # first 20% becomes val (8:2 split)
 HLE_HAIKU_CACHE = EXPERIMENT_DIR / "analysis" / "cache" / "hle" / "haiku" / "gold"
 OUT_DIR = CORE_CODE_DIR / "training_data" / "grpo"
+
+
+def build_permutation_id(qid: str, perm: list[int]) -> str:
+    return f"{qid}#{'_'.join(str(i) for i in perm)}"
+
+
+def split_permutation_id(pid: str) -> tuple[str, list[int]]:
+    qid, perm_str = pid.split("#", 1)
+    return qid, [int(x) for x in perm_str.split("_")]
+
+
+def _apply_permutation(base: dict, perm: list[int]) -> dict:
+    new = copy.deepcopy(base)
+    orig = new["extra_info"]["tools_kwargs"]["explore"]["create_kwargs"]["cached_explores"]
+    new["extra_info"]["tools_kwargs"]["explore"]["create_kwargs"]["cached_explores"] = [orig[i] for i in perm]
+    qid = new["extra_info"]["question_id"]
+    new["extra_info"]["question_id"] = build_permutation_id(qid, perm)
+    return new
 
 
 def load_cached_explores(qid: str) -> list[dict]:
@@ -129,15 +152,42 @@ def main() -> None:
     pool = gold_text[SKIP:SKIP + NUM_TRAIN_POOL]
     print(f"Training pool [{SKIP}:{SKIP + NUM_TRAIN_POOL}]: {len(pool)} questions (q{SKIP + 1}-q{SKIP + NUM_TRAIN_POOL})")
 
-    rows: list[dict] = []
+    base_rows: list[dict] = []
     for r in pool:
-        rows.append(build_row(r))
-    assert len(rows) == NUM_TRAIN_POOL
+        base_rows.append(build_row(r))
+    assert len(base_rows) == NUM_TRAIN_POOL
 
-    val_size = max(1, int(len(rows) * VAL_FRACTION))
-    val_rows = rows[:val_size]
-    train_rows = rows[val_size:]
-    print(f"Split: train={len(train_rows)}, val={len(val_rows)}")
+    # Filter before permutation: qids with no correct explore produce no useful
+    # reward signal regardless of ordering.
+    base_rows = [
+        r for r in base_rows
+        if any(e["is_correct"] for e in r["extra_info"]["tools_kwargs"]["explore"]["create_kwargs"]["cached_explores"])
+    ]
+    print(f"Informative filter: kept {len(base_rows)}/{NUM_TRAIN_POOL}")
+    assert len(base_rows) > 0, "no informative rows after filter"
+
+    # Split at qid level before expanding. All permutations of the same qid
+    # stay in the same split — no leakage.
+    val_size = max(1, int(len(base_rows) * VAL_FRACTION))
+    val_pool = base_rows[:val_size]
+    train_pool = base_rows[val_size:]
+    print(f"Split: train={len(train_pool)} qids, val={len(val_pool)} qids")
+
+    all_permutations = list(itertools.permutations(range(MAX_EXPLORES)))
+    assert len(all_permutations) == 40320
+
+    def expand(pool: list[dict], n_perm: int, seed_ns: str) -> list[dict]:
+        rows: list[dict] = []
+        for base in pool:
+            qid = base["extra_info"]["question_id"]
+            sampled = random.Random(f"{seed_ns}:{qid}").sample(all_permutations, n_perm)
+            for perm in sampled:
+                rows.append(_apply_permutation(base, list(perm)))
+        return rows
+
+    train_rows = expand(train_pool, TRAIN_PERMUTATIONS_PER_QID, "train")
+    val_rows = expand(val_pool, VAL_PERMUTATIONS_PER_QID, "val")
+    print(f"After expansion: train={len(train_rows)} rows, val={len(val_rows)} rows")
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     for name, data in [("train", train_rows), ("val", val_rows)]:

@@ -19,6 +19,7 @@ else is allowed to assemble the candidate string by hand.
 """
 from __future__ import annotations
 
+import re
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 
@@ -70,6 +71,27 @@ class CandidateRenderer(ABC):
         ...
 
 
+_HEADER_RE = re.compile(
+    r"Candidate #(\d+) recorded"
+    r"( \(timed out, empty answer\))?"
+    r"\."
+    r"( Model: ([^.]+)\.)?"
+    r"\n"
+)
+_BUDGET_RE = re.compile(
+    r"Explore budget: (\d+)/(\d+) used, (\d+) remaining\."
+)
+_CACHE_RE = re.compile(r"^- Cache ID: (.+)$", re.MULTILINE)
+_BODY_RE = re.compile(
+    r"- Answer: (.*?)\n"
+    r"- Confidence: ([\d.eE+\-]+)\n"
+    r"- Approach: (.*?)\n"
+    r"- Reasoning: (.*?)\n"
+    r"- Cost: \$([\d.]+)\n",
+    re.DOTALL,
+)
+
+
 class FullRenderer(CandidateRenderer):
     """Format A: the production Claude-orchestrator format.
 
@@ -94,19 +116,19 @@ class FullRenderer(CandidateRenderer):
     """
 
     def render(self, r: CandidateRecord) -> str:
+        # cache_id is intentionally NOT rendered. reward_fn recovers the
+        # corresponding cached explore by Candidate #N positional index.
+        # parse() returns cache_id="" by design.
         label = f" Model: {r.model_label}." if r.model_label else ""
-        cache_line = f"- Cache ID: {r.cache_id}\n" if r.cache_id else ""
         remaining = r.max_explores - r.used
         if r.timed_out:
             return (
                 f"Candidate #{r.idx} recorded (timed out, empty answer).{label}\n"
-                f"{cache_line}"
                 f"Explore budget: {r.used}/{r.max_explores} used, {remaining} remaining."
                 f"{r.extra_budget_text}"
             )
         return (
             f"Candidate #{r.idx} recorded.{label}\n"
-            f"{cache_line}"
             f"- Answer: {r.answer}\n"
             f"- Confidence: {r.confidence}\n"
             f"- Approach: {r.approach}\n"
@@ -114,6 +136,60 @@ class FullRenderer(CandidateRenderer):
             f"- Cost: ${r.cost_usd:.2f}\n\n"
             f"Explore budget: {r.used}/{r.max_explores} used, {remaining} remaining."
             f"{r.extra_budget_text}"
+        )
+
+    def parse(self, text: str) -> CandidateRecord:
+        """Inverse of `render()`. Caller must strip any transport wrapper so
+        `text` begins with "Candidate #". Raises AssertionError on malformed
+        input. The round-trip in `_self_check()` below holds parse and
+        render in sync across format changes.
+        """
+        m_header = _HEADER_RE.match(text)
+        assert m_header, f"bad FullRenderer header: {text[:160]!r}"
+        idx = int(m_header.group(1))
+        timed_out = m_header.group(2) is not None
+        model_label = m_header.group(4) or ""
+
+        m_budget = _BUDGET_RE.search(text)
+        assert m_budget, f"missing FullRenderer budget line: {text[:160]!r}"
+        used = int(m_budget.group(1))
+        max_explores = int(m_budget.group(2))
+        remaining = int(m_budget.group(3))
+        assert remaining == max_explores - used, (
+            f"FullRenderer budget arithmetic mismatch: "
+            f"{used}/{max_explores}, declared remaining={remaining}"
+        )
+        extra_budget_text = text[m_budget.end():]
+
+        m_cache = _CACHE_RE.search(text)
+        cache_id = m_cache.group(1).strip() if m_cache else ""
+
+        if timed_out:
+            return CandidateRecord(
+                idx=idx, answer="", confidence=0.0, approach="",
+                reasoning="", cost_usd=0.0,
+                used=used, max_explores=max_explores,
+                model_label=model_label, cache_id=cache_id,
+                extra_budget_text=extra_budget_text, timed_out=True,
+            )
+
+        m_body = _BODY_RE.search(text)
+        assert m_body, (
+            f"missing FullRenderer success-body fields: {text[:200]!r}"
+        )
+        return CandidateRecord(
+            idx=idx,
+            answer=m_body.group(1),
+            confidence=float(m_body.group(2)),
+            approach=m_body.group(3),
+            reasoning=m_body.group(4),
+            cost_usd=float(m_body.group(5)),
+            used=used,
+            max_explores=max_explores,
+            model_label=model_label,
+            cache_id=cache_id,
+            extra_budget_text=extra_budget_text,
+            timed_out=False,
         )
 
 
@@ -187,7 +263,7 @@ def _self_check() -> None:
         used=1,
         max_explores=8,
         model_label="haiku",
-        cache_id="explore_1",
+        cache_id="",  # not rendered; round-trip recovers empty
         extra_budget_text="\n  haiku: 2/8 remaining",
         timed_out=False,
     )
@@ -211,6 +287,21 @@ def _self_check() -> None:
             assert isinstance(text, str) and text, (
                 f"{cls.__name__}.render returned bad value for {record}"
             )
+
+    # Round-trip: FullRenderer.render followed by FullRenderer.parse must
+    # recover the original record. Test values use 2-dp-safe cost
+    # (0.12) and confidence exactly representable in repr (0.9, 0.0), so
+    # float formatting is lossless and equality is exact.
+    renderer = FullRenderer()
+    for record in (success, timeout):
+        parsed = renderer.parse(renderer.render(record))
+        assert parsed == record, (
+            f"FullRenderer round-trip mismatch.\n"
+            f"  original: {record}\n"
+            f"  parsed:   {parsed}\n"
+            f"  diff at fields: "
+            f"{[k for k in record.__dataclass_fields__ if getattr(record, k) != getattr(parsed, k)]}"
+        )
 
 
 _self_check()

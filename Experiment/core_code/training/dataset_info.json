@@ -1,6 +1,6 @@
 {
   "atts_sft": {
-    "file_name": "../training_data/sft_all.jsonl",
+    "file_name": "../training_data/sft_hle_q101_300_thinking.jsonl",
     "formatting": "sharegpt",
     "columns": {
       "messages": "messages"

@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from methods.base import Candidate, InfraConfig, create_solve_context
+from methods.tool_state import advance
 from methods.tts_agent import run_explore
 from trajectory import RoundLog, SolveResult
 from prompts import format_claude_structured_suffix
@@ -277,7 +278,7 @@ async def solve(
             confidence=ref_result.get("confidence", 0.0),
             cost_usd=ref_cost,
         ))
-        ctx.state.current_iteration += 1
+        ctx.state.explore = advance(ctx.state.explore)
 
         ctx.rounds.append(RoundLog(
             round_num=i,

@@ -15,7 +15,6 @@ from typing import Any, Awaitable, Callable
 
 _SDK_INIT_MAX_RETRIES = 3
 _SDK_INIT_RETRY_DELAY = 5.0  # seconds
-_SUB_MODEL_TIMEOUT_SEC = 90  # per-attempt wall-clock timeout for ClaudeSDKClient sub-model calls (judges)
 
 
 def _is_sdk_init_error(e: Exception) -> bool:
@@ -108,42 +107,39 @@ async def call_sub_model(
 
     for attempt in range(_SDK_INIT_MAX_RETRIES):
         try:
-            async with asyncio.timeout(_SUB_MODEL_TIMEOUT_SEC):
-                async with ClaudeSDKClient(options=options) as client:
-                    await client.query(
-                        build_claude_prompt_events(user_message, image_data_url)
-                    )
-                    async for msg in client.receive_response():
-                        if isinstance(msg, StreamEvent):
-                            event = msg.event
-                            if event.get("type") == "content_block_delta":
-                                delta = event.get("delta", {})
-                                if delta.get("type") == "thinking_delta":
-                                    writer.write_chunk(delta["thinking"])
-                        elif isinstance(msg, AssistantMessage):
-                            if msg.error:
-                                if msg.error == "max_output_tokens":
-                                    result = {"timed_out": True}
-                                    continue
-                                error_text = " ".join(
-                                    block.text for block in msg.content if isinstance(block, TextBlock)
-                                )
-                                raise RuntimeError(f"Claude API error ({msg.error}): {error_text}")
-                            for block in msg.content:
-                                if isinstance(block, ThinkingBlock):
-                                    trajectory_parts.append(f"{block.thinking}\n\n")
-                                    writer.write_chunk("\n\n")
-                                elif isinstance(block, ToolUseBlock) and block.name == "StructuredOutput":
-                                    result = block.input
-                        elif isinstance(msg, ResultMessage):
-                            cost_usd = msg.total_cost_usd
-                            usage = msg.usage
+            async with ClaudeSDKClient(options=options) as client:
+                await client.query(
+                    build_claude_prompt_events(user_message, image_data_url)
+                )
+                async for msg in client.receive_response():
+                    if isinstance(msg, StreamEvent):
+                        event = msg.event
+                        if event.get("type") == "content_block_delta":
+                            delta = event.get("delta", {})
+                            if delta.get("type") == "thinking_delta":
+                                writer.write_chunk(delta["thinking"])
+                    elif isinstance(msg, AssistantMessage):
+                        if msg.error:
+                            if msg.error == "max_output_tokens":
+                                result = {"timed_out": True}
+                                continue
+                            error_text = " ".join(
+                                block.text for block in msg.content if isinstance(block, TextBlock)
+                            )
+                            raise RuntimeError(f"Claude API error ({msg.error}): {error_text}")
+                        for block in msg.content:
+                            if isinstance(block, ThinkingBlock):
+                                trajectory_parts.append(f"{block.thinking}\n\n")
+                                writer.write_chunk("\n\n")
+                            elif isinstance(block, ToolUseBlock) and block.name == "StructuredOutput":
+                                result = block.input
+                    elif isinstance(msg, ResultMessage):
+                        cost_usd = msg.total_cost_usd
+                        usage = msg.usage
             break  # success
         except Exception as e:
-            is_retryable = _is_sdk_init_error(e) or isinstance(e, asyncio.TimeoutError)
-            if is_retryable and attempt < _SDK_INIT_MAX_RETRIES - 1:
-                reason = "timeout" if isinstance(e, asyncio.TimeoutError) else "init error"
-                print(f"  [sub-model] SDK {reason} (attempt {attempt + 1}/{_SDK_INIT_MAX_RETRIES}), retrying in {_SDK_INIT_RETRY_DELAY}s: {e}")
+            if _is_sdk_init_error(e) and attempt < _SDK_INIT_MAX_RETRIES - 1:
+                print(f"  [sub-model] SDK init error (attempt {attempt + 1}/{_SDK_INIT_MAX_RETRIES}), retrying in {_SDK_INIT_RETRY_DELAY}s: {e}")
                 await asyncio.sleep(_SDK_INIT_RETRY_DELAY)
                 continue
             raise

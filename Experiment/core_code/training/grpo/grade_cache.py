@@ -1,17 +1,18 @@
-"""Batch-grade HLE q101-300 explore caches using the deployed model judge.
+"""Batch-grade HLE explore caches using the deployed model judge.
 
-For each question in the training pool (q101-300) and each of the 8 cached
-explores, calls the judge server at JUDGE_URL to determine correctness and
-writes grade.json next to each result.json.
+For each question in the training pool and each of the 8 cached explores,
+calls the judge server at JUDGE_URL to determine correctness and writes
+grade.json next to each result.json.
 
 Skips explores that already have grade.json.
 
 Usage:
-    python -m training.grpo.grade_cache
+    python -m training.grpo.grade_cache --num-train-pool 300
 """
 
 from __future__ import annotations
 
+import argparse
 import asyncio
 import json
 import logging
@@ -34,7 +35,6 @@ JUDGE_TIMEOUT_S = 300.0
 NUM_WORKERS = 32
 
 SKIP = 100
-NUM_TRAIN_POOL = 200
 MAX_EXPLORES = 8
 HLE_HAIKU_CACHE = EXPERIMENT_DIR / "analysis" / "cache" / "hle" / "haiku" / "gold"
 
@@ -159,11 +159,16 @@ async def run(pool: list[dict]) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--num-train-pool", type=int, required=True,
+                        help="Number of training questions to grade (pool = gold_text[SKIP:SKIP+N])")
+    args = parser.parse_args()
+
     _LOGGER.info("Loading HLE dataset...")
     all_rows = _load_hle_dataset()
     gold_text = _filter_dataset(all_rows, subset="gold", text_only=True)
-    pool = gold_text[SKIP:SKIP + NUM_TRAIN_POOL]
-    _LOGGER.info("Training pool: %d questions (q%d-q%d)", len(pool), SKIP + 1, SKIP + NUM_TRAIN_POOL)
+    pool = gold_text[SKIP:SKIP + args.num_train_pool]
+    _LOGGER.info("Pool: %d questions (q%d-q%d)", len(pool), SKIP + 1, SKIP + args.num_train_pool)
     for row in pool:
         assert (HLE_HAIKU_CACHE / row["id"]).exists(), f"cache dir missing: {HLE_HAIKU_CACHE / row['id']}"
     asyncio.run(run(pool))

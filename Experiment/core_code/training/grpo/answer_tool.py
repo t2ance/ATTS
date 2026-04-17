@@ -1,4 +1,15 @@
-"""verl Tool: captures the final StructuredOutput answer for ATTS GRPO training."""
+"""verl Tool: captures the final StructuredOutput answer for ATTS GRPO training.
+
+Also monkey-patches ToolAgentLoop to treat StructuredOutput as a terminal tool:
+after the tool executes and its response is added to the token sequence, the loop
+returns TERMINATED instead of GENERATING. This mirrors inference behavior where
+StructuredOutput ends the episode (backends/claude.py output_format, backends/vllm.py
+explicit return on StructuredOutput detection).
+
+The patch is applied at module import time. Since veRL loads this module via
+tool_config.yaml -> initialize_tools_from_config, it runs before any rollout.
+Survives veRL package reinstalls because the patch lives in project code.
+"""
 
 from __future__ import annotations
 
@@ -12,6 +23,26 @@ from verl.tools.schemas import OpenAIFunctionToolSchema, ToolResponse
 
 logger = logging.getLogger(__name__)
 logger.setLevel(os.getenv("VERL_LOGGING_LEVEL", "WARN"))
+
+# --- Monkey-patch: terminal tool support for ToolAgentLoop ---
+
+from verl.experimental.agent_loop.tool_agent_loop import AgentState, ToolAgentLoop
+
+_TERMINAL_TOOLS = frozenset({"StructuredOutput"})
+_original_handle_processing_tools = ToolAgentLoop._handle_processing_tools_state
+
+
+async def _patched_handle_processing_tools_state(self, agent_data):
+    result = await _original_handle_processing_tools(self, agent_data)
+    if result == AgentState.GENERATING and any(
+        tc.name in _TERMINAL_TOOLS for tc in agent_data.tool_calls
+    ):
+        return AgentState.TERMINATED
+    return result
+
+
+ToolAgentLoop._handle_processing_tools_state = _patched_handle_processing_tools_state
+logger.info("Patched ToolAgentLoop: StructuredOutput is now a terminal tool")
 
 
 class AnswerTool(BaseTool):

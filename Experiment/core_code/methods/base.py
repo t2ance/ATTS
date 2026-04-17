@@ -13,6 +13,7 @@ from importlib import import_module
 from pathlib import Path
 from typing import Any
 
+from methods.tool_state import ExploreStepState
 from trajectory import CostTracker, RoundLog, SolveResult, TrajectoryWriter
 from logger import RunLogger
 
@@ -50,11 +51,10 @@ class Candidate:
 
 @dataclass
 class SolvingState:
-    """State of the entire solving process."""
+    """State of the solving process."""
     problem: str
+    explore: ExploreStepState
     candidates: list[Candidate] = field(default_factory=list)
-    max_iterations: int = 5
-    current_iteration: int = 0
     final_answer: str | None = None
     final_reasoning: str | None = None
     final_analysis: str | None = None
@@ -332,7 +332,10 @@ def create_solve_context(
     if infra.cache_only:
         assert infra.cache_dir is not None, "cache_only=True requires cache_dir"
 
-    state = SolvingState(problem=problem, max_iterations=infra.max_iterations)
+    state = SolvingState(
+        problem=problem,
+        explore=ExploreStepState(max_explores=infra.max_iterations),
+    )
     cost = CostTracker()
     rounds: list[RoundLog] = []
 

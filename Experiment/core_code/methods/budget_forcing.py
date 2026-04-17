@@ -11,6 +11,7 @@ more compute, not self-evaluation.
 from __future__ import annotations
 
 from methods.base import Candidate, InfraConfig, create_solve_context
+from methods.tool_state import advance
 from trajectory import RoundLog, SolveResult
 
 
@@ -58,7 +59,7 @@ async def solve(
         )
 
         ctx.cost.add(r_cost, usage, component="explorer")
-        ctx.state.current_iteration = i
+        ctx.state.explore = advance(ctx.state.explore)
 
         if result.get("timed_out"):
             if not ctx.quiet:

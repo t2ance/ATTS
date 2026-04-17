@@ -9,7 +9,7 @@ export CUDA_VISIBLE_DEVICES=2
     --port 8000 \
     --tensor-parallel-size 1 \
     --gpu-memory-utilization 0.9 \
-    --max-model-len 8192 \
+    --max-model-len 16384 \
     --dtype bfloat16 \
     --enable-prefix-caching \
     --no-enable-log-requests \
