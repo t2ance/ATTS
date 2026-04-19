@@ -59,8 +59,8 @@ spec:
           mkdir -p "$CKPT_DIR"
           export CHECKPOINT_REPO_ID="t2ance/atts-grpo-8b-sft-2gpu-bs96"
 
-          # --- phase 3: judge vLLM server on GPU 2 ---
-          CUDA_VISIBLE_DEVICES=2 vllm serve Qwen/Qwen3-8B \
+          # --- phase 3: judge vLLM server on GPU 3 ---
+          CUDA_VISIBLE_DEVICES=3 vllm serve Qwen/Qwen3-8B \
               --host 127.0.0.1 --port 8000 \
               --tensor-parallel-size 1 \
               --gpu-memory-utilization 0.5 \
@@ -80,8 +80,8 @@ spec:
           done
           curl -sf http://127.0.0.1:8000/health || { echo "judge failed to start"; tail -50 /tmp/judge.log; exit 1; }
 
-          # --- phase 4: trainer on GPUs 0,1 ---
-          export CUDA_VISIBLE_DEVICES=0,1
+          # --- phase 4: trainer on GPUs 0,1,2 (DP=3) ---
+          export CUDA_VISIBLE_DEVICES=0,1,2
           export RAY_ADDRESS=local
           export RAY_memory_monitor_refresh_ms=0
           export PYTORCH_ALLOC_CONF=expandable_segments:True
@@ -102,7 +102,7 @@ spec:
               --config-path="$PROJECT_DIR/training/grpo" \
               --config-name='grpo_config' \
               algorithm.adv_estimator=grpo \
-              data.train_batch_size=32 \
+              data.train_batch_size=30 \
               data.max_prompt_length=8192 \
               data.max_response_length=16384 \
               data.filter_overlong_prompts=True \
@@ -114,7 +114,7 @@ spec:
               actor_rollout_ref.model.enable_gradient_checkpointing=True \
               ++actor_rollout_ref.model.use_liger=True \
               actor_rollout_ref.actor.optim.lr=1e-6 \
-              actor_rollout_ref.actor.ppo_mini_batch_size=16 \
+              actor_rollout_ref.actor.ppo_mini_batch_size=15 \
               actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
               ++actor_rollout_ref.actor.use_dynamic_bsz=True \
               ++actor_rollout_ref.actor.ppo_max_token_len_per_gpu=24576 \
@@ -163,7 +163,7 @@ spec:
               trainer.logger='["console","wandb"]' \
               trainer.project_name=atts-grpo \
               trainer.experiment_name=8b-sft-2gpu-bs96-nrp \
-              trainer.n_gpus_per_node=2 \
+              trainer.n_gpus_per_node=3 \
               trainer.nnodes=1 \
               trainer.save_freq=5 \
               trainer.test_freq=5 \
@@ -192,12 +192,12 @@ spec:
             cpu: "16"
             memory: 120Gi
             ephemeral-storage: 200Gi
-            nvidia.com/a100: "3"
+            nvidia.com/a100: "4"
           limits:
             cpu: "16"
             memory: 120Gi
             ephemeral-storage: 200Gi
-            nvidia.com/a100: "3"
+            nvidia.com/a100: "4"
       tolerations:
       - key: "nautilus.io/hardware"
         operator: "Equal"
