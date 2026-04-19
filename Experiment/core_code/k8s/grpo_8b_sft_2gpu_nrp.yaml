@@ -62,6 +62,17 @@ spec:
           mkdir -p "$CKPT_DIR"
           export CHECKPOINT_REPO_ID="t2ance/atts-grpo-8b-sft-2gpu-bs96"
 
+          # --- phase 2.5: pre-compile .pyc for verl/vllm/huggingface_hub to avoid
+          # Ray worker register timeouts when 48 workers concurrently import verl.
+          python3 -m compileall -q -j 8 \
+              /usr/local/lib/python3.12/dist-packages/verl \
+              /usr/local/lib/python3.12/dist-packages/vllm \
+              /usr/local/lib/python3.12/dist-packages/huggingface_hub \
+              /usr/local/lib/python3.12/dist-packages/transformers \
+              2>&1 | tail -3
+          # Preheat filesystem cache + triggers initial torch/cuda import cost once.
+          python3 -c "import verl, vllm, huggingface_hub; print('preheat OK')"
+
           # --- phase 3: judge vLLM server on GPU 3 ---
           CUDA_VISIBLE_DEVICES=3 vllm serve Qwen/Qwen3-8B \
               --host 127.0.0.1 --port 8000 \
@@ -89,6 +100,10 @@ spec:
           export RAY_memory_monitor_refresh_ms=0
           export PYTORCH_ALLOC_CONF=expandable_segments:True
           export WANDB_INIT_TIMEOUT=300
+          # Bump Ray worker register timeout (default 60s -> 300s). Ray workers
+          # run sitecustomize.py which imports verl+vllm+hf_hub; 48 concurrent
+          # worker inits hit 60s default on fresh pip (no .pyc cache).
+          export RAY_worker_register_timeout_seconds=300
 
           RESUME_ARGS=(trainer.default_local_dir="$CKPT_DIR")
           if [[ -f "$CKPT_DIR/latest_checkpointed_iteration.txt" ]]; then
