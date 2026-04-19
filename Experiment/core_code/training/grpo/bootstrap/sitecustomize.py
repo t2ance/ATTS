@@ -150,5 +150,58 @@ def _install_dp_group_patch() -> None:
             mod.prepare_dynamic_batch = _patched
 
 
+def _install_hf_push_patch() -> None:
+    """Auto-push each verl checkpoint to HF Hub via HfApi.upload_folder(run_as_future=True).
+
+    verl 0.7.1 has no native HF Hub integration (verl#190 open 14mo). We hook
+    RayPPOTrainer._save_checkpoint; after the original save completes, we queue
+    a background upload of `$CKPT_DIR/global_step_{step}/` to the repo named by
+    env var CHECKPOINT_REPO_ID. run_as_future=True returns immediately -- zero
+    training stall; uploads drain on a daemon thread.
+
+    Guard: WG_BACKEND=ray (FSDP worker) never reaches _save_checkpoint; patch
+    is a no-op in workers. Guard on CHECKPOINT_REPO_ID unset so local runs work
+    unchanged.
+    """
+    if os.environ.get("WG_BACKEND") == "ray":
+        return
+    repo_id = os.environ.get("CHECKPOINT_REPO_ID")
+    if not repo_id:
+        return
+
+    try:
+        from verl.trainer.ppo.ray_trainer import RayPPOTrainer
+        from huggingface_hub import HfApi
+    except ImportError:
+        return
+
+    if getattr(RayPPOTrainer, "_hf_push_patched", False):
+        return
+
+    _api = HfApi(token=os.environ.get("HF_TOKEN"))
+    _api.create_repo(repo_id, repo_type="model", private=False, exist_ok=True)
+    _orig_save = RayPPOTrainer._save_checkpoint
+
+    def _save_and_push(self):
+        _orig_save(self)
+        step = self.global_steps
+        folder = os.path.join(self.config.trainer.default_local_dir, f"global_step_{step}")
+        if not os.path.isdir(folder):
+            return
+        _api.upload_folder(
+            repo_id=repo_id,
+            folder_path=folder,
+            path_in_repo=f"global_step_{step}",
+            commit_message=f"step {step}",
+            run_as_future=True,
+        )
+        _logger.info("queued HF upload for global_step_%d -> %s", step, repo_id)
+
+    RayPPOTrainer._save_checkpoint = _save_and_push
+    RayPPOTrainer._hf_push_patched = True
+    _logger.info("RayPPOTrainer._save_checkpoint patched for HF push -> %s", repo_id)
+
+
 _install_dp_group_patch()
 _install_patch()
+_install_hf_push_patch()
