@@ -45,6 +45,10 @@ spec:
               hydra-core \
               weave \
               hf_transfer
+          # flash-attn required by verl's remove_padding path (flash_attn.bert_padding)
+          # and by vLLM's FlashAttention backend. Prebuilt wheel avoids source build.
+          pip install --no-cache-dir --no-build-isolation \
+              "https://github.com/Dao-AILab/flash-attention/releases/download/v2.8.1/flash_attn-2.8.1%2Bcu12torch2.10cxx11abiTRUE-cp312-cp312-linux_x86_64.whl"
           export HF_HUB_ENABLE_HF_TRANSFER=1
 
           # --- phase 2: pull public code + model ---
@@ -136,7 +140,6 @@ spec:
               actor_rollout_ref.model.path="$MODEL_DIR" \
               actor_rollout_ref.model.enable_gradient_checkpointing=True \
               ++actor_rollout_ref.model.use_liger=True \
-              ++actor_rollout_ref.model.override_config.attn_implementation=sdpa \
               actor_rollout_ref.actor.optim.lr=1e-6 \
               actor_rollout_ref.actor.ppo_mini_batch_size=15 \
               actor_rollout_ref.actor.ppo_micro_batch_size_per_gpu=1 \
