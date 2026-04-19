@@ -198,6 +198,11 @@ spec:
             memory: 120Gi
             ephemeral-storage: 200Gi
             nvidia.com/a100: "3"
+      tolerations:
+      - key: "nautilus.io/hardware"
+        operator: "Equal"
+        value: "large-gpu"
+        effect: "NoSchedule"
       volumes:
       - name: dshm
         emptyDir:
