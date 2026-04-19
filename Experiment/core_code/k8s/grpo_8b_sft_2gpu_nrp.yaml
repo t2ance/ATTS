@@ -58,6 +58,11 @@ spec:
           mkdir -p "$MODEL_DIR"
           hf download t2ance/sft_qwen3_8b_merged --local-dir "$MODEL_DIR"
 
+          # --- phase 2b: pull training data (gitignored locally; on HF as dataset) ---
+          DATA_DIR="$PROJECT_DIR/training_data/grpo"
+          mkdir -p "$DATA_DIR"
+          hf download t2ance/atts-grpo-data --repo-type=dataset --local-dir "$DATA_DIR"
+
           CKPT_DIR="$PROJECT_DIR/checkpoints/atts-grpo/8b-sft-2gpu-bs96"
           mkdir -p "$CKPT_DIR"
           export CHECKPOINT_REPO_ID="t2ance/atts-grpo-8b-sft-2gpu-bs96"
