@@ -214,12 +214,12 @@ spec:
         resources:
           requests:
             cpu: "16"
-            memory: 120Gi
+            memory: 240Gi
             ephemeral-storage: 200Gi
             nvidia.com/a100: "4"
           limits:
             cpu: "16"
-            memory: 120Gi
+            memory: 240Gi
             ephemeral-storage: 200Gi
             nvidia.com/a100: "4"
       tolerations:
