@@ -114,4 +114,41 @@ def _install_patch() -> None:
     _logger.info("vLLMHttpServer.generate patched with structural_tag JSON constraint")
 
 
+def _install_dp_group_patch() -> None:
+    """verl PR #5591 backport: default dp_group=WORLD for prepare_dynamic_batch.
+
+    Fixes NCCL deadlock where FSDP dp_actor's prepare_dynamic_batch calls
+    silently skip num_micro_batches sync across DP ranks (verl 0.7.1 bug).
+    Covers both compute_log_prob (line 468) and update_policy (line 560).
+
+    Valid scope: pure FSDP, HSDP, Ulysses SP, TP=1. Does NOT override
+    explicitly-passed dp_group.
+    """
+    import sys
+
+    import torch.distributed as dist
+
+    try:
+        from verl.utils import seqlen_balancing
+    except ImportError:
+        return
+
+    if getattr(seqlen_balancing, "_dp_group_patched", False):
+        return
+    _orig = seqlen_balancing.prepare_dynamic_batch
+
+    def _patched(data, max_token_len, dp_group=None, **kw):
+        if dp_group is None and dist.is_initialized():
+            dp_group = dist.group.WORLD
+        return _orig(data, max_token_len, dp_group=dp_group, **kw)
+
+    seqlen_balancing.prepare_dynamic_batch = _patched
+    seqlen_balancing._dp_group_patched = True
+    for m in ("verl.workers.actor.dp_actor", "verl.workers.critic.dp_critic"):
+        mod = sys.modules.get(m)
+        if mod is not None and hasattr(mod, "prepare_dynamic_batch"):
+            mod.prepare_dynamic_batch = _patched
+
+
+_install_dp_group_patch()
 _install_patch()

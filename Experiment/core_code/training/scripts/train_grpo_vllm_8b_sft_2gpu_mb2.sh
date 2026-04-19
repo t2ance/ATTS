@@ -80,7 +80,15 @@ conda run --no-capture-output -n grpo_vllm python3 -u -m verl.trainer.main_ppo \
     actor_rollout_ref.rollout.multi_turn.tool_response_truncate_side=right \
     actor_rollout_ref.rollout.multi_turn.format=hermes \
     actor_rollout_ref.rollout.multi_turn.tool_config_path="$TOOL_CONFIG" \
-    actor_rollout_ref.rollout.agent.num_workers=8 \
+    `# CPU RAM budget (2026-04-18): halved from verl default 8 to 4 on both` \
+    `# agent rollout workers (ray actor concurrency) and reward manager workers.` \
+    `# Safe: these parallelism knobs do not change training math (same batch,` \
+    `# same gradients), only serialize rollout/reward compute in time.` \
+    `# Do NOT add data.dataloader_num_workers=4 here: torchdata StatefulDataLoader` \
+    `# asserts self._num_workers == state_dict[NUM_WORKERS] on resume (line 1470),` \
+    `# and existing checkpoints were saved with the verl default of 8 -> crash.` \
+    actor_rollout_ref.rollout.agent.num_workers=4 \
+    reward.num_workers=4 \
     actor_rollout_ref.ref.log_prob_micro_batch_size_per_gpu=1 \
     actor_rollout_ref.ref.fsdp_config.param_offload=True \
     actor_rollout_ref.ref.fsdp_config.model_dtype=bfloat16 \
