@@ -17,6 +17,7 @@ Publication/paper/build/*.fdb_latexmk
 Publication/paper/build/*.fls
 Publication/paper/build/*.log
 Publication/paper/build/*.out
+Publication/references
 
 # Reference PDFs
 Publication/paper/ref/

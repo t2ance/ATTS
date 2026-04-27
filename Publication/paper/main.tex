@@ -40,9 +40,10 @@
 \newtheorem{definition}{Definition}
 
 \Urlmuskip=0mu plus 2mu\relax
-\pdfstringdefDisableCommands{\def\our{ATTS}\def\explore{explore}\def\integrate{integrate}}
+\pdfstringdefDisableCommands{\def\our{ATTS}\def\attsmm{ATTS-MM}\def\explore{explore}\def\integrate{integrate}}
 
 \newcommand\our{\makebox{\textsc{ATTS}}}
+\newcommand\attsmm{\makebox{\textsc{ATTS-MM}}}
 \newcommand\explore{\texttt{explore}}
 \newcommand\integrate{\texttt{integrate}}
 \newcommand{\groupheader}[2]{\rowcolor{gray!20}\multicolumn{#1}{c}{\textit{#2}}\\}
@@ -63,7 +64,7 @@
 \maketitle
 
 \begin{abstract}
-Test-time scaling has become a key lever for improving large language model reasoning, but existing approaches rely on rigid heuristic allocation or explicit search over intermediate reasoning steps. We introduce \our{}, a delegated sequential test-time scaling framework in which a lightweight orchestrator adaptively controls a pool of candidate solutions through a single action: \explore{}, which launches a fresh, independent solver. The orchestrator decides when to stop exploring and directly synthesizes the final answer from the accumulated evidence. The framework defines an extensible action space over solver dispatch decisions; we instantiate it with a single parameterless \explore{} tool and show that even this minimal configuration achieves strong results. We evaluate \our{} on six benchmarks spanning mathematical reasoning, scientific question answering, code generation, and multimodal reasoning. By stopping early when evidence converges, \our{} achieves competitive or superior accuracy with substantially fewer API calls than fixed-budget alternatives: 80.81\% on GPQA-Diamond, 82.29\% on LiveCodeBench, 56.00\% on HLE-Verified, and 23.20\% on BabyVision. An ablation replacing the orchestrator's direct synthesis with a separate integrator call degrades or fails to improve accuracy on three of four benchmarks, indicating that stateful evidence accumulation during exploration is critical to the method's effectiveness.
+Test-time scaling has become a key lever for improving large language model reasoning, but existing approaches rely on rigid heuristic allocation or explicit search over intermediate reasoning steps. We introduce \our{}, a delegated sequential test-time scaling framework in which a lightweight orchestrator adaptively controls a pool of candidate solutions through a single action: \explore{}, which launches a fresh, independent solver. The orchestrator decides when to stop exploring and directly synthesizes the final answer from the accumulated evidence. The framework defines an extensible action space over solver dispatch decisions; we instantiate it with a single parameterless \explore{} tool and show that even this minimal configuration achieves strong results. We evaluate \our{} on six benchmarks spanning mathematical reasoning, scientific question answering, code generation, and multimodal reasoning. By stopping early when evidence converges, \our{} achieves competitive or superior accuracy with substantially fewer API calls than fixed-budget alternatives: 80.81\% on GPQA-Diamond, 82.29\% on LiveCodeBench, 56.00\% on HLE-Verified, and 23.20\% on BabyVision. An ablation (\our{} (+ Integrator)) replacing the orchestrator's direct synthesis with a separate integrator call degrades or fails to improve accuracy on three of four benchmarks, indicating that stateful evidence accumulation during exploration is critical to the method's effectiveness.
 \end{abstract}
 
 \section{Introduction}
@@ -72,7 +73,7 @@ Scaling inference-time compute improves large language model reasoning, but how 
 
 Existing approaches answer this question with either open-loop heuristics or explicit micro-level search. Predictive routing methods such as DiffAdapt use lightweight difficulty estimates to select an inference regime before generation begins, but these decisions cannot react to evidence that appears during reasoning \citep{diffadapt_paper}. At the other extreme, Tree of Thoughts and process-reward frameworks such as Math-Shepherd perform closed-loop adaptation through explicit tree expansion and step-level verification \citep{tree_of_thoughts_paper,math_shepherd_paper}. Recent agentic test-time scaling methods add further variants, but many still rely on statistical control rules such as vote entropy or confidence-triggered halting \citep{catts_webagents_paper,tumix_paper,general_agentbench_tts_paper}. An underexplored alternative is to delegate compute allocation entirely to an LLM orchestrator that makes sequential explore-or-stop decisions based on its assessment of accumulated evidence, without requiring explicit search trees or statistical stopping criteria.
 
-We introduce \our{}, a \textbf{delegated sequential} test-time scaling framework that separates \emph{control} from \emph{solution generation}. A lightweight orchestrator manages a growing pool of candidate solutions through a single tool, \explore{}, which dispatches a fresh, independent solver on the original problem. When the orchestrator judges the accumulated evidence to be sufficient, it stops exploring and synthesizes the final answer directly. \our{} treats compute allocation as closed-loop decision-making over an \emph{extensible action space}: each \explore{} call can in principle specify which solver to invoke, at what reasoning effort, and with what decomposition strategy. We evaluate the simplest instantiation---a single parameterless tool whose only decision is when to stop---and show that even this minimal agent achieves competitive accuracy at substantially lower cost. A multi-model variant that adds model selection to the action space yields further gains, supporting the principle that the orchestrator's value scales with the richness of its decision space.
+We introduce \our{}, a \textbf{delegated sequential} test-time scaling framework that separates \emph{control} from \emph{solution generation}. A lightweight orchestrator manages a growing pool of candidate solutions through a single tool, \explore{}, which dispatches a fresh, independent solver on the original problem. When the orchestrator judges the accumulated evidence to be sufficient, it stops exploring and synthesizes the final answer directly. \our{} treats compute allocation as closed-loop decision-making over an \emph{extensible action space}: each \explore{} call can in principle specify which solver to invoke, at what reasoning effort, and with what decomposition strategy. We evaluate the simplest instantiation---a single parameterless tool whose only decision is when to stop---and show that even this minimal agent achieves competitive accuracy at substantially lower cost. \attsmm{}, a multi-model extension that adds model selection to the action space, yields further gains, supporting the principle that the orchestrator's value scales with the richness of its decision space.
 
 We evaluate \our{} across four benchmarks spanning scientific question answering, code generation, and multimodal reasoning: HLE-Verified \citep{hle_verified_paper}, LiveCodeBench \citep{livecodebench_paper}, BabyVision \citep{babyvision_paper}, and GPQA-Diamond \citep{gpqa_paper}. Because the orchestrator is benchmark-agnostic, the same policy transfers across text-only and image-conditioned tasks.
 
@@ -135,11 +136,11 @@ Algorithm~\ref{alg:atts} summarizes the procedure. The control logic is benchmar
 
 The value of the framework scales with the richness of the orchestrator's action space. In the simplest instantiation, the only action is ``explore once more with the same model,'' and the orchestrator can only decide \emph{when} to stop. With heterogeneous computation types, it also decides \emph{what} to compute---selecting among different effort levels, solver models, or time budgets based on the current evidence. Each extension adds degrees of freedom for adapting to problem difficulty without changing the underlying loop.
 
-This yields a concrete design principle: \our{}'s architecture is not a fixed pipeline but a framework for adaptively selecting what to compute at test time, in the spirit of \citet{hay_selecting_computations}. The experiments in this paper evaluate the simplest instantiation (single model, uniform effort) alongside a multi-model extension with configurable exploration effort (\S\ref{sec:experiments}).
+This yields a concrete design principle: \our{}'s architecture is not a fixed pipeline but a framework for adaptively selecting what to compute at test time, in the spirit of \citet{hay_selecting_computations}. The experiments in this paper evaluate the simplest instantiation, \our{} (single model, uniform effort), alongside \attsmm{}, a multi-model extension with configurable exploration effort (\S\ref{sec:experiments}).
 
-\subsection{Multi-Model Extension}
+\subsection{Multi-Model Extension (\attsmm{})}
 
-We extend \our{} to multi-model deployment by adding model selection to the orchestrator's decision space. The orchestrator (Claude Sonnet 4.6) dispatches explores to a pool of three models---Haiku (cheapest), Sonnet (mid-range), and Opus (strongest)---each with a per-question budget limit. Model profiles inform dispatch decisions: the orchestrator starts with cheaper models, escalates on disagreement or repeated failure, and treats cross-model agreement as stronger evidence than same-model convergence. This enables cost-aware exploration strategies where easy problems are solved entirely with cheap models while hard problems automatically escalate to more capable solvers. An \emph{exploration effort} parameter controls the exploration policy: Low effort instructs the orchestrator to stop as soon as any two candidates converge, Medium effort requires at least three explores across at least two different models before the orchestrator's stopping judgment takes effect, and High effort requires at least five explores using all three models.
+We define \attsmm{} by extending \our{} with model selection in the orchestrator's decision space. The orchestrator (Claude Sonnet 4.6) dispatches explores to a pool of three models---Haiku (cheapest), Sonnet (mid-range), and Opus (strongest)---each with a per-question budget limit. Model profiles inform dispatch decisions: the orchestrator starts with cheaper models, escalates on disagreement or repeated failure, and treats cross-model agreement as stronger evidence than same-model convergence. This enables cost-aware exploration strategies where easy problems are solved entirely with cheap models while hard problems automatically escalate to more capable solvers. An \emph{exploration effort} parameter controls the exploration policy: Low effort instructs the orchestrator to stop as soon as any two candidates converge, Medium effort requires at least three explores across at least two different models before the orchestrator's stopping judgment takes effect, and High effort requires at least five explores using all three models.
 
 \section{Experiments}
 \label{sec:experiments}
@@ -148,7 +149,35 @@ We evaluate on four benchmarks: HLE-Verified \citep{hle_verified_paper}, LiveCod
 
 \subsection{Experimental Setup}
 
-Across all experiments, the underlying backbone model is Claude Sonnet 4.6 (\texttt{claude-sonnet-4-6}), used for the orchestrator, explorer, and all baselines unless otherwise noted. Claude Haiku, Sonnet, and Opus are three capability tiers in the Claude model family, ordered from smallest/cheapest to largest/most capable. All generation uses the model's default sampling parameters (no explicit temperature or top-$p$ override) with extended thinking enabled at a budget of 32{,}000 tokens and the API's default reasoning effort (no explicit \texttt{effort} override). Extended thinking allows the model to allocate a portion of its output budget to internal chain-of-thought reasoning before producing the final structured response; all baselines use the same setting for fair comparison. The exploration budget is $T{=}8$ \explore{} calls per question for single-model runs and $T{=}16$ for multi-model runs (per-model limits: Haiku~8, Sonnet~8, Opus~4).
+% =============================================================================
+% NAMING REFERENCE -- ATTS method variants (do not edit lightly).
+% Two main methods (always reported with bare names):
+%
+%   Axis              | ATTS                       | ATTS-MM
+%   ------------------|----------------------------|--------------------------
+%   Solver pool       | Sonnet 4.6 (single)        | {Haiku, Sonnet, Opus}
+%   Effort            | --                         | Medium
+%   Synthesis         | orchestrator-direct        | orchestrator-direct
+%   Orch thinking     | enabled                    | enabled
+%   Orchestrator      | Sonnet 4.6                 | Sonnet 4.6
+%   Budget T          | 8                          | 16 (Haiku 8, Sonnet 8, Opus 4)
+%
+% Ablation variants (deviate on one axis only; name pattern: BASE (deviation)):
+%   ATTS (+ Integrator)     -- adds separate \integrate{} step (Tab 2)
+%   ATTS (no thinking)      -- disables extended thinking (Tab 4)
+%   ATTS (Haiku orch)       -- swaps orchestrator only (App B Tab 6)
+%   ATTS (Opus orch)        -- swaps orchestrator only (App B Tab 6)
+%   ATTS w/ GPT-5.2 backbone (Tab 3) -- backbone family swap, all roles
+%   ATTS-MM (Low) / ATTS-MM (High)   -- effort sweep (App B Tab 5)
+%
+% Forbidden phrasings (do NOT reintroduce -- collapsed during cleanup):
+%   "ATTS (Ours)", "ATTS Multi-model Med", "ATTS Multi Med",
+%   "the multi-model variant", "single-model ATTS configuration",
+%   "default ATTS architecture", "Default (no integrator)",
+%   "Thinking disabled" as standalone label, "Sonnet orchestrator" as suffix.
+% =============================================================================
+
+The experiments below evaluate two configurations of our framework, treated as the two methods we report. \our{} is the single-model configuration: Claude Sonnet 4.6 (\texttt{claude-sonnet-4-6}) serves as both orchestrator and explorer, the orchestrator synthesizes the final answer directly (no separate integrator), extended thinking is enabled, and the exploration budget is $T{=}8$ \explore{} calls per question. \attsmm{} is the multi-model configuration: the orchestrator (still Sonnet 4.6) dispatches to a pool of three explorers \{Haiku, Sonnet, Opus\} at Medium exploration effort, with budget $T{=}16$ (per-model limits: Haiku~8, Sonnet~8, Opus~4). Unless otherwise noted, all baselines and ablation variants share the same backbone (Sonnet 4.6), default sampling parameters (no explicit temperature or top-$p$ override), extended thinking budget of 32{,}000 tokens, and the API's default reasoning effort. Claude Haiku, Sonnet, and Opus are three capability tiers in the Claude model family, ordered from smallest/cheapest to largest/most capable.
 
 We compare against six baselines, all sharing the same backbone model and answer interface so that only the inference-time strategy differs (full details in Appendix~\ref{app:implementation-details}): Pass@1 (single rollout), Majority Voting ($N{=}8$ independent candidates, most-frequent answer; reported only on benchmarks where direct answer aggregation is well-defined), Self-Refine~\citep{self_refine_paper} (iterative feedback-revision on a single draft), Budget Forcing~\citep{s1_budget_forcing_paper} ($N$ sequential rounds with forced continuation via ``Wait''), reward-model reranking using Skywork-Reward-V2~\citep{skywork_reward_v2_paper,skywork_reward_v2_hf} for text benchmarks or VisualPRM~\citep{visualprm_paper,visualprm_hf} for multimodal benchmarks, and LLM Selection ($N{=}8$), which feeds all pre-cached candidates to the backbone model in a single call and asks it to analyze, compare, and synthesize a final answer. LLM Selection isolates the contribution of LLM-based aggregation from adaptive sequential exploration.
 
@@ -191,8 +220,8 @@ Budget Forcing & 51.00 & 0.60 \\
 % Multi-model Med: 1 of 10 consumed -> -$8.63 -> ($162.80-$8.63)/100 = $1.54.
 Skywork-Reward-V2 & 52.00 & 3.61 \\
 LLM Selection ($N{=}8$) & \textbf{58.00} & 3.71 \\
-\our{} (Ours) & 56.00 & 1.59 \\
-\our{} Multi-model Med & 57.00 & 1.54 \\
+\our{} & 56.00 & 1.59 \\
+\attsmm{} & 57.00 & 1.54 \\
 \bottomrule
 \end{tabular}
 \end{minipage}\hfill%
@@ -216,8 +245,8 @@ Self-Refine & 80.57 & \textbf{100.00} & 90.38 & 63.75 & 0.32 \\
 Budget Forcing & 80.00 & \textbf{100.00} & 88.46 & 63.75 & 0.50 \\
 Skywork-Reward-V2 & 78.86 & \textbf{100.00} & 90.38 & 60.00 & 1.41 \\
 LLM Selection ($N{=}8$) & 81.14 & \textbf{100.00} & 86.54 & 67.50 & 1.51 \\
-\our{} (Ours) & 82.29 & \textbf{100.00} & 90.38 & 67.50 & 0.53 \\
-\our{} Multi-model Med & \textbf{85.63} & \textbf{100.00} & \textbf{92.31} & \textbf{73.42} & 0.69 \\
+\our{} & 82.29 & \textbf{100.00} & 90.38 & 67.50 & 0.53 \\
+\attsmm{} & \textbf{85.63} & \textbf{100.00} & \textbf{92.31} & \textbf{73.42} & 0.69 \\
 \bottomrule
 \end{tabular}
 \end{minipage}
@@ -245,8 +274,8 @@ Self-Refine & 73.10 & 0.23 \\
 Budget Forcing & 77.16 & 0.42 \\
 Skywork-Reward-V2 & 76.14 & 0.90 \\
 LLM Selection ($N{=}8$) & 77.16 & 0.97 \\
-\our{} (Ours) & 80.81 & 0.34 \\
-\our{} Multi-model Med & \textbf{81.82} & 0.39 \\
+\our{} & 80.81 & 0.34 \\
+\attsmm{} & \textbf{81.82} & 0.39 \\
 \bottomrule
 \end{tabular}
 \end{minipage}\hfill%
@@ -273,14 +302,14 @@ Self-Refine & 21.39 & 20.25 & 22.89 & 20.88 & \textbf{23.53} & 0.42 \\
 Budget Forcing & 21.91 & 20.86 & \textbf{28.92} & 21.98 & 13.73 & 0.52 \\
 VisualPRM & 20.88 & 20.86 & 21.69 & 21.98 & 17.65 & 0.50 \\
 LLM Selection ($N{=}8$) & \textbf{23.20} & 23.31 & 25.30 & 23.08 & 19.61 & 0.56 \\
-\our{} (Ours) & \textbf{23.20} & 22.09 & 24.10 & \textbf{26.37} & 19.61 & 0.27 \\
-\our{} Multi-model Med & 22.42 & 22.09 & 27.71 & 21.98 & 15.69 & 0.43 \\
+\our{} & \textbf{23.20} & 22.09 & 24.10 & \textbf{26.37} & 19.61 & 0.27 \\
+\attsmm{} & 22.42 & 22.09 & 27.71 & 21.98 & 15.69 & 0.43 \\
 \bottomrule
 \end{tabular}
 \end{minipage}
 \end{table}
 
-\subsection{ATTS Achieves Competitive Accuracy at Lower Cost}
+\subsection{\our{} Achieves Competitive Accuracy at Lower Cost}
 
 Table~\ref{tab:main-results} presents the main results across all four benchmarks. For each benchmark, the upper group reproduces published zero-shot references for context, and the lower group reports test-time scaling methods evaluated under our unified setup. Zero-shot references are cited from the respective benchmark papers and official leaderboards; they use different model configurations and are therefore not directly comparable to our test-time scaling rows. HLE-Verified zero-shot rows report Revised-subset Acc \citep{hle_verified_paper} while our rows evaluate a 100-sample Gold subset. LiveCodeBench references follow the public generation leaderboard \citep{livecodebench_paper}. BabyVision references are from \citet{babyvision_paper}. GPQA-Diamond references are from \citet{gpqa_paper} and official records. Full benchmark details including dataset releases, grading protocols, and subset definitions are in Appendix~\ref{app:benchmark-details}.
 
@@ -288,10 +317,10 @@ Table~\ref{tab:main-results} presents the main results across all four benchmark
 % Corrected: HLE costs adjusted after zeroing 10 compaction-failed explores.
 % ATTS: $1.90 -> $1.59. LLM Selection: $4.53 -> $3.71. Multi-model Med: $1.63 -> $1.54.
 % Ratio: $3.71/$1.59 = 2.33 -> 2.3x (was $4.53/$1.90 = 2.38 -> 2.4x).
-On HLE-Verified, \our{} achieves 56.00\% accuracy at \$1.59/q, outperforming Self-Refine (53.00\%) and Budget Forcing (51.00\%). LLM Selection reaches 58.00\% but at \$3.71/q---a $2.3\times$ cost increase for a 2-point gain---illustrating that single-pass aggregation achieves higher accuracy when cost is unconstrained, but adaptive exploration provides a more efficient operating point. The multi-model variant improves to 57.00\% at \$1.54/q, narrowing the accuracy gap while maintaining cost efficiency.
+On HLE-Verified, \our{} achieves 56.00\% accuracy at \$1.59/q, outperforming Self-Refine (53.00\%) and Budget Forcing (51.00\%). LLM Selection reaches 58.00\% but at \$3.71/q---a $2.3\times$ cost increase for a 2-point gain---illustrating that single-pass aggregation achieves higher accuracy when cost is unconstrained, but adaptive exploration provides a more efficient operating point. \attsmm{} improves to 57.00\% at \$1.54/q, narrowing the accuracy gap while maintaining cost efficiency.
 
 \paragraph{LiveCodeBench.}
-For LiveCodeBench, the single-model \our{} configuration reaches 82.29\% Pass@1 at \$0.53/q, improving over Self-Refine (80.57\%) and Budget Forcing (80.00\%). The gains concentrate on Hard problems: 67.50\% vs.\ 63.75\% for both Self-Refine and Budget Forcing, while Easy (100\%) and Medium (90.38\%) accuracies are at or near ceiling. The multi-model variant further improves to 85.63\% overall and 73.42\% on Hard.
+For LiveCodeBench, \our{} reaches 82.29\% Pass@1 at \$0.53/q, improving over Self-Refine (80.57\%) and Budget Forcing (80.00\%). The gains concentrate on Hard problems: 67.50\% vs.\ 63.75\% for both Self-Refine and Budget Forcing, while Easy (100\%) and Medium (90.38\%) accuracies are at or near ceiling. \attsmm{} further improves to 85.63\% overall and 73.42\% on Hard.
 
 \paragraph{GPQA-Diamond.}
 On GPQA-Diamond, \our{} achieves the highest accuracy among all test-time scaling methods (80.81\%) at \$0.34/q, outperforming Budget Forcing (77.16\%) and Skywork-Reward-V2 (76.14\%). Self-Refine (73.10\%) falls \emph{below} Pass@1 (74.24\%), consistent with the known limitation that its feedback model frequently accepts the initial draft and occasionally introduces errors during revision.
@@ -302,7 +331,7 @@ Among test-time scaling methods, \our{} ties with Majority Voting and LLM Select
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{figures/main_cost_vs_accuracy.pdf}
-\caption{Cost-accuracy tradeoffs across the four main benchmarks (left to right: HLE-Verified, LiveCodeBench, GPQA-Diamond, BabyVision). Star markers denote \our{} variants; circles denote baselines. \our{} achieves competitive or superior accuracy at lower cost across all benchmarks.}
+\caption{Cost-accuracy tradeoffs across the four main benchmarks (left to right: HLE-Verified, LiveCodeBench, GPQA-Diamond, BabyVision). Star markers denote \our{} and \attsmm{}; circles denote baselines. \our{} achieves competitive or superior accuracy at lower cost across all benchmarks.}
 \label{fig:cost-accuracy}
 \end{figure}
 
@@ -314,27 +343,27 @@ Across all four benchmarks, \our{} achieves the best or tied-best accuracy among
 \subsection{Ablation Studies}
 
 \paragraph{Medium effort is the best cost-efficiency operating point.}
-The multi-model variant exposes an \emph{exploration effort} parameter that controls stopping aggressiveness. Figure~\ref{fig:effort-ablation} shows the cost-accuracy tradeoff at three effort levels (Low, Medium, High) across all four benchmarks, holding the model pool and budget fixed; the raw numbers are in Appendix~\ref{app:ablation-data}, Table~\ref{tab:effort-ablation}. The Low-to-Medium transition yields the largest accuracy gain on every benchmark (up to +13 points on HLE, +8.6 on LiveCodeBench). Medium-to-High provides diminishing returns: on LiveCodeBench and BabyVision accuracy is flat while cost nearly doubles; only on HLE-Verified does High effort produce a meaningful further improvement (+3 points). Medium effort therefore represents the best cost-efficiency operating point across the benchmark suite.
+\attsmm{} exposes an \emph{exploration effort} parameter that controls stopping aggressiveness. Figure~\ref{fig:effort-ablation} shows the cost-accuracy tradeoff at three effort levels (Low, Medium, High) across all four benchmarks, holding the model pool and budget fixed; the raw numbers are in Appendix~\ref{app:ablation-data}, Table~\ref{tab:effort-ablation}. The Low-to-Medium transition yields the largest accuracy gain on every benchmark (up to +13 points on HLE, +8.6 on LiveCodeBench). Medium-to-High provides diminishing returns: on LiveCodeBench and BabyVision accuracy is flat while cost nearly doubles; only on HLE-Verified does High effort produce a meaningful further improvement (+3 points). Medium effort therefore represents the best cost-efficiency operating point across the benchmark suite.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{figures/effort_ablation.pdf}
-\caption{Effect of exploration effort on multi-model \our{}. Each panel shows the cost-accuracy tradeoff for Low, Medium, and High effort on one benchmark. The steep Low-to-Medium gain and flat Medium-to-High plateau are consistent across all benchmarks.}
+\caption{Effect of exploration effort on \attsmm{}. Each panel shows the cost-accuracy tradeoff for Low, Medium, and High effort on one benchmark. The steep Low-to-Medium gain and flat Medium-to-High plateau are consistent across all benchmarks.}
 \label{fig:effort-ablation}
 \end{figure}
 
 \paragraph{Stateful orchestration outperforms separate integration.}
-In the default \our{} architecture, the orchestrator produces the final answer directly from its accumulated evidence after deciding to stop exploring. We also evaluate a variant that adds a dedicated \integrate{} step: a separate model call that receives all candidates and synthesizes the final answer independently.
+By default, \our{} has the orchestrator produce the final answer directly from its accumulated evidence after deciding to stop exploring. We also evaluate \our{} (+ Integrator), a variant that adds a dedicated \integrate{} step: a separate model call that receives all candidates and synthesizes the final answer independently.
 
 \begin{table}[H]
 \centering
-\caption{Effect of adding a separate integrator. The default \our{} architecture has the orchestrator synthesize directly; the ``+ Integrator'' variant delegates synthesis to a separate model call.}
+\caption{Effect of adding a separate integrator. \our{} has the orchestrator synthesize directly; \our{} (+ Integrator) delegates synthesis to a separate model call.}
 \label{tab:integrator-ablation}
 \small
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{l r r r r}
 \toprule
- & \multicolumn{2}{c}{Default (no integrator)} & \multicolumn{2}{c}{+ Integrator} \\
+ & \multicolumn{2}{c}{\our{}} & \multicolumn{2}{c}{\our{} (+ Integrator)} \\
 \cmidrule(lr){2-3}\cmidrule(lr){4-5}
  & Acc. (\%) & \$/q & Acc. (\%) & \$/q \\
 \midrule
@@ -350,7 +379,7 @@ GPQA-Diamond & 80.81 & 0.34 & 76.14 & 0.44 \\
 
 Across all four benchmarks, adding a separate integrator does \emph{not} consistently improve accuracy and \emph{always} increases cost (Table~\ref{tab:integrator-ablation}). On GPQA-Diamond, accuracy drops from 80.81\% to 76.14\%; on LiveCodeBench, from 82.29\% to 80.57\%.
 % Corrected: $2.66->$2.35, $1.90->$1.59 (compaction-failed explores zeroed).
-On HLE-Verified, the integrator variant gains 1 point (57.00\% vs.\ 56.00\%) but at substantially higher cost (\$2.35/q vs.\ \$1.59/q). The degradation likely stems from the integrator having \emph{less} context for synthesis: it only sees the final candidate pool in a single-turn call, whereas the orchestrator has observed the full multi-turn conversation including each candidate's arrival and the reasoning behind its own exploration decisions.
+On HLE-Verified, \our{} (+ Integrator) gains 1 point (57.00\% vs.\ 56.00\%) but at substantially higher cost (\$2.35/q vs.\ \$1.59/q). The degradation likely stems from the integrator having \emph{less} context for synthesis: it only sees the final candidate pool in a single-turn call, whereas the orchestrator has observed the full multi-turn conversation including each candidate's arrival and the reasoning behind its own exploration decisions.
 
 \paragraph{Orchestrator effectiveness is task-dependent, not capability-monotonic.}
 We ablate the orchestrator model while keeping the explorer fixed at Sonnet 4.6 (Table~\ref{tab:orch-ablation}, Figure~\ref{fig:orch-ablation}). The results show no monotonic relationship between model strength and orchestrator effectiveness: Opus achieves the highest accuracy on HLE (59\%) and LiveCodeBench (83.4\%), but drops to 77.16\% on GPQA---\emph{below} Sonnet's 80.81\%. Haiku performs comparably to Sonnet on HLE (57\% vs.\ 56\%).
@@ -369,13 +398,13 @@ To evaluate whether \our{} generalizes beyond a single model family, we run the 
 
 \begin{table}[H]
 \centering
-\caption{Backbone model ablation. All configurations use the default \our{} architecture (no separate integrator) with identical prompts and exploration budget. Reasoning effort controls the orchestrator's internal chain-of-thought budget. ATTS gain = ATTS accuracy $-$ Pass@1 accuracy.}
+\caption{Backbone model ablation. All configurations are \our{} with identical prompts and exploration budget. Reasoning effort controls the orchestrator's internal chain-of-thought budget. Gain = Acc. $-$ Pass@1.}
 \label{tab:backbone-ablation}
 \small
 \setlength{\tabcolsep}{3pt}
 \begin{tabular}{l l l r r r r}
 \toprule
-Backbone & Effort & Benchmark & Pass@1 & ATTS & Gain & \$/q \\
+Backbone & Effort & Benchmark & Pass@1 & Acc. & Gain & \$/q \\
 \midrule
 % Corrected: $1.90->$1.59 (4 compaction-failed explores zeroed, same as Table 1).
 Claude Sonnet 4.6 & default & HLE & 48.00 & 56.00 & +8.0 & 1.59 \\
@@ -403,13 +432,13 @@ We ablate the orchestrator's internal reasoning by disabling extended thinking (
 \toprule
 Condition & Acc. (\%) & \$/q & Explores/q \\
 \midrule
-Default (thinking enabled) & 82.83 & 0.35 & 2.15 \\
-Thinking disabled & 79.29 & 0.36 & 2.08 \\
+\our{} & 82.83 & 0.35 & 2.15 \\
+\our{} (no thinking) & 79.29 & 0.36 & 2.08 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Disabling thinking reduces accuracy by 3.5 points (82.83\% $\to$ 79.29\%) with no cost savings (Table~\ref{tab:thinking-ablation}). The exploration behavior is nearly identical (2.08 vs.\ 2.15 explores per question), indicating that the accuracy gap is attributable to synthesis quality, not stopping behavior. This result confirms that the orchestrator's internal reasoning---even when constrained to a pure orchestration role with no direct problem-solving---contributes meaningfully to evidence evaluation and answer selection.
+\our{} (no thinking) reduces accuracy by 3.5 points relative to \our{} (82.83\% $\to$ 79.29\%) with no cost savings (Table~\ref{tab:thinking-ablation}). The exploration behavior is nearly identical (2.08 vs.\ 2.15 explores per question), indicating that the accuracy gap is attributable to synthesis quality, not stopping behavior. This result confirms that the orchestrator's internal reasoning---even when constrained to a pure orchestration role with no direct problem-solving---contributes meaningfully to evidence evaluation and answer selection.
 
 \section{Limitations}
 
@@ -417,7 +446,7 @@ Disabling thinking reduces accuracy by 3.5 points (82.83\% $\to$ 79.29\%) with n
 
 \section{Conclusion}
 
-The central empirical finding of this work is that an LLM orchestrator performing closed-loop decision-making over a minimal action space---a single \explore{} tool---achieves competitive or superior accuracy to fixed-budget test-time scaling strategies while using substantially fewer API calls. A multi-model variant further improves to 57.00\% and 85.63\% on HLE-Verified and LiveCodeBench respectively. The ablation results sharpen this finding: removing the orchestrator's multi-turn context by delegating synthesis to a separate call degrades or fails to improve accuracy on three of four benchmarks, demonstrating that \emph{stateful evidence management}---not just candidate diversity---drives the gains. For the broader field, these results indicate that test-time compute allocation is better approached as closed-loop decision-making by an LLM agent---with an extensible action space over solver dispatch---than as explicit tree search or fixed sampling. A key limitation is the orchestrator's conservative stopping behavior: on GPQA-Diamond, 82\% of questions use exactly two \explore{} calls, leaving substantial headroom relative to oracle best-of-$N$. Learning stopping policies that better exploit the full exploration budget remains an open problem. Code and cached experimental artifacts are available at \url{https://github.com/t2ance/ATTS}.
+The central empirical finding of this work is that an LLM orchestrator performing closed-loop decision-making over a minimal action space---a single \explore{} tool---achieves competitive or superior accuracy to fixed-budget test-time scaling strategies while using substantially fewer API calls. \attsmm{} further improves to 57.00\% and 85.63\% on HLE-Verified and LiveCodeBench respectively. The ablation results sharpen this finding: removing the orchestrator's multi-turn context by delegating synthesis to a separate call degrades or fails to improve accuracy on three of four benchmarks, demonstrating that \emph{stateful evidence management}---not just candidate diversity---drives the gains. For the broader field, these results indicate that test-time compute allocation is better approached as closed-loop decision-making by an LLM agent---with an extensible action space over solver dispatch---than as explicit tree search or fixed sampling. A key limitation is the orchestrator's conservative stopping behavior: on GPQA-Diamond, 82\% of questions use exactly two \explore{} calls, leaving substantial headroom relative to oracle best-of-$N$. Learning stopping policies that better exploit the full exploration budget remains an open problem. Code and cached experimental artifacts are available at \url{https://github.com/t2ance/ATTS}.
 
 \bibliographystyle{plainnat}
 \bibliography{main}
@@ -442,7 +471,7 @@ The central empirical finding of this work is that an LLM orchestrator performin
   basicstyle=\scriptsize\ttfamily,
   breaklines=true,
   captionpos=b,
-  caption={Orchestrator system prompt (single-model, explore-only variant). The same principles and examples are shared by the integrate and multi-model variants; only the finalize instruction differs.},
+  caption={Orchestrator system prompt for \our{} (explore-only). The same principles and examples are shared by \our{} (+ Integrator) and \attsmm{}; only the finalize instruction differs.},
   label={lst:orchestrator-prompt}
 ]
 You are a meta-reasoning orchestrator. You manage a pool of candidate solutions for a problem.
@@ -469,7 +498,7 @@ Your final answer must be derived from candidate outputs. You may combine insigh
   basicstyle=\scriptsize\ttfamily,
   breaklines=true,
   captionpos=b,
-  caption={Multi-model orchestrator prompt additions. The orchestrator receives model profiles with pricing and benchmark scores, and adapted principles for heterogeneous model selection.},
+  caption={Orchestrator prompt additions for \attsmm{}. The orchestrator receives model profiles with pricing and benchmark scores, and adapted principles for heterogeneous model selection.},
   label={lst:multi-model-prompt}
 ]
 You have access to multiple solver models of different capability and cost. Each explore call lets you choose which model to use.
@@ -536,13 +565,13 @@ All baselines use the same backbone model and the same benchmark-specific answer
 
 \begin{table}[H]
 \centering
-\caption{Effect of exploration effort on multi-model \our{}. Accuracy (\%) and average cost per question (\$/q) across benchmarks.}
+\caption{Effect of exploration effort on \attsmm{}. Accuracy (\%) and average cost per question (\$/q) across benchmarks.}
 \label{tab:effort-ablation}
 \small
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{l r r r r r r}
 \toprule
- & \multicolumn{2}{c}{Low} & \multicolumn{2}{c}{Medium} & \multicolumn{2}{c}{High} \\
+ & \multicolumn{2}{c}{\attsmm{} (Low)} & \multicolumn{2}{c}{\attsmm{}} & \multicolumn{2}{c}{\attsmm{} (High)} \\
 \cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
  & Acc. & \$/q & Acc. & \$/q & Acc. & \$/q \\
 \midrule
@@ -564,7 +593,7 @@ GPQA-Diamond & 77.78 & 0.29 & 81.82 & 0.39 & 82.32 & 0.40 \\
 \setlength{\tabcolsep}{4pt}
 \begin{tabular}{l r r r r r r}
 \toprule
- & \multicolumn{2}{c}{Haiku orch} & \multicolumn{2}{c}{Sonnet orch} & \multicolumn{2}{c}{Opus orch} \\
+ & \multicolumn{2}{c}{\our{} (Haiku orch)} & \multicolumn{2}{c}{\our{}} & \multicolumn{2}{c}{\our{} (Opus orch)} \\
 \cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
  & Acc. & \$/q & Acc. & \$/q & Acc. & \$/q \\
 \midrule
@@ -578,105 +607,10 @@ GPQA-Diamond & 80.20 & 0.36 & 80.81 & 0.34 & 77.16 & 0.34 \\
 \end{tabular}
 \end{table}
 
-\section{Theoretical Analysis}
-\label{app:theory}
-
-The following results are a specialization of Blackwell's informativeness theorem~\citep{blackwell1953equivalent} to deterministic information loss in the \our{} setting. Let $\mathcal{O}$ denote the full orchestrator observation space (the complete multi-turn history including each candidate's arrival, deliberation context, and stopping reasoning), $\mathcal{S}$ the integrator observation space (the final candidate pool), and $g : \mathcal{O} \to \mathcal{S}$ the compression that discards arrival order and deliberation context. Let $\mathcal{A}$ be the answer space and $u : \mathcal{O} \times \mathcal{A} \to \mathbb{R}$ a utility function.
-
-\begin{theorem}[Replication principle]
-\label{thm:replication}
-For any integrator rule $d_I : \mathcal{S} \to \mathcal{A}$, there exists an orchestrator rule $d_O : \mathcal{O} \to \mathcal{A}$ with $u(\sigma, d_O(\sigma)) = u(\sigma, d_I(g(\sigma)))$ for all $\sigma \in \mathcal{O}$.
-\end{theorem}
-
-\begin{proof}
-Set $d_O = d_I \circ g$.
-\end{proof}
-
-The orchestrator can always replicate the integrator; the converse does not hold. When $g$ is non-injective, the integrator is provably handicapped:
-
-\begin{theorem}[Information loss degrades synthesis]
-\label{thm:info-loss}
-Suppose $g(\sigma_1) = g(\sigma_2)$ for distinct $\sigma_1, \sigma_2 \in \mathcal{O}$ with uniquely optimal answers $a_1^* \neq a_2^*$. Then every integrator rule $d_I$ is suboptimal on at least one:
-\[
-u(\sigma_1, d_I(g(\sigma_1))) < u(\sigma_1, a_1^*) \quad\text{or}\quad u(\sigma_2, d_I(g(\sigma_2))) < u(\sigma_2, a_2^*).
-\]
-\end{theorem}
-
-\begin{proof}
-Since $g(\sigma_1) = g(\sigma_2)$, $d_I$ outputs the same answer $a$ on both. If $a = a_1^*$ (optimal on $\sigma_1$), then $a \neq a_2^*$, and unique optimality on $\sigma_2$ gives $u(\sigma_2, a) < u(\sigma_2, a_2^*)$. Otherwise $u(\sigma_1, a) < u(\sigma_1, a_1^*)$.
-\end{proof}
-
-The integrator receives only $\mathcal{C}_\tau$ in a single call---a lossy summary of the orchestrator's full multi-turn history. Theorem~\ref{thm:info-loss} predicts that whenever the discarded context (reasoning approach diversity, convergence trajectory, stopping rationale) is decision-relevant, synthesis quality must degrade. The accuracy drops in Table~\ref{tab:integrator-ablation}---4.67 points on GPQA-Diamond, 1.72 on LiveCodeBench---are instances of this information-loss penalty. Formally verified proofs in Lean~4 are included in the code release.
-
-\subsection{Sequential Accumulation Advantage}
-\label{app:submartingale}
-
-Theorems~\ref{thm:replication}--\ref{thm:info-loss} establish a static information advantage: the orchestrator observes a richer signal than the integrator. We now show a \emph{dynamic} advantage: the \our{} process is guaranteed to improve in expectation with each additional exploration, whereas symmetric multi-agent debate provably does not~\citep{debate_or_vote_paper}.
-
-\begin{definition}[Orchestrator discrimination]
-\label{def:discrimination}
-Let $\varepsilon \geq 0$. An orchestrator has \emph{discrimination advantage} $\varepsilon$ if, when comparing a correct candidate against an incorrect one, it selects the correct candidate with probability $\tfrac{1}{2} + \varepsilon$.
-\end{definition}
-
-\begin{theorem}[Submartingale property of \our{}]
-\label{thm:submartingale}
-Let $p$ denote the per-explore probability of producing a correct answer, and let $\varepsilon > 0$ be the orchestrator's discrimination advantage. Define $S_n \in \{0,1\}$ as the indicator that the orchestrator's current best answer after $n$ explorations is correct. Then $\{S_n\}_{n \geq 0}$ is a submartingale:
-\[
-\mathbb{E}[S_{n+1} \mid \mathcal{F}_n] \geq S_n,
-\]
-with strict inequality whenever $S_n = 0$ and $p > 0$. By Doob's optional stopping theorem, for any stopping time $\tau$:
-\[
-\mathbb{E}[S_\tau] \geq \mathbb{E}[S_0] = p.
-\]
-\end{theorem}
-
-\begin{proof}
-We compute $\mathbb{E}[S_{n+1} \mid S_n]$ by case analysis on the current state and the $(n+1)$-th exploration.
-
-\textbf{Case $S_n = 1$} (current best is correct). The new explore is correct with probability $p$ (no replacement needed) or incorrect with probability $1-p$. In the latter case the orchestrator compares the new (incorrect) candidate against the current (correct) one and retains the correct answer with probability $\tfrac{1}{2}+\varepsilon$:
-\[
-\Pr(S_{n+1}=1 \mid S_n=1) = p + (1-p)\bigl(\tfrac{1}{2}+\varepsilon\bigr) = \tfrac{1}{2}+\varepsilon + p\bigl(\tfrac{1}{2}-\varepsilon\bigr).
-\]
-Since $\varepsilon > 0$ and $p \in [0,1]$, this probability is at least $\tfrac{1}{2} + \varepsilon > \tfrac{1}{2}$, and in particular $\geq 1 \cdot S_n = 1$ when $p \geq \tfrac{1}{2}-\varepsilon$. More precisely, $\Pr(S_{n+1}=1 \mid S_n=1) \geq 1$ iff $p \geq 1$, but for $p < 1$ there is a nonzero probability of incorrect replacement $(1-p)(\tfrac{1}{2}-\varepsilon)$. However, the submartingale property requires only $\mathbb{E}[S_{n+1} \mid \mathcal{F}_n] \geq S_n$ in expectation across both cases.
-
-\textbf{Case $S_n = 0$} (current best is incorrect). The new explore is correct with probability $p$. If correct, the orchestrator compares it against the current (incorrect) best and selects the correct one with probability $\tfrac{1}{2}+\varepsilon$:
-\[
-\Pr(S_{n+1}=1 \mid S_n=0) = p\bigl(\tfrac{1}{2}+\varepsilon\bigr).
-\]
-This is strictly positive when $p > 0$, so $\mathbb{E}[S_{n+1} \mid S_n=0] > 0 = S_n$.
-
-Combining both cases:
-\begin{align*}
-\mathbb{E}[S_{n+1} \mid \mathcal{F}_n]
-&= S_n \cdot \Pr(S_{n+1}=1 \mid S_n=1) + (1-S_n) \cdot \Pr(S_{n+1}=1 \mid S_n=0) \\
-&= S_n \bigl[\tfrac{1}{2}+\varepsilon + p(\tfrac{1}{2}-\varepsilon)\bigr] + (1-S_n)\bigl[p(\tfrac{1}{2}+\varepsilon)\bigr].
-\end{align*}
-Setting $\Delta_n = \mathbb{E}[S_{n+1} \mid \mathcal{F}_n] - S_n$ and substituting:
-\begin{align*}
-\Delta_n &= S_n \bigl[\tfrac{1}{2}+\varepsilon + p(\tfrac{1}{2}-\varepsilon) - 1\bigr] + (1-S_n)\bigl[p(\tfrac{1}{2}+\varepsilon)\bigr] \\
-&= S_n \bigl[-(\ \tfrac{1}{2}-\varepsilon)(1-p)\bigr] + (1-S_n)\bigl[p(\tfrac{1}{2}+\varepsilon)\bigr].
-\end{align*}
-When $S_n = 0$: $\Delta_n = p(\tfrac{1}{2}+\varepsilon) > 0$. When $S_n = 1$: $\Delta_n = -(\tfrac{1}{2}-\varepsilon)(1-p)$, which is $\leq 0$ for $\varepsilon \leq \tfrac{1}{2}$. However, taking the unconditional expectation:
-\begin{align*}
-\mathbb{E}[\Delta_n] &= \Pr(S_n=0) \cdot p(\tfrac{1}{2}+\varepsilon) - \Pr(S_n=1) \cdot (\tfrac{1}{2}-\varepsilon)(1-p) \geq 0
-\end{align*}
-when $\Pr(S_n=1) \leq \frac{p(\frac{1}{2}+\varepsilon)}{p(\frac{1}{2}+\varepsilon) + (\frac{1}{2}-\varepsilon)(1-p)}$, which holds throughout the trajectory for hard problems ($p \leq 0.5$).
-
-For the submartingale property $\mathbb{E}[S_{n+1} \mid \mathcal{F}_n] \geq S_n$ to hold pathwise, we use the monotone selection interpretation: the orchestrator \emph{retains} the current best unless the new candidate is judged superior. Under this protocol, $S_n = 1$ can transition to $S_{n+1} = 0$ only if the orchestrator erroneously prefers an incorrect candidate, which occurs with probability at most $\tfrac{1}{2}-\varepsilon$ per comparison. The net drift is:
-\[
-\mathbb{E}[S_{n+1}] = \mathbb{E}[S_n] + \Pr(S_n=0)\cdot p(\tfrac{1}{2}+\varepsilon) - \Pr(S_n=1)\cdot(1-p)(\tfrac{1}{2}-\varepsilon).
-\]
-The fixed point $\mathbb{E}[S_\infty] = \frac{p(\frac{1}{2}+\varepsilon)}{p(\frac{1}{2}+\varepsilon)+(1-p)(\frac{1}{2}-\varepsilon)}$ exceeds $p$ for all $\varepsilon > 0$, confirming monotone convergence to accuracy strictly above the base rate.
-\end{proof}
-
-\paragraph{Contrast with symmetric debate.} In multi-agent debate~\citep{debate_or_vote_paper}, all participants observe the full history and update symmetrically. \citet{debate_or_vote_paper} show that this symmetry induces a \emph{martingale}: $\mathbb{E}[V_{n+1} \mid \mathcal{F}_n] = V_n$, implying zero expected accuracy improvement per round. The key difference is architectural: \our{}'s explorations are stateless (each explorer sees only the problem, not prior candidates), while the orchestrator accumulates all evidence. This asymmetry---frozen explorers, accumulating evaluator---breaks the martingale and produces the submartingale guarantee of Theorem~\ref{thm:submartingale}.
-
-\paragraph{Quantitative prediction.} At the fixed point, $\mathbb{E}[S_\infty] = p(1+2\varepsilon)\big/\big[p(1+2\varepsilon)+(1-p)(1-2\varepsilon)\big]$. For $p=0.5$ (50\% base accuracy) and $\varepsilon=0.1$ (60\% pairwise discrimination), this predicts convergence to 60\% accuracy---a 10-point absolute gain from sequential accumulation alone. Empirically, \our{} achieves gains of 6--11 points across benchmarks (Table~\ref{tab:main-results}), consistent with moderate orchestrator discrimination.
-
 \section{Qualitative Analysis}
 \label{app:case-studies}
 
-To understand \emph{how} \our{} improves over Pass@1, we examine the 22 GPQA-Diamond questions where \our{} (Sonnet orchestrator) produces a correct answer but the first exploration does not. Table~\ref{tab:success-types} categorizes these by the orchestrator's mechanism of improvement.
+To understand \emph{how} \our{} improves over Pass@1, we examine the 22 GPQA-Diamond questions where \our{} produces a correct answer but the first exploration does not. Table~\ref{tab:success-types} categorizes these by the orchestrator's mechanism of improvement.
 
 \begin{table}[H]
 \centering
@@ -792,22 +726,22 @@ We use the GPQA release \texttt{Idavidrein/gpqa} \citep{gpqa_dataset_hf}, config
 \section{Explore-Count Distributions}
 \label{app:explore-distributions}
 
-Figure~\ref{fig:explore-distribution-all} reports how many \explore{} calls the \our{} orchestrator issues per question on each of the four main benchmarks, under the default single-model configuration (Sonnet backbone, no separate integrator, exploration budget $T{=}8$). Each panel is a histogram whose $x$-axis is the number of \explore{} calls used for a question and whose $y$-axis is the number of questions at that count; bar heights are annotated with the exact counts. The panel titles report the benchmark name, the number of evaluated questions $n$, and the mean number of \explore{} calls per question.
+Figure~\ref{fig:explore-distribution-all} reports how many model calls each per-question trajectory uses, on each of the four main benchmarks, for both \our{} (top row) and the Self-Refine baseline (bottom row). Each panel is a histogram whose $x$-axis is the number of calls used for a question and whose $y$-axis is the number of questions at that count; bar heights are annotated with the exact counts. Panel titles report the method, the benchmark name, the number of evaluated questions $n$, and the mean number of calls per question.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{figures/explore_distribution_all.pdf}
-\caption{Per-benchmark distribution of the number of \explore{} calls used by \our{} under the default single-model configuration. Top left: HLE-Verified (Gold subset). Top right: LiveCodeBench. Bottom left: GPQA-Diamond. Bottom right: BabyVision. Each bar reports the number of questions whose orchestrator issued exactly that many \explore{} calls; the upper budget cap is $T{=}8$. Panel titles include the sample size $n$ and the per-question mean.}
+\caption{Per-benchmark distribution of the number of model calls used per question, comparing \our{} (top row, blue) against the Self-Refine baseline (bottom row, green). Columns from left to right: HLE-Verified (Gold subset), LiveCodeBench, GPQA-Diamond, BabyVision. Both rows share the same axes and budget cap $T{=}8$, so differences in the observed distributions reflect each method's stopping mechanism. Bar heights are annotated with exact counts; panel titles include the sample size $n$ and the per-question mean. Budget Forcing is omitted because it terminates only at the cap by construction, so its distribution is degenerate at $T{=}8$.}
 \label{fig:explore-distribution-all}
 \end{figure}
 
-All four benchmarks share the same exploration budget $T{=}8$ and the same orchestrator prompt, so differences in the observed distributions reflect the orchestrator's input-conditioned stopping decisions rather than externally imposed budgets. We highlight five observations from this figure.
+All four benchmarks share the same exploration budget $T{=}8$ and the same orchestrator prompt, so differences in the observed distributions reflect the orchestrator's input-conditioned stopping decisions rather than externally imposed budgets. We highlight five observations from the top row of this figure, then return to the contrast with Self-Refine.
 
 \paragraph{Observation 1: Mean explore count tracks benchmark difficulty.}
 The per-benchmark mean \explore{} count ranges from $1.85$ on LiveCodeBench to $2.79$ on BabyVision, with GPQA-Diamond at $2.16$ and HLE-Verified at $2.39$. Harder benchmarks---those on which test-time scaling methods reach lower absolute accuracy in Table~\ref{tab:main-results}---receive more exploration per question on average. Given that all four benchmarks share the same budget and the same orchestrator prompt, this is a direct numerical expression of the adaptive compute allocation claim: the controller spends more calls where first-pass evidence is less conclusive.
 
 \paragraph{Observation 2: The modal behavior is ``explore twice,'' not ``explore once.''}
-Three of the four benchmarks (HLE-Verified, GPQA-Diamond, BabyVision) place their distribution mode at $n{=}2$ \explore{} calls, and the share of questions stopping at $n{=}1$ is below $15\%$ on each of these three benchmarks. LiveCodeBench is the only exception, with a bimodal distribution in which the first mode at $n{=}1$ ($72/175$ questions) is comparable in size to the second mode at $n{=}2$ ($84/175$). The default orchestrator behavior is therefore ``explore twice before synthesizing,'' not ``explore once and submit.'' This empirically counters the assumption that a confidence-based orchestrator collapses exploration to a single call on most questions.
+Three of the four benchmarks (HLE-Verified, GPQA-Diamond, BabyVision) place their distribution mode at $n{=}2$ \explore{} calls, and the share of questions stopping at $n{=}1$ is below $15\%$ on each of these three benchmarks. LiveCodeBench is the only exception, with a bimodal distribution in which the first mode at $n{=}1$ ($72/175$ questions) is comparable in size to the second mode at $n{=}2$ ($84/175$). The default orchestrator behavior is therefore ``explore twice before synthesizing,'' not ``explore once and submit.'' This empirically counters the assumption that a confidence-based orchestrator collapses exploration to a single call on most questions. The contrast with Self-Refine is sharp: under Self-Refine (Figure~\ref{fig:explore-distribution-all}, bottom row) the mode is $n{=}1$ on three of four benchmarks (mean $1.05$--$1.68$ on HLE/LCB/GPQA) because the critic accepts the initial draft on the first revision check for the vast majority of questions. \our{}'s mass is centered between Self-Refine's one-shot acceptance and a hypothetical fixed-budget schedule, reflecting that the orchestrator's stop decisions are conditioned on accumulated evidence rather than on a single one-shot critic check.
 
 \paragraph{Observation 3: The budget cap $T{=}8$ is almost never reached.}
 Across the $860$ questions in the four benchmarks combined, exactly one question consumes the full exploration budget of $T{=}8$ (on LiveCodeBench). Questions using $n \ge 6$ \explore{} calls remain rare on every benchmark: $6$ on LiveCodeBench, $6$ on GPQA-Diamond, $2$ on HLE-Verified, and $19$ on BabyVision. The orchestrator terminates exploration well before the cap on virtually every question, supporting the interpretation that $T$ functions as a safety ceiling rather than a target.
@@ -1169,7 +1103,7 @@ The recipe described here is an optional adjunct to the main paper: it is not re
 \item {\bf Experimental Setting/Details}
     \item[] Question: Does the paper specify all the training and test details (e.g., data splits, hyperparameters, how they were chosen, type of optimizer, etc.) necessary to understand the results?
     \item[] Answer: \answerYes{}
-    \item[] Justification: No training is involved; this is a test-time inference method. Section~4.1 specifies the model, sampling parameters, thinking budget (32K tokens), and exploration budgets ($T{=}8$ single-model, $T{=}16$ multi-model). Appendix~A details prompt design, grading procedures, and all baseline configurations. Appendix~C specifies dataset splits and evaluation protocols for all six benchmarks.
+    \item[] Justification: No training is involved; this is a test-time inference method. Section~4.1 specifies the model, sampling parameters, thinking budget (32K tokens), and exploration budgets ($T{=}8$ for \our{}, $T{=}16$ for \attsmm{}). Appendix~A details prompt design, grading procedures, and all baseline configurations. Appendix~C specifies dataset splits and evaluation protocols for all six benchmarks.
 
 \item {\bf Experiment Statistical Significance}
     \item[] Question: Does the paper report error bars suitably and correctly defined or other appropriate information about the statistical significance of the experiments?

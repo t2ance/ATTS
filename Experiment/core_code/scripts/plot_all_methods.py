@@ -190,7 +190,7 @@ BASELINE_STYLES = {
 
 OURS_STYLES = {
     "ATTS": {"color": "#E91E63"},
-    "ATTS Multi Med": {"color": "#00897B"},
+    "ATTS-MM": {"color": "#00897B"},
 }
 
 # HLE cost correction: 10 compaction-failed explores in hle/sonnet/gold cache produced
@@ -211,7 +211,7 @@ _HLE_COST_CORRECTIONS = {
 
 
 def plot_benchmark(bench_key: str, bench_cfg: dict) -> None:
-    """Main figure: baselines + ATTS + Multi Med + BoN curve."""
+    """Main figure: baselines + ATTS + ATTS-MM + BoN curve."""
     delegated = parse_delegated_log(bench_cfg["delegated"])
     if delegated is None:
         print(f"  Skipping {bench_key}: delegated log not complete")
@@ -273,13 +273,13 @@ def plot_benchmark(bench_key: str, bench_cfg: dict) -> None:
         atts_cost = _HLE_COST_CORRECTIONS["atts"] if bench_key == "hle" else ni["agg_cost"]
         ours_points.append(("ATTS", atts_cost, ni["integrated_pct"]))
 
-    # ATTS Multi Med only
+    # ATTS-MM only
     effort_dirs = bench_cfg.get("effort_dirs", {})
     if "Med" in effort_dirs:
         mm = read_mm_effort(effort_dirs["Med"])
         if mm is not None:
             mm_cost = _HLE_COST_CORRECTIONS["multi_med"] if bench_key == "hle" else mm["cost"]
-            ours_points.append(("ATTS Multi Med", mm_cost, mm["accuracy"]))
+            ours_points.append(("ATTS-MM", mm_cost, mm["accuracy"]))
 
     for label, cost, acc in ours_points:
         mcolor = OURS_STYLES.get(label, {}).get("color", "#E91E63")
@@ -515,7 +515,7 @@ def plot_main_results_combined() -> None:
             mm = read_mm_effort(effort_dirs["Med"])
             if mm is not None:
                 mm_cost = _HLE_COST_CORRECTIONS["multi_med"] if bench_key == "hle" else mm["cost"]
-                ours_points.append(("ATTS Multi Med", mm_cost, mm["accuracy"]))
+                ours_points.append(("ATTS-MM", mm_cost, mm["accuracy"]))
 
         for label, cost, acc in ours_points:
             mcolor = OURS_STYLES.get(label, {}).get("color", "#E91E63")

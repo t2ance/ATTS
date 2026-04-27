@@ -473,7 +473,7 @@ async def evaluate(
             answer_type = row.get("answer_type", "exactMatch")
             record = {
                 "id": qid,
-                "rollout_idx": rollout_idx if rollout_idx is not None else 0,
+                "rollout_idx": rollout_idx,  # None for K=1; resume path uses None→flat, int→rollout_N
                 "temperature": temperature if temperature is not None else 0.0,
                 "subset": subset,
                 "category": category,
@@ -608,7 +608,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--verbose", action="store_true", help="Print per-round TTS output")
     parser.add_argument("--resume", type=str, default=None, metavar="RUN_DIR", help="Resume into an existing run directory")
     parser.add_argument("--log-dir", type=str, default="logs", help="Directory for real-time logs (default: logs/)")
-    parser.add_argument("--method", type=str, choices=["tts-agent", "tts-agent-multi", "tts-agent-effort", "self-refine", "budget-forcing", "rerank", "standalone-integrator"], default="tts-agent",
+    parser.add_argument("--method", type=str, choices=["tts-agent", "tts-agent-multi", "tts-agent-effort", "self-refine", "socratic-self-refine", "budget-forcing", "rerank", "standalone-integrator"], default="tts-agent",
                         help="Solving method (default: tts-agent)")
     parser.add_argument("--reward-model", type=str, default=None,
                         help="HuggingFace reward model for reranking")
@@ -640,6 +640,12 @@ async def async_main() -> None:
     args = parse_args()
     if args.method == "self-refine":
         from methods.self_refine import solve
+        if args.orchestrator_model is None:
+            args.orchestrator_model = args.explore_model
+        if args.integrate_model is None:
+            args.integrate_model = args.explore_model
+    elif args.method == "socratic-self-refine":
+        from methods.socratic_self_refine import solve
         if args.orchestrator_model is None:
             args.orchestrator_model = args.explore_model
         if args.integrate_model is None:

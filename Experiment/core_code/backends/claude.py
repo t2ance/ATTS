@@ -16,10 +16,20 @@ from typing import Any, Awaitable, Callable
 _SDK_INIT_MAX_RETRIES = 3
 _SDK_INIT_RETRY_DELAY = 5.0  # seconds
 
+# Usage Policy refusals appear transient on some qids; retry twice before crashing.
+# Anthropic docs say "try rephrasing" but same input may succeed on retry (~30s gap).
+_POLICY_MAX_RETRIES = 2
+_POLICY_RETRY_DELAY = 30.0  # seconds
+
 
 def _is_sdk_init_error(e: Exception) -> bool:
     """Check if an exception is a transient SDK subprocess initialization error."""
     return "Control request timeout" in str(e) or "ProcessError" in type(e).__name__
+
+
+def _is_policy_error(e: Exception) -> bool:
+    """Check if an exception is a Claude Usage Policy refusal."""
+    return isinstance(e, RuntimeError) and "Usage Policy" in str(e)
 
 
 class MalformedToolCallError(RuntimeError):
@@ -100,49 +110,60 @@ async def call_sub_model(
         include_partial_messages=True,
     )
 
-    trajectory_parts: list[str] = []
-    cost_usd = 0.0
-    usage: dict[str, Any] = {}
-    result: dict[str, Any] | None = None
+    policy_attempts = 0
+    while True:
+        trajectory_parts: list[str] = []
+        cost_usd = 0.0
+        usage: dict[str, Any] = {}
+        result: dict[str, Any] | None = None
 
-    for attempt in range(_SDK_INIT_MAX_RETRIES):
         try:
-            async with ClaudeSDKClient(options=options) as client:
-                await client.query(
-                    build_claude_prompt_events(user_message, image_data_url)
-                )
-                async for msg in client.receive_response():
-                    if isinstance(msg, StreamEvent):
-                        event = msg.event
-                        if event.get("type") == "content_block_delta":
-                            delta = event.get("delta", {})
-                            if delta.get("type") == "thinking_delta":
-                                writer.write_chunk(delta["thinking"])
-                    elif isinstance(msg, AssistantMessage):
-                        if msg.error:
-                            if msg.error == "max_output_tokens":
-                                result = {"timed_out": True}
-                                continue
-                            error_text = " ".join(
-                                block.text for block in msg.content if isinstance(block, TextBlock)
-                            )
-                            raise RuntimeError(f"Claude API error ({msg.error}): {error_text}")
-                        for block in msg.content:
-                            if isinstance(block, ThinkingBlock):
-                                trajectory_parts.append(f"{block.thinking}\n\n")
-                                writer.write_chunk("\n\n")
-                            elif isinstance(block, ToolUseBlock) and block.name == "StructuredOutput":
-                                result = block.input
-                    elif isinstance(msg, ResultMessage):
-                        cost_usd = msg.total_cost_usd
-                        usage = msg.usage
-            break  # success
+            for attempt in range(_SDK_INIT_MAX_RETRIES):
+                try:
+                    async with ClaudeSDKClient(options=options) as client:
+                        await client.query(
+                            build_claude_prompt_events(user_message, image_data_url)
+                        )
+                        async for msg in client.receive_response():
+                            if isinstance(msg, StreamEvent):
+                                event = msg.event
+                                if event.get("type") == "content_block_delta":
+                                    delta = event.get("delta", {})
+                                    if delta.get("type") == "thinking_delta":
+                                        writer.write_chunk(delta["thinking"])
+                            elif isinstance(msg, AssistantMessage):
+                                if msg.error:
+                                    if msg.error == "max_output_tokens":
+                                        result = {"timed_out": True}
+                                        continue
+                                    error_text = " ".join(
+                                        block.text for block in msg.content if isinstance(block, TextBlock)
+                                    )
+                                    raise RuntimeError(f"Claude API error ({msg.error}): {error_text}")
+                                for block in msg.content:
+                                    if isinstance(block, ThinkingBlock):
+                                        trajectory_parts.append(f"{block.thinking}\n\n")
+                                        writer.write_chunk("\n\n")
+                                    elif isinstance(block, ToolUseBlock) and block.name == "StructuredOutput":
+                                        result = block.input
+                            elif isinstance(msg, ResultMessage):
+                                cost_usd = msg.total_cost_usd
+                                usage = msg.usage
+                    break  # success
+                except Exception as e:
+                    if _is_sdk_init_error(e) and attempt < _SDK_INIT_MAX_RETRIES - 1:
+                        print(f"  [sub-model] SDK init error (attempt {attempt + 1}/{_SDK_INIT_MAX_RETRIES}), retrying in {_SDK_INIT_RETRY_DELAY}s: {e}")
+                        await asyncio.sleep(_SDK_INIT_RETRY_DELAY)
+                        continue
+                    raise
         except Exception as e:
-            if _is_sdk_init_error(e) and attempt < _SDK_INIT_MAX_RETRIES - 1:
-                print(f"  [sub-model] SDK init error (attempt {attempt + 1}/{_SDK_INIT_MAX_RETRIES}), retrying in {_SDK_INIT_RETRY_DELAY}s: {e}")
-                await asyncio.sleep(_SDK_INIT_RETRY_DELAY)
+            if _is_policy_error(e) and policy_attempts < _POLICY_MAX_RETRIES:
+                policy_attempts += 1
+                print(f"  [sub-model] Usage Policy refusal (attempt {policy_attempts}/{_POLICY_MAX_RETRIES}), retrying in {_POLICY_RETRY_DELAY}s: {e}")
+                await asyncio.sleep(_POLICY_RETRY_DELAY)
                 continue
             raise
+        break  # success
 
     assert result is not None, "Sub-model did not call StructuredOutput"
     if result.get("timed_out"):

@@ -34,8 +34,8 @@ from training.grpo.sync_tool_config import verify_tool_config_matches_canonical
 
 
 MAX_EXPLORES = 8
-TRAIN_PERMUTATIONS_PER_QID = 5
-VAL_PERMUTATIONS_PER_QID = 1
+TRAIN_PERMUTATIONS_PER_QID = 40
+VAL_PERMUTATIONS_PER_QID = 5
 SKIP = 100         # first 100 HLE gold text-only questions are the held-out eval set
 NUM_TRAIN_POOL = 300  # q101-400 (after skip)
 VAL_FRACTION = 0.20   # first 20% becomes val (8:2 split)
