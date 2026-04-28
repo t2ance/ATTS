@@ -260,6 +260,7 @@ async def evaluate(
     print(f"\n{'=' * 60}")
     print(f"{benchmark.name.upper()} Evaluation")
     print(f"Backend: {backend} | Orchestrator: {orchestrator_model} | Explorer: {explore_model} | Integrator: {integrate_model}")
+    print(f"Grading: {benchmark.grading_summary}")
     print(f"Questions to run: {len(pending)} ({len(done_records)} already completed, {total} total)")
     print(f"Max iterations per question: {num_explores} | Workers: {num_workers}")
     print(f"Logs:   {logger.run_dir}")
