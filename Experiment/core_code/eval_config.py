@@ -4,6 +4,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any, Literal
 
+import yaml
 from pydantic import BaseModel, Field, model_validator
 
 
@@ -108,9 +109,6 @@ class EvalConfig(BaseModel):
         return self
 
 
-import yaml
-
-
 def _coerce_scalar(s: str) -> Any:
     """Best-effort coerce a CLI-string scalar to int/float/bool/str."""
     if s.lower() in ("true", "false"):
@@ -133,9 +131,14 @@ def _set_dotpath(d: dict, path: str, value: str) -> None:
     target = d
     for p in parts[:-1]:
         nxt = target.get(p)
-        if not isinstance(nxt, dict):
+        if nxt is None:
             nxt = {}
             target[p] = nxt
+        else:
+            assert isinstance(nxt, dict), (
+                f"cannot descend into non-dict at {p!r} while resolving override {path!r} "
+                f"(found {type(nxt).__name__}: {nxt!r})"
+            )
         target = nxt
     target[parts[-1]] = _coerce_scalar(value)
 

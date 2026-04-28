@@ -104,7 +104,7 @@ def test_flat_overrides_beat_yaml(tmp_path):
         backend: claude
         explore_model: claude-sonnet-4-6
         method: self-refine
-        seed: 42
+        seed: 13
     """)
     cfg = load_config(config_path=yml, flat_overrides={"seed": 7}, dot_overrides=[])
     assert cfg.seed == 7
@@ -171,3 +171,9 @@ def test_load_without_yaml(tmp_path):
         dot_overrides=[],
     )
     assert cfg.benchmark == "hle"
+
+
+def test_set_dotpath_rejects_non_dict_intermediate():
+    d = {"existing": "scalar_value"}
+    with pytest.raises(AssertionError, match="cannot descend into non-dict"):
+        _set_dotpath(d, "existing.subkey", "5")
