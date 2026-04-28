@@ -130,14 +130,18 @@ async def precache(
 
 
 def parse_args() -> tuple[argparse.Namespace, BenchmarkConfig]:
-    # Sniff --benchmark before adding help so that --help shows all args
-    pre = argparse.ArgumentParser(add_help=False)
-    pre.add_argument("--benchmark", type=str, default="hle")
-    known, _ = pre.parse_known_args()
+    # Sniff --benchmark via parse_known_args so we know which benchmark class
+    # to instantiate; reuse the same sub-parser as parents= on the full parser
+    # below to avoid re-declaring --benchmark.
+    base = argparse.ArgumentParser(add_help=False)
+    base.add_argument("--benchmark", type=str, default="hle", help="Benchmark name (default: hle)")
+    known, _ = base.parse_known_args()
     benchmark = get_benchmark(known.benchmark)
 
-    parser = argparse.ArgumentParser(description="Pre-cache explore results for delegated TTS agent")
-    parser.add_argument("--benchmark", type=str, default="hle", help="Benchmark name (default: hle)")
+    parser = argparse.ArgumentParser(
+        description="Pre-cache explore results for delegated TTS agent",
+        parents=[base],
+    )
     benchmark.add_dataset_args(parser)
     benchmark.add_model_args(parser)
 

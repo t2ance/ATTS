@@ -601,15 +601,18 @@ async def evaluate(
 # ---------------------------------------------------------------------------
 
 def parse_args() -> tuple[argparse.Namespace, BenchmarkConfig]:
-    pre = argparse.ArgumentParser(add_help=False)
-    pre.add_argument("--benchmark", type=str, required=True)
-    known, _ = pre.parse_known_args()
+    # First sniff --benchmark with parse_known_args so we know which benchmark
+    # class to instantiate; reuse the same sub-parser as parents= on the full
+    # parser below to avoid re-declaring --benchmark.
+    base = argparse.ArgumentParser(add_help=False)
+    base.add_argument("--benchmark", type=str, required=True, help="Benchmark name (hle, lcb)")
+    known, _ = base.parse_known_args()
     benchmark = get_benchmark(known.benchmark)
 
     parser = argparse.ArgumentParser(
         description=f"Evaluate TTS agent on {benchmark.name.upper()}",
+        parents=[base],
     )
-    parser.add_argument("--benchmark", type=str, required=True, help="Benchmark name (hle, lcb)")
     benchmark.add_dataset_args(parser)
     benchmark.add_model_args(parser)
     parser.add_argument("--verbose", action="store_true", help="Print per-round TTS output")
