@@ -1,0 +1,50 @@
+# configs/_template.yaml
+# Annotated template for eval.py. Every field shown here is OPTIONAL unless flagged required.
+
+# === Required ===
+benchmark: hle              # one of: hle, lcb, gpqa, babyvision, aime2025, aime2026, rbenchv
+backend: claude             # one of: codex, claude, vllm
+explore_model: claude-sonnet-4-6   # required: model for explore sub-calls
+
+# === Method ===
+method: tts-agent           # one of: tts-agent, tts-agent-multi, tts-agent-effort,
+                            # self-refine, socratic-self-refine, budget-forcing,
+                            # rerank, standalone-integrator
+orchestrator_model: null    # required for tts-agent / tts-agent-multi / tts-agent-effort
+integrate_model: null       # required for tts-agent / standalone-integrator
+reward_model: null          # required for rerank
+
+# === Cache (mutually exclusive by method shape) ===
+# Single-cache methods (tts-agent, self-refine, ...): set cache_dir, leave cache_dirs empty.
+# Multi/effort methods: set cache_dirs (dict), leave cache_dir null.
+cache_dir: null
+cache_dirs: {}              # e.g. {haiku: /cache/haiku, sonnet: /cache/sonnet}
+
+# === Multi/effort budgets ===
+model_budgets: {}           # required for tts-agent-multi
+effort_budgets: {}          # required for tts-agent-effort
+exploration_effort: null    # one of: low, medium, high
+
+# === Dataset ===
+num: null
+skip: 0
+seed: 42
+shuffle: false
+filters: {}                 # benchmark-specific (see make_filter_model() per benchmark)
+
+# === Model knobs ===
+budget_tokens: 32000
+effort: low                 # low / medium / high / max
+num_explores: 8
+num_workers: 1
+explore_timeout: 1200
+max_output_chars: null
+
+# === Run ===
+verbose: false
+resume: null
+log_dir: logs
+no_cache_only: false
+timeout: 1200
+no_integrate: false
+num_rollouts: 1             # > 1 only valid with method=tts-agent + backend=vllm
