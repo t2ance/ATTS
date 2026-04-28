@@ -315,10 +315,13 @@ async def evaluate(
                             if c.get("judge_model") == judge_key:
                                 already_cached += 1
                     idx += 1
-            # Count integrate grade
-            num_exp = rec.get("num_explores", 0)
+            # Count integrate grade. The actual write path (line ~354) is
+            # grade_qid_dir / "grade.json"; an earlier display-only count looked
+            # under integrate_{N+1}/ which has never existed on disk, so the
+            # banner reported every resumed final-answer grade as 'need judge'
+            # while _grade_with_cache silently hit cache. Aligned 2026-04-28.
             total_to_grade += 1
-            gp = grade_qid_dir / f"integrate_{num_exp + 1}" / "grade.json"
+            gp = grade_qid_dir / "grade.json"
             if gp.exists():
                 c = json.loads(gp.read_text())
                 if c.get("judge_model") == judge_key:
