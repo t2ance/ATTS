@@ -747,9 +747,10 @@ async def async_main() -> None:
         print(f"Skipping first {cfg.skip} questions")
         filtered = filtered[cfg.skip:]
 
-    # Replaces the buggy 731-739 block. cfg.cache_dir is None for multi/effort
-    # methods (validator enforces); single-cache methods set it via YAML or
-    # the legacy --cache-dirs CLI flag (parse_cli routes to cfg.cache_dir).
+    # Replaces the legacy `":" in args.cache_dirs` format-detection block.
+    # cfg.cache_dir is None for multi/effort methods (validator enforces);
+    # single-cache methods set it via YAML or the legacy --cache-dirs CLI flag
+    # (parse_cli routes to cfg.cache_dir).
     cache_dir = cfg.cache_dir
 
     if cfg.method in ("rerank", "standalone-integrator") and cache_dir:
