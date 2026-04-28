@@ -114,7 +114,13 @@ class HLEBenchmark(BenchmarkConfig):
     name = "hle"
     filter_keys = ("subset", "category", "text_only")
     majority_vote_compatible = False
-    judge_model = None  # TEMP 2026-04-11: disabled for smoke test (see feedback_defer_grading). Restore to "claude-haiku-4-5-20251001" after.
+    # judge_model: HLE answers (free-form text + LaTeX expressions) require an
+    # LLM judge for semantic equivalence, not string match. Default 'none' (set
+    # 2026-04-11 for a one-off smoke test) caused sonnet_socratic_self_refine to
+    # underestimate accuracy by ~8 pp because all 100 grade.json files were
+    # written with judge_model="none" and is_correct came from str(predicted) ==
+    # str(gold). Restored 2026-04-28.
+    judge_model = "claude-haiku-4-5-20251001"
 
     def load_dataset(self) -> list[dict]:
         return _load_hle_dataset()

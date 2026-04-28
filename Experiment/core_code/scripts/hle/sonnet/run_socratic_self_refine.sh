@@ -23,6 +23,12 @@ PYTHONUNBUFFERED=1 nohup python eval.py --benchmark hle \
 	--orchestrator-model claude-sonnet-4-6 \
 	--explore-model claude-sonnet-4-6 \
 	--integrate-model claude-sonnet-4-6 \
+	`# --judge-model NOT passed: hle.py class default (claude-haiku-4-5-20251001)` \
+	`# is the source of truth. 2026-04-28 incident: hle.py had judge_model=None as` \
+	`# a TEMP smoke-test override + this launcher had no flag -> all 100 grade.json` \
+	`# wrote judge_model="none" -> string-match grading -> SSR acc -8pp underestimate.` \
+	`# After hle.py fix, launcher does not need this flag. To override, add:` \
+	`#   --judge-model <model>` \
 	--no-cache-only \
 	--cache-dirs ../analysis/cache/hle/sonnet_socratic_self_refine/gold \
 	>> ../analysis/run/hle/sonnet_socratic_self_refine/socratic_self_refine.log 2>&1 &

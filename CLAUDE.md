@@ -1,104 +1,69 @@
 # CLAUDE.md
 
-## Session Routing
+## Per-benchmark grading reference
 
-If the first user message includes `[Context: session-mode=workspace_qa]`, this is a lightweight workspace Q&A session.
+Each benchmark's grading logic is FIXED — we never swap judge models or grading
+strategies in practice. The `judge_model` class attribute and `_JUDGE_MODEL_CODEX`
+mapping in `benchmarks/base.py` are flexibility hooks that are not currently
+exercised. This table is the source of truth for "how is X graded".
 
-In that mode:
-- Do not run the new-project intake flow.
-- Do not proactively guide the user through the research pipeline.
-- Focus on answering questions about the workspace's files, code, architecture, and implementation details.
-- Do not update `.pipeline/docs/research_brief.json`, `.pipeline/tasks/tasks.json`, or other pipeline state unless the user explicitly asks for research workflow help.
-- Keep answers concise and directly grounded in the repository contents.
+Verified by reading `benchmarks/*.py` and `benchmarks/grader.py` on 2026-04-28.
 
-If the message includes `[Context: session-mode=research]` or no session-mode marker, follow the normal research workflow below.
+### Routing logic (`benchmarks/grader.py:135-147`)
 
-## Role
+`grade_answer(predicted, gold, question, answer_type, judge_model, ...)` decides:
 
-You are a research assistant working inside a Dr. Claw Research Lab project. This project follows an AI-driven research pipeline from survey through ideation, experimentation, publication, and promotion.
+```
+if answer_type == "multipleChoice":   return check_answer(...)         # string match A-E
+if judge_model is None:               return check_answer(...)         # string match
+else:                                 return judge_answer(...)         # LLM judge
+```
 
-Your responsibilities:
-- **Guide the pipeline**: Help the user move through each stage — literature survey, idea generation, experiment design, implementation, result analysis, paper writing, and promotion assets. Proactively suggest the next step when a stage is complete.
-- **Execute skills**: When the user requests a specific task, find and run the matching skill procedure. You are the hands that carry out the pipeline.
-- **Maintain research rigor**: All claims must be grounded in data. Cite real papers, use real results, and flag uncertainty honestly. Never hallucinate experimental outcomes or references.
-- **Manage project state**: Keep `instance.json`, `research_brief.json`, and pipeline directories organized. Write outputs to the correct locations. Track what has been completed and what remains.
-- **Communicate clearly**: Summarize progress at each stage. When presenting results, use tables, bullet points, or structured formats. When asking for decisions, present concrete options with trade-offs.
+So the routing depends on TWO things: per-row `answer_type` and per-class
+`judge_model`. Below is the materialized truth table per benchmark.
 
-## New Project Intake
+### Per-benchmark table
 
-> This section applies **only** when `.pipeline/docs/research_brief.json` does NOT exist yet.
+| Benchmark | grade() override? | answer_type | judge_model | Effective grader |
+|---|---|---|---|---|
+| LCB | `lcb.py:142` → `grade_code(predicted, row)` | (bypassed) | `None` | Run predicted code against `public_test_cases` + `private_test_cases` via `lcb_runner.evaluation.compute_code_generation_metrics`. is_correct = all tests pass. |
+| AIME (2025/2026) | `aime.py:119` → string equality | `exactMatch` | `None` | `_normalize_aime_answer(predicted) == _normalize_aime_answer(gold)`. Strips `\boxed{}`, `$…$`, lowercases. Integer-string match. |
+| GPQA | none (uses `base.py:379`) | `multipleChoice` (`gpqa.py:104`) | `None` | grader.py short-circuits at `multipleChoice` → `check_answer` → `_extract_mc_letter` regex extracts A-E from predicted, compares to gold letter. |
+| HLE | none (uses `base.py:379`) | per-row from dataset (usually `exactMatch`) | `claude-haiku-4-5-20251001` (`hle.py:123`) | LLM judge via `judge_answer`. Haiku reads (question, predicted, gold) and emits a yes/no semantic-equivalence verdict. Required because HLE answers are LaTeX/free-form text. |
+| BabyVision | none (uses `base.py:379`) | hybrid: `multipleChoice` if `ansType=="choice"` else `exactMatch` (`babyvision.py:89`) | `claude-haiku-4-5-20251001` (`babyvision.py:50`) | Hybrid: choice questions → string match A-E; blank questions → LLM judge (Haiku). The judge_model only fires on blank questions. |
+| RBenchV | none (uses `base.py:379`) | `exactMatch` (default from `base.py:372`) | `claude-haiku-4-5-20251001` (`rbenchv.py:40`) | LLM judge (Haiku). Visual reasoning answers are free-form, semantic equivalence required. |
 
-If the research brief file does not exist, this is a brand new project. The Dr. Claw UI has already shown the user a welcome greeting and asked about their research field or topic. When you receive the user's first message:
+### Key facts to remember
 
-1. Do **NOT** re-greet or re-introduce yourself — the UI already did this.
-2. Acknowledge what the user shared, then ask the **next** question. Collect the following information **one question at a time**, conversationally:
-   - Research field / topic (already asked by the UI)
-   - Target venue (conference / journal) or project type
-   - Core research question or goal
-   - Preferred methods and available data sources
-3. After collecting all information, use the `inno-pipeline-planner` skill (read `.claude/skills/inno-pipeline-planner/SKILL.md`) to generate the research brief and task pipeline.
-4. After generating, ask the user what they'd like to work on first.
-5. Mark intake as complete by updating `.pipeline/config.json` with `intakeCompleted: true` (or equivalent project flag). Do **not** modify this `CLAUDE.md` template at runtime.
+- **judge_model is always Haiku or None.** No benchmark currently uses any other
+  judge model. The `_JUDGE_MODEL_CODEX` codex-mapping is dormant.
+- **Three grading mechanisms exist**: code execution (LCB), string match
+  (AIME / GPQA / BabyVision-choice), LLM judge (HLE / BabyVision-blank / RBenchV).
+- **`judge_model = None` is correct for LCB / AIME / GPQA**, not a leftover.
+  LCB doesn't need a judge (test cases). AIME's integer-string match doesn't need
+  one. GPQA's multipleChoice short-circuits before judge_model is consulted.
+- **Once-burned: HLE.** `hle.py:123`'s `judge_model` was temporarily set to
+  `None` for a 2026-04-11 smoke test and not restored, causing all 100 HLE
+  socratic-self-refine grades to fall through to `check_answer` with `gold=""`,
+  underestimating accuracy by ~8 pp. Restored 2026-04-28. Lesson: any non-trivial
+  override of these class defaults must carry a comment with date + rationale +
+  rollback instruction.
 
-## When You Start a Conversation
+### Cache validity
 
-1. Read `instance.json` in the project root to understand the project's current state.
-2. Read `.pipeline/docs/research_brief.json` to understand the research brief — topic, goals, pipeline stage definitions, and `pipeline.startStage` (which stage the user wants to begin from).
-3. Read `.pipeline/tasks/tasks.json` to see which tasks exist and their current status (pending, in-progress, done, review, deferred, cancelled).
-4. Check which pipeline directories already have content (`Survey/`, `Ideation/`, `Experiment/`, `Publication/`, `Promotion/`). Legacy projects may still use `Research/`; treat it as survey-stage content.
-5. Determine the **effective starting stage**: check `pipeline.startStage` in the research brief (defaults to `"survey"` if absent). If directories for later stages already have content but earlier ones are empty, the user likely intends to start from a later stage.
-6. Briefly orient the user: tell them the project's starting stage, which stages are active, which task is next, and what the next logical step is.
+`eval.py:_grade_with_cache` (line 45-73) caches verdicts as `grade.json` and
+trusts the cache only if the stored `judge_model` matches the current
+`benchmark.judge_model`. This protects against the HLE-class bug (changing the
+class attribute auto-invalidates old cache). It does NOT protect against:
 
-### When to run `inno-pipeline-planner`
+- Backend swap (claude → codex): not part of cache key.
+- Gold answer changes (dataset upstream updates): stored in cache file but not
+  checked on read.
+- Question text changes: same as above.
+- LCB: `judge_model` is always `None` → cache key always matches → stale grades
+  from lcb_runner bugs would persist forever. Mitigation: never modify
+  lcb_runner without invalidating the LCB cache directory.
 
-Read `.claude/skills/inno-pipeline-planner/SKILL.md` and follow its procedure in any of these situations:
-
-- **No `research_brief.json` exists** — proactively offer to set up the research pipeline through conversation.
-- **No `tasks.json` exists** (but brief does) — generate tasks from the existing brief.
-- **User wants to change the starting stage** — e.g., "I already have results, I just need to write the paper." Re-run the planner to update `pipeline.startStage` and regenerate tasks for the active stages only.
-- **User explicitly asks** to redefine or regenerate the pipeline.
-
-## Project Workflow
-
-The user drives the pipeline through the Dr. Claw web UI:
-
-1. **Pipeline Board or Chat** — The user either selects a research template via the Pipeline Board, or describes their research idea/goal in Chat. If using Chat, you run the `inno-pipeline-planner` skill to interactively collect requirements, determine the appropriate starting stage, and generate `.pipeline/docs/research_brief.json` and `.pipeline/tasks/tasks.json`. If the user indicates they already have artifacts for earlier stages (e.g., "I have results, I need to write the paper"), set `pipeline.startStage` accordingly and generate tasks only for the active stages.
-2. **Pipeline Task List** — The user reviews the generated tasks and clicks "Go to Chat" or "Use in Chat" on a task to send it to you.
-3. **Chat (you)** — You receive the task prompt, execute it using skills, and write results back to the appropriate directories. Update `research_brief.json` with any clarified or produced outputs.
-
-When the user sends you a task from the Pipeline Task List, treat it as your current assignment. Execute it fully, then report what was done.
-
-## Pipeline Stages
-
-For stage names, stage ordering, and canonical output paths, refer to `instance.json` as the source of truth index.
-
-## How to Use Skills
-
-Research skills are available in `.claude/skills/`. Each skill directory contains a `SKILL.md` with step-by-step procedures.
-
-When the user sends a task via "Use in Chat", the task prompt already includes suggested skills, missing inputs, quality gates, and stage guidance. Treat that prompt as the primary execution spec. Use `tasks.json` for dependency/status validation and pipeline bookkeeping:
-1. Read `.claude/skills/<skill-name>/SKILL.md` for the full procedure of each suggested skill.
-2. Follow the steps exactly as written in the ****`SKILL.md`.
-
-If no suggested skills appear in the prompt, or the user makes a freeform request outside the task list, list the `.claude/skills/` directory to discover available skills and pick the best match.
-
-## Key Files
-
-- `instance.json` — Project path mapping. It stores absolute directory paths for each pipeline area (`Survey.*`, `Ideation.*`, `Experiment.*`, `Publication.*`, `Promotion.*`) and related project metadata. Use these paths as the canonical locations for file I/O.
-- `.pipeline/docs/research_brief.json` — Research process control document and single source of truth. It defines stage goals, required elements, quality gates, task blueprints, recommended skills, and `pipeline.startStage` (which stage to begin from). Should be updated as the work evolves.
-- `.pipeline/tasks/tasks.json` — The task list generated from the research brief. Each task has: `id`, `title`, `description`, `status` (pending, in-progress, done, review, deferred, cancelled), `stage`, `priority`, `dependencies`, `taskType`, `inputsNeeded`, `suggestedSkills`, and `nextActionPrompt`. Read this to understand what needs to be done.
-- `.pipeline/config.json` — Pipeline configuration metadata.
-
-## Rules
-
-- **SANDBOX**: All file reads, writes, and creation MUST stay inside this project directory. Never access files outside it. If external data is needed, copy or symlink it into the project.
-- **PATH VALIDATION**: Treat `instance.json` as canonical only after validating each absolute path is a descendant of the project root. If any mapped path points outside the project root, stop and ask the user to repair `instance.json` before proceeding.
-- **CONFIRMATION**: At pipeline stage transitions, present a summary of what was done and what comes next. Wait for user confirmation before proceeding to the next stage.
-- **STYLE**: Use phase-appropriate language. During intake/planning chat, be concise and conversational while staying precise. For research artifacts and result summaries, use rigorous academic language: precise, falsifiable where applicable, and free of hedging filler. Prefer formal terminology in deliverables. When summarizing results, report effect sizes, metrics, or concrete outcomes — never vague qualifiers like "significant improvement" without numbers.
-- **NEVER** fabricate references, BibTeX entries, experimental results, dataset statistics, or any other factual claim. Every assertion must trace back to a verifiable source or to data produced within this project. If a fact cannot be verified, state that explicitly rather than guessing.
-- **CITATION VERIFICATION**: After completing any paper writing task in the publication stage, remind the user that citation verification is recommended and suggest the `inno-reference-audit` skill from the skill library (`skills/inno-reference-audit/SKILL.md`). If verification is skipped, state that the references were not audited. Never fabricate references, BibTeX entries, or source claims.
-- When writing to pipeline directories, use the absolute paths from `instance.json`.
-- **STATE UPDATE CONTRACT**:
-  - After each completed task, update `.pipeline/tasks/tasks.json`: set the task `status`, append/refresh completion notes if present, and verify dependency states before marking `done`.
-  - After each completed task, update `.pipeline/docs/research_brief.json` with clarified decisions, produced artifact locations, and any changes to stage scope or quality gates.
-  - Perform state writes atomically when possible (write temp file then rename) to avoid partial JSON corruption.
+If you change any of the above (backend, dataset version, lcb_runner version,
+judge prompt template), bump or wipe the affected cache directory; the
+auto-invalidation only catches `judge_model`.

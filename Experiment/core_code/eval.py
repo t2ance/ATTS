@@ -197,8 +197,11 @@ async def evaluate(
 ) -> dict:
     """Run the TTS agent on dataset rows and record results."""
     # Resume uses composite key (qid, rollout_idx) so K>1 runs with duplicate
-    # qids can be resumed correctly. Old records without rollout_idx fall
-    # back to 0, preserving K=1 resume semantics.
+    # qids can be resumed correctly. K=1 records persist rollout_idx as null
+    # (see line ~476), so dict.get returns None, not the default 0. Coerce
+    # None->0 here to match _row_key()'s `... or 0` semantics; without this,
+    # done_ids holds (qid, None) while pending checks (qid, 0), and resume
+    # silently skips nothing (verified 2026-04-28).
     done_ids: set[tuple[str, int]] = set()
     done_records: list[dict] = []
     if resume_run_dir is not None:
@@ -207,7 +210,7 @@ async def evaluate(
         with open(results_path) as f:
             for line in f:
                 rec = json.loads(line)
-                done_ids.add((rec["id"], rec.get("rollout_idx", 0)))
+                done_ids.add((rec["id"], rec.get("rollout_idx") or 0))
                 done_records.append(rec)
         print(f"Resuming {resume_run_dir}: {len(done_ids)} rollouts already completed")
 

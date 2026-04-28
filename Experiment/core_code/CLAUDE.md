@@ -13,6 +13,37 @@
 - After updating paper tables, always compile: `cd ../../Publication/paper && bash compile.sh`
 - After compiling, check for `Overfull \hbox` warnings and fix them (reduce `\tabcolsep`, use `\scriptsize`, or shorten row labels). Tables/figures must not overflow into margins.
 
+## Cache discipline (NON-NEGOTIABLE)
+The explore cache (`analysis/cache/<benchmark>/<method>/<qid>/explore_<n>/result.json`) and
+the per-run `results.jsonl` are paid-for assets — every entry represents a Claude API call
+that already cost real money. **Never re-run anything without confirming both layers will be reused.**
+
+Two cache layers, two reuse mechanisms:
+1. **Explore-level cache** (`--cache-dirs <DIR>`): shared across runs. Auto-hits when a
+   `(qid, explore_idx)` already has `result.json`. Always pass `--cache-dirs` even on a
+   fresh run; never delete the cache directory just to "start clean".
+2. **Question-level resume** (`--resume <RUN_DIR>`): reads `RUN_DIR/results.jsonl` and skips
+   already-graded `(qid, rollout_idx)` pairs. Pass this whenever a previous run for the same
+   `(benchmark, method, model, seed)` has any results.jsonl rows.
+
+Mandatory pre-launch checklist (resume + cache verification):
+- [ ] Identify the `RUN_DIR` with the **largest** `results.jsonl` for this benchmark/method/model.
+      Newest is NOT always largest — pick by `wc -l`, not mtime.
+- [ ] Add/refresh `--resume <RUN_DIR>` and `--cache-dirs <DIR>` in the launcher script.
+- [ ] After launch, verify the banner emits BOTH:
+      * `Resuming ...: N rollouts already completed` with N>0 if a prior run exists
+      * `Questions to run: M (N already completed, M+N total)` with N>0
+      For precache_explores.py the analogous banner is `Tasks: K to run, J already cached` with J>0.
+- [ ] If the banner shows `0 already completed` despite a prior run existing, STOP — the
+      resume path is broken (e.g., the eval.py rollout_idx-null bug fixed 2026-04-28).
+      Do not let the run continue and burn API budget re-doing finished questions.
+
+When NOT to reuse:
+- Different seed, model, method, or num_explores → results are not equivalent. Start fresh
+  but keep the cache directory (explores at the explore level may still be valid; resume
+  via `--resume` is not).
+- Cache file is corrupted or zero-length → delete only that one file, not the whole tree.
+
 ## Architecture: separation of concerns
 
 | Concern | Owner | Location |

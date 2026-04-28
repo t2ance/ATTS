@@ -47,9 +47,21 @@ If you cannot solve it exactly, give your best estimate and set confidence accor
 """
 
     def load_dataset(self) -> list[dict]:
+        # qid design: f"{category}_{within_category_idx}" (e.g. "physics_22").
+        # Reason: HF dataset has no native id field, only a 'catagory' (sic, upstream
+        # typo) string. A bare global index would change meaning when only one subset
+        # is filtered (physics-only run vs full run), breaking cache reuse. Encoding
+        # the subset into the qid keeps cache paths stable across full/subset filters
+        # and makes `ls cache/rbenchv/<orch>/` show per-subset progress at a glance.
+        # The qid format is opaque to all downstream consumers (eval.py, audit.py,
+        # precache_explores.py treat it as a string path segment / dict key only).
         rows = _load_rbenchv_dataset()
-        for i, r in enumerate(rows):
-            r["_index"] = i
+        from collections import defaultdict
+        within_category_idx: dict[str, int] = defaultdict(int)
+        for r in rows:
+            cat = r.get("catagory", "unknown").lower()
+            r["_qid"] = f"{cat}_{within_category_idx[cat]}"
+            within_category_idx[cat] += 1
         return rows
 
     def filter_dataset(self, rows: list[dict], **kwargs) -> list[dict]:
@@ -62,7 +74,7 @@ If you cannot solve it exactly, give your best estimate and set confidence accor
         return str(row["answer"])
 
     def get_id(self, row: dict) -> str:
-        return str(row["_index"])
+        return row["_qid"]
 
     def get_image(self, row: dict) -> str | None:
         image = row.get("image")
@@ -71,7 +83,10 @@ If you cannot solve it exactly, give your best estimate and set confidence accor
         return image_to_data_url(image)
 
     def classify_subset(self, row: dict) -> str:
-        return row.get("catagory", "unknown")
+        # Lowercase to align with HLE ('gold'/'uncertain') convention. Upstream
+        # field 'catagory' (sic) returns "Physics"/"Game"/etc; we normalize at
+        # the boundary so per_subset keys in results.jsonl + audit are consistent.
+        return row.get("catagory", "unknown").lower()
 
     def add_dataset_args(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--category", type=str, default=None, help="Filter by category")
