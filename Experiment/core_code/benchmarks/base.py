@@ -9,6 +9,8 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
+from pydantic import BaseModel
+
 from prompts import format_claude_structured_suffix
 
 
@@ -420,16 +422,15 @@ class BenchmarkConfig(ABC):
 
     # -- CLI --
 
-    def make_filter_model(self) -> type:
+    def make_filter_model(self) -> type["BaseModel"]:
         """Return a Pydantic model class describing this benchmark's filter fields.
 
-        Subclasses override to declare typed/Literal-restricted filters.
-        Default: empty model with extra='forbid', so any field is rejected.
+        Every concrete benchmark MUST override this. Use extra='forbid' on the
+        returned model so misspelled filter keys fail loudly.
         """
-        from pydantic import BaseModel
-        class _EmptyFilters(BaseModel):
-            model_config = {"extra": "forbid"}
-        return _EmptyFilters
+        raise NotImplementedError(
+            f"{type(self).__name__} must override make_filter_model()"
+        )
 
     def add_dataset_args(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--num", type=int, default=None, help="Number of questions")

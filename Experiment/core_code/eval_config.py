@@ -113,7 +113,7 @@ class EvalConfig(BaseModel):
         # model_validate raises ValidationError if filter keys don't match
         validated = filter_model.model_validate(self.filters)
         # Re-export as plain dict so downstream code keeps using cfg.filters
-        object.__setattr__(self, "filters", validated.model_dump(exclude_defaults=False))
+        self.filters = validated.model_dump(exclude_defaults=True)
 
         return self
 

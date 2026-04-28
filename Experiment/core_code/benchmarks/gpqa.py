@@ -105,7 +105,7 @@ Your job:
     async def grade(self, predicted, gold, question, row, backend, out_dir=None):
         return check_answer(predicted, gold, "multipleChoice"), 0.0
 
-    def make_filter_model(self):
+    def make_filter_model(self) -> type:
         from pydantic import BaseModel
         class GPQAFilters(BaseModel):
             model_config = {"extra": "forbid"}

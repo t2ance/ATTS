@@ -170,7 +170,7 @@ Put your final solution code in the `final_code` field.
     def get_answer_from_integrate(self, result: dict) -> str:
         return result.get("final_code", "")
 
-    def make_filter_model(self):
+    def make_filter_model(self) -> type:
         from pydantic import BaseModel
         from typing import Literal
         class LCBFilters(BaseModel):

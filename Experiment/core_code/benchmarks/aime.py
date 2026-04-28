@@ -123,7 +123,7 @@ Your job:
     def normalize_answer(self, text: str) -> str:
         return _normalize_aime_answer(text)
 
-    def make_filter_model(self):
+    def make_filter_model(self) -> type:
         from pydantic import BaseModel
         class AIMEFilters(BaseModel):
             model_config = {"extra": "forbid"}

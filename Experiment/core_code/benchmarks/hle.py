@@ -165,7 +165,7 @@ class HLEBenchmark(BenchmarkConfig):
             backend=grade_backend, out_dir=out_dir,
         )
 
-    def make_filter_model(self):
+    def make_filter_model(self) -> type:
         from pydantic import BaseModel
         from typing import Literal
         class HLEFilters(BaseModel):

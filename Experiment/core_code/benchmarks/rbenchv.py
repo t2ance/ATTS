@@ -97,7 +97,7 @@ If you cannot solve it exactly, give your best estimate and set confidence accor
             backend=grade_backend, out_dir=out_dir,
         )
 
-    def make_filter_model(self):
+    def make_filter_model(self) -> type:
         from pydantic import BaseModel
         class RBenchVFilters(BaseModel):
             model_config = {"extra": "forbid"}

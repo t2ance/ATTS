@@ -218,3 +218,17 @@ def test_gpqa_filters_validate(tmp_path):
     """)
     cfg = load_config(config_path=yml, flat_overrides={}, dot_overrides=[])
     assert cfg.filters["domain"] == "Physics"
+
+
+def test_filters_empty_validates_for_all_benchmarks():
+    """Every concrete benchmark must declare a filter model that accepts {}."""
+    for name in ("hle", "lcb", "gpqa", "babyvision", "aime", "aime2025", "aime2026", "rbenchv"):
+        cfg = EvalConfig(
+            benchmark=name,
+            backend="claude",
+            explore_model="m",
+            method="self-refine",
+        )
+        assert isinstance(cfg.filters, dict)
+        # With exclude_defaults=True, an empty input round-trips to empty dict
+        assert cfg.filters == {}
