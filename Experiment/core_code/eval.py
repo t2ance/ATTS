@@ -600,7 +600,7 @@ async def evaluate(
 # CLI entry point
 # ---------------------------------------------------------------------------
 
-def parse_args() -> argparse.Namespace:
+def parse_args() -> tuple[argparse.Namespace, BenchmarkConfig]:
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument("--benchmark", type=str, required=True)
     known, _ = pre.parse_known_args()
@@ -639,12 +639,11 @@ def parse_args() -> argparse.Namespace:
 
     args = parser.parse_args()
     assert args.num_rollouts >= 1, f"--num-rollouts must be >= 1, got {args.num_rollouts}"
-    args._benchmark = benchmark
-    return args
+    return args, benchmark
 
 
 async def async_main() -> None:
-    args = parse_args()
+    args, benchmark = parse_args()
     # All methods that record orchestrator/integrate as run-config metadata or
     # consume them at runtime require explicit CLI args -- no silent fallback to
     # --explore-model. Assert per-method so launcher scripts must declare every
@@ -713,8 +712,6 @@ async def async_main() -> None:
         assert args.orchestrator_model is not None, "--orchestrator-model is required for tts-agent"
         assert args.integrate_model is not None, "--integrate-model is required for tts-agent"
         from methods.tts_agent import solve
-
-    benchmark = args._benchmark
 
     print(f"Loading {benchmark.name.upper()} dataset...")
     all_rows = benchmark.load_dataset()

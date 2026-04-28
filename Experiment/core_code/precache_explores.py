@@ -129,7 +129,7 @@ async def precache(
     print(f"\nDone. {completed} cached, {skipped} skipped (already existed).")
 
 
-def parse_args() -> argparse.Namespace:
+def parse_args() -> tuple[argparse.Namespace, BenchmarkConfig]:
     # Sniff --benchmark before adding help so that --help shows all args
     pre = argparse.ArgumentParser(add_help=False)
     pre.add_argument("--benchmark", type=str, default="hle")
@@ -142,14 +142,12 @@ def parse_args() -> argparse.Namespace:
     benchmark.add_model_args(parser)
 
     args = parser.parse_args()
-    args._benchmark = benchmark
     assert args.cache_dirs is not None, "--cache-dirs is required"
-    return args
+    return args, benchmark
 
 
 def main() -> None:
-    args = parse_args()
-    benchmark = args._benchmark
+    args, benchmark = parse_args()
 
     print(f"Loading {benchmark.name.upper()} dataset...")
     all_rows = benchmark.load_dataset()
