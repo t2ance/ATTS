@@ -437,7 +437,8 @@ class BenchmarkConfig(ABC):
         # a YAML value when parse_cli builds EvalConfig. Schema-level defaults
         # live in eval_config.EvalConfig.
         parser.add_argument("--num", type=int, default=None)
-        parser.add_argument("--skip", type=int, default=None)
+        parser.add_argument("--skip", type=int, default=None,
+                            help="Skip first N questions (applied after filtering, before --num)")
         parser.add_argument("--seed", type=int, default=None)
         parser.add_argument("--shuffle", action="store_true", default=None)
 
@@ -449,10 +450,12 @@ class BenchmarkConfig(ABC):
         parser.add_argument("--budget-tokens", type=int, default=None)
         parser.add_argument("--effort", choices=["low", "medium", "high", "max"], default=None)
         parser.add_argument("--num-explores", type=int, default=None)
-        # --cache-dir (singular) is the single-model cache path. Multi-model
-        # cache_dirs (dict) come from YAML or -o; no CLI flag.
-        parser.add_argument("--cache-dir", type=str, default=None,
-                            help="Single cache dir for non-multi methods. Use YAML 'cache_dirs' for multi/effort.")
+        # CLI flag stays plural (--cache-dirs) for backward compat with 67 legacy
+        # shell scripts. parse_cli routes it to cfg.cache_dir (singular) for
+        # single-model use. Multi-model dict must come from YAML or -o; legacy
+        # comma-pair string parsing is gone.
+        parser.add_argument("--cache-dirs", type=str, default=None,
+                            help="Cache directory for single-model methods. For multi-model, use --config FILE.yaml with cache_dirs as a YAML mapping.")
         parser.add_argument("--num-workers", type=int, default=None)
         parser.add_argument("--explore-timeout", type=float, default=None)
         parser.add_argument("--max-output-chars", type=int, default=None)

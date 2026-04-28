@@ -643,26 +643,40 @@ def parse_cli() -> "EvalConfig":
 
     args = parser.parse_args()
 
-    # Strip None values (so they don't override YAML defaults), and pull filter
-    # keys into nested 'filters' dict.
+    # Strip None values (so they don't override YAML defaults), and route filter
+    # keys + the legacy --cache-dirs flag into per-key dot-path overrides so each
+    # CLI value merges with (rather than replaces) the YAML's filters / dict.
     flat: dict[str, object] = {}
-    filters: dict[str, object] = {}
+    extra_dot: list[str] = []
     for key, val in vars(args).items():
         if key in ("config", "override"):
             continue
         if val is None:
             continue
+        if key == "cache_dirs":
+            # Legacy CLI flag --cache-dirs is a single-path string; route to
+            # cfg.cache_dir (Path | None). Multi-model dict-form must come
+            # from YAML or -o cache_dirs.<key>=<val>; parse_cli does not
+            # accept the legacy "key:val,key:val" string form.
+            assert ":" not in val, (
+                f"--cache-dirs accepts only a single path; multi-model cache "
+                f"dicts must come from --config FILE.yaml. Got: {val!r}"
+            )
+            flat["cache_dir"] = val
+            continue
         if key in benchmark.filter_keys:
-            filters[key] = val
+            # Use dot-path routing so each CLI filter flag is merged into the
+            # YAML's filters dict instead of replacing it wholesale. Avoids
+            # silently erasing YAML-set filter siblings when only some are
+            # overridden on the CLI.
+            extra_dot.append(f"filters.{key}={val}")
         else:
             flat[key] = val
-    if filters:
-        flat["filters"] = filters
 
     return load_config(
         config_path=args.config,
         flat_overrides=flat,
-        dot_overrides=args.override,
+        dot_overrides=list(args.override) + extra_dot,
     )
 
 

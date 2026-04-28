@@ -277,3 +277,66 @@ def test_parse_cli_with_yaml_and_override(tmp_path, monkeypatch):
     cfg = eval_mod.parse_cli()
     assert cfg.model_budgets == {"haiku": 2, "sonnet": 8}
     assert cfg.seed == 99
+
+
+def test_cli_filter_flag_preserves_yaml_filter_siblings(tmp_path, monkeypatch):
+    """C1 regression: CLI --category should NOT erase YAML's subset/text_only."""
+    import importlib
+    import eval as eval_mod
+    importlib.reload(eval_mod)
+
+    yml = _write(tmp_path, "x.yaml", """
+        benchmark: hle
+        backend: claude
+        explore_model: claude-sonnet-4-6
+        method: self-refine
+        filters:
+          subset: gold
+          text_only: true
+    """)
+    argv = ["eval.py", "--benchmark", "hle", "--config", str(yml), "--category", "physics"]
+    monkeypatch.setattr("sys.argv", argv)
+    cfg = eval_mod.parse_cli()
+    assert cfg.filters["subset"] == "gold"
+    assert cfg.filters["text_only"] is True
+    assert cfg.filters["category"] == "physics"
+
+
+def test_cli_cache_dirs_single_path_routes_to_cache_dir(tmp_path, monkeypatch):
+    """C2 regression: legacy --cache-dirs <single-path> still works post-rename-revert."""
+    import importlib
+    import eval as eval_mod
+    importlib.reload(eval_mod)
+
+    argv = [
+        "eval.py",
+        "--benchmark", "hle",
+        "--backend", "claude",
+        "--explore-model", "claude-sonnet-4-6",
+        "--method", "self-refine",
+        "--cache-dirs", "/some/cache/path",
+    ]
+    monkeypatch.setattr("sys.argv", argv)
+    cfg = eval_mod.parse_cli()
+    assert cfg.cache_dir == Path("/some/cache/path")
+    assert cfg.cache_dirs == {}
+
+
+def test_cli_cache_dirs_with_colons_rejects(tmp_path, monkeypatch):
+    """C2: legacy multi-cache string form must error, point to YAML."""
+    import importlib
+    import eval as eval_mod
+    importlib.reload(eval_mod)
+
+    argv = [
+        "eval.py",
+        "--benchmark", "hle",
+        "--backend", "claude",
+        "--explore-model", "claude-sonnet-4-6",
+        "--method", "tts-agent-multi",
+        "--orchestrator-model", "x",
+        "--cache-dirs", "haiku:/cache/a,sonnet:/cache/b",
+    ]
+    monkeypatch.setattr("sys.argv", argv)
+    with pytest.raises(AssertionError, match="multi-model cache dicts must come from"):
+        eval_mod.parse_cli()
