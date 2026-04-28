@@ -212,6 +212,7 @@ Qwen3-Max-Thinking & 48.48 & -- \\
 \groupheader{3}{Test-Time Scaling Methods}
 Pass@1 & 48.00 & 0.50 \\
 Self-Refine & 53.00 & \textbf{0.41} \\
+Socratic Self-Refine & 59.00 & 0.90 \\
 Budget Forcing & 51.00 & 0.60 \\
 % Corrected: 10 compaction-failed explores in hle/sonnet/gold cache zeroed (cost_usd -> 0).
 % Skywork/LLM Selection read all 8 explores per question -> all 10 bad explores consumed -> -$79.40.
@@ -722,6 +723,53 @@ We use the BabyVision dataset release \texttt{UnipatAI/BabyVision} \citep{babyvi
 
 \paragraph{GPQA-Diamond.}\label{app:gpqa-details}
 We use the GPQA release \texttt{Idavidrein/gpqa} \citep{gpqa_dataset_hf}, configuration \texttt{gpqa\_diamond}, which corresponds to the 198-question Diamond subset introduced in the GPQA paper \citep{gpqa_paper}. GPQA is a graduate-level four-option multiple-choice science benchmark spanning biology, physics, and chemistry, and GPQA-Diamond is the highest-stringency subset retained after expert-accuracy and non-expert-difficulty filtering \citep{gpqa_paper}. The official task is closed-book answer selection unless otherwise stated: the model is shown the question and four candidate options and must output exactly one final option. Scoring is exact option-key accuracy with no semantic judge and a random-guess baseline of \(25\%\) \citep{gpqa_paper}. In addition to Diamond-set accuracy, the original GPQA paper also reports accuracies on the Extended and Main sets and distinguishes closed-book few-shot/CoT baselines from an open-book GPT-4-with-search baseline; Table~\ref{tab:main-results}(d) keeps the main-text comparison focused on the Diamond-set accuracy column used by current public references. Our grading extracts the option letter (A--D) from the model response via regex and performs exact matching against the gold option key, with no LLM judge, consistent with the official protocol.
+
+\section{Supplementary Benchmark: RBench-V}
+\label{app:rbenchv}
+
+This appendix adds a supplementary evaluation on RBench-V \citep{rbenchv_paper}, a visual reasoning benchmark with multi-modal outputs. RBench-V is not part of the four main-text benchmarks because the official RBench-V protocol scores not only the final textual answer but also intermediate image generations (e.g., auxiliary lines drawn into the input figure). Most current API models---including the orchestrators and explorers used elsewhere in this paper---do not natively emit raster images during reasoning, so direct comparison against published RBench-V leaderboard rows requires careful disclosure of this protocol mismatch. We include the benchmark here as a stress test of \our{} on a tasks where the visual reasoning channel itself is the binding capability, rather than as a head-to-head ranking against \citet{rbenchv_paper}.
+
+\paragraph{Dataset and protocol.}\label{app:rbenchv-details}
+We use the RBench-V dataset release at \citet{rbenchv_dataset_hf}. The benchmark consists of 803 multi-modal reasoning problems spanning four task families: Math, Physics, Counting, and Games \citep{rbenchv_paper}. Every item is image-conditioned, and the question pool mixes multiple-choice items with open-ended free-form answers. The official RBench-V protocol differentiates two scoring views: \emph{Overall}, which averages over all four families, and \emph{w/o Math}, which excludes the Math subset on the rationale that geometry items in Math admit algebraic shortcuts that bypass the visual reasoning channel and therefore inflate apparent multi-modal capability \citep{rbenchv_paper}. Table~\ref{tab:lb-rbenchv} reports both views together with the four per-family columns, mirroring \citet{rbenchv_paper}'s primary results table. Because the benchmark includes both multiple-choice and open-ended questions, the official protocol grades all items through a unified LLM-as-judge framework with GPT-4o as the judge model, reporting Top-1 accuracy as the primary metric \citep{rbenchv_paper}. Our grading reuses an LLM-as-judge pipeline with Claude Haiku 4.5 in the judge role, preserving the open-ended semantic-equivalence semantics required by the official protocol while substituting the judge backbone for cost and reproducibility reasons. As with the rest of the paper, our explorers receive only the original problem (image plus text) without ground-truth answers; the orchestrator does not attempt to emit images and must reason about the visual content through textual descriptions delegated to its explorers.
+
+\begin{table}[t!]
+\centering
+\caption{RBench-V leaderboard reference (top group, cited from Table~1 of \citet{rbenchv_paper}) together with aligned reporting rows for the baselines and \our{} (bottom group, our evaluation). All numbers are accuracies (\%); \$/q reflects API token charges only, on the same convention used in Table~\ref{tab:main-results}. ``w/o Math'' excludes the Math subset, which the benchmark authors recommend as a tighter probe of multi-modal reasoning capability \citep{rbenchv_paper}. Bottom-group rows marked \textit{TBD} are pending evaluation; see the deferred-evaluation note at the end of this appendix.}
+\label{tab:lb-rbenchv}
+\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{l r r r r r r r}
+\toprule
+ & Overall & w/o Math & Math & Physics & Counting & Games & \$/q \\
+ & ($n{=}803$) & ($n{=}627$) & ($n{=}176$) & ($n{=}157$) & ($n{=}195$) & ($n{=}275$) & \\
+\midrule
+Human Experts & 82.3 & 81.7 & 84.7 & 69.4 & 81.0 & 89.1 & -- \\
+\midrule
+\groupheader{8}{Zero-Shot Models (cited from \citet{rbenchv_paper}, Table~1)}
+OpenAI o3 & \textbf{25.8} & \textbf{19.5} & \textbf{48.3} & \textbf{20.4} & \textbf{22.1} & \textbf{17.1} & -- \\
+OpenAI o4-mini & 20.9 & 14.6 & 43.2 & 12.7 & 17.4 & 13.8 & -- \\
+Gemini 2.5 Pro & 20.2 & 13.9 & 42.6 & 9.6 & 19.0 & 12.7 & -- \\
+Doubao-1.5-thinking-pro-m & 17.1 & 11.0 & 38.6 & 13.4 & 9.7 & 10.5 & -- \\
+OpenAI o1 & 16.2 & 11.0 & 34.7 & 5.7 & 12.3 & 13.1 & -- \\
+Doubao-1.5-vision-pro & 15.6 & 11.5 & 30.1 & 8.9 & 12.8 & 12.0 & -- \\
+GPT-4o (2025-03-27) & 14.1 & 11.2 & 24.4 & 3.2 & 13.3 & 14.2 & -- \\
+GPT-4.1 & 13.6 & 11.7 & 20.5 & 5.7 & 11.3 & 15.3 & -- \\
+\midrule
+\groupheader{8}{Test-Time Scaling Methods (our evaluation)}
+Pass@1 & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} \\
+Majority Voting & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} \\
+Self-Refine & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} \\
+Budget Forcing & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} \\
+VisualPRM & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} \\
+LLM Selection ($N{=}8$) & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} \\
+\our{} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} \\
+\attsmm{} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} & \textit{TBD} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Deferred-evaluation note.}
+The bottom group of Table~\ref{tab:lb-rbenchv} is currently a structural placeholder. Pre-cached explores from the cheaper Claude tier exist for a partial subset of RBench-V items, but a full evaluation matrix matching the eight rows of Table~\ref{tab:main-results}(d) (Pass@1, Majority Voting, Self-Refine, Budget Forcing, VisualPRM, LLM Selection, \our{}, \attsmm{}) has not yet been run. We disclose this gap explicitly here rather than omit the benchmark, so that the structural slot in the appendix exists and the leaderboard reference rows are stable before our own numbers are produced. The reason RBench-V was deferred to the appendix during the main-text revision is the protocol mismatch noted at the start of this section: image-emitting reasoning is part of RBench-V's official capability target but not part of \our{}'s current explorer interface, so a like-for-like ranking against published rows requires care that is out of scope for the main-text comparison.
 
 \section{Explore-Count Distributions}
 \label{app:explore-distributions}
