@@ -105,6 +105,13 @@ Your job:
     async def grade(self, predicted, gold, question, row, backend, out_dir=None):
         return check_answer(predicted, gold, "multipleChoice"), 0.0
 
+    def make_filter_model(self):
+        from pydantic import BaseModel
+        class GPQAFilters(BaseModel):
+            model_config = {"extra": "forbid"}
+            domain: str | None = None
+        return GPQAFilters
+
     def add_dataset_args(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--domain", type=str, default=None, help="Filter by domain (e.g. Physics, Chemistry, Biology)")
         super().add_dataset_args(parser)

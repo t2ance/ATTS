@@ -100,6 +100,14 @@ If you cannot solve it exactly, give your best estimate and set confidence accor
             backend=grade_backend, out_dir=out_dir,
         )
 
+    def make_filter_model(self):
+        from pydantic import BaseModel
+        class BabyVisionFilters(BaseModel):
+            model_config = {"extra": "forbid"}
+            type: str | None = None
+            subtype: str | None = None
+        return BabyVisionFilters
+
     def add_dataset_args(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--type", type=str, default=None, help="Filter by type category")
         parser.add_argument("--subtype", type=str, default=None, help="Filter by subtype")

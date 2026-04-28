@@ -420,6 +420,17 @@ class BenchmarkConfig(ABC):
 
     # -- CLI --
 
+    def make_filter_model(self) -> type:
+        """Return a Pydantic model class describing this benchmark's filter fields.
+
+        Subclasses override to declare typed/Literal-restricted filters.
+        Default: empty model with extra='forbid', so any field is rejected.
+        """
+        from pydantic import BaseModel
+        class _EmptyFilters(BaseModel):
+            model_config = {"extra": "forbid"}
+        return _EmptyFilters
+
     def add_dataset_args(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--num", type=int, default=None, help="Number of questions")
         parser.add_argument("--skip", type=int, default=0, help="Skip first N questions (applied after filtering, before --num)")

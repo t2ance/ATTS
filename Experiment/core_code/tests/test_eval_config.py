@@ -177,3 +177,44 @@ def test_set_dotpath_rejects_non_dict_intermediate():
     d = {"existing": "scalar_value"}
     with pytest.raises(AssertionError, match="cannot descend into non-dict"):
         _set_dotpath(d, "existing.subkey", "5")
+
+
+def test_hle_filters_validate(tmp_path):
+    yml = _write(tmp_path, "x.yaml", """
+        benchmark: hle
+        backend: claude
+        explore_model: claude-sonnet-4-6
+        method: self-refine
+        filters:
+          subset: gold
+          text_only: true
+    """)
+    cfg = load_config(config_path=yml, flat_overrides={}, dot_overrides=[])
+    assert cfg.filters["subset"] == "gold"
+    assert cfg.filters["text_only"] is True
+
+
+def test_hle_filters_reject_unknown_field(tmp_path):
+    yml = _write(tmp_path, "x.yaml", """
+        benchmark: hle
+        backend: claude
+        explore_model: claude-sonnet-4-6
+        method: self-refine
+        filters:
+          domain: physics
+    """)
+    with pytest.raises(ValidationError, match="domain"):
+        load_config(config_path=yml, flat_overrides={}, dot_overrides=[])
+
+
+def test_gpqa_filters_validate(tmp_path):
+    yml = _write(tmp_path, "x.yaml", """
+        benchmark: gpqa
+        backend: claude
+        explore_model: claude-sonnet-4-6
+        method: self-refine
+        filters:
+          domain: Physics
+    """)
+    cfg = load_config(config_path=yml, flat_overrides={}, dot_overrides=[])
+    assert cfg.filters["domain"] == "Physics"

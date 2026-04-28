@@ -106,6 +106,15 @@ class EvalConfig(BaseModel):
             )
         assert self.num_rollouts >= 1, f"num_rollouts must be >= 1, got {self.num_rollouts}"
 
+        # Validate per-benchmark filter shape
+        from benchmarks import get_benchmark
+        bench = get_benchmark(self.benchmark)
+        filter_model = bench.make_filter_model()
+        # model_validate raises ValidationError if filter keys don't match
+        validated = filter_model.model_validate(self.filters)
+        # Re-export as plain dict so downstream code keeps using cfg.filters
+        object.__setattr__(self, "filters", validated.model_dump(exclude_defaults=False))
+
         return self
 
 

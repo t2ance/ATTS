@@ -123,6 +123,13 @@ Your job:
     def normalize_answer(self, text: str) -> str:
         return _normalize_aime_answer(text)
 
+    def make_filter_model(self):
+        from pydantic import BaseModel
+        class AIMEFilters(BaseModel):
+            model_config = {"extra": "forbid"}
+            year: int | None = None
+        return AIMEFilters
+
     def add_dataset_args(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--year", type=int, default=None, help="Filter by competition year (e.g. 2025)")
         super().add_dataset_args(parser)

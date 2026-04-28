@@ -97,6 +97,13 @@ If you cannot solve it exactly, give your best estimate and set confidence accor
             backend=grade_backend, out_dir=out_dir,
         )
 
+    def make_filter_model(self):
+        from pydantic import BaseModel
+        class RBenchVFilters(BaseModel):
+            model_config = {"extra": "forbid"}
+            category: str | None = None
+        return RBenchVFilters
+
     def add_dataset_args(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--category", type=str, default=None, help="Filter by category")
         super().add_dataset_args(parser)

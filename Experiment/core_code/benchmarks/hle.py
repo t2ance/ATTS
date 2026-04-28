@@ -165,6 +165,16 @@ class HLEBenchmark(BenchmarkConfig):
             backend=grade_backend, out_dir=out_dir,
         )
 
+    def make_filter_model(self):
+        from pydantic import BaseModel
+        from typing import Literal
+        class HLEFilters(BaseModel):
+            model_config = {"extra": "forbid"}
+            subset: Literal["gold", "revision", "uncertain"] | None = None
+            category: str | None = None
+            text_only: bool = False
+        return HLEFilters
+
     def add_dataset_args(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--subset", choices=["gold", "revision", "uncertain"], default=None)
         parser.add_argument("--category", type=str, default=None)
