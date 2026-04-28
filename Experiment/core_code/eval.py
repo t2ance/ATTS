@@ -645,40 +645,35 @@ def parse_args() -> argparse.Namespace:
 
 async def async_main() -> None:
     args = parse_args()
+    # All methods that record orchestrator/integrate as run-config metadata or
+    # consume them at runtime require explicit CLI args -- no silent fallback to
+    # --explore-model. Assert per-method so launcher scripts must declare every
+    # role they record.
     if args.method == "self-refine":
         from methods.self_refine import solve
-        if args.orchestrator_model is None:
-            args.orchestrator_model = args.explore_model
-        if args.integrate_model is None:
-            args.integrate_model = args.explore_model
+        assert args.orchestrator_model is not None, "--orchestrator-model required for self-refine"
+        assert args.integrate_model is not None, "--integrate-model required for self-refine"
     elif args.method == "socratic-self-refine":
         from methods.socratic_self_refine import solve
-        if args.orchestrator_model is None:
-            args.orchestrator_model = args.explore_model
-        if args.integrate_model is None:
-            args.integrate_model = args.explore_model
+        assert args.orchestrator_model is not None, "--orchestrator-model required for socratic-self-refine"
+        assert args.integrate_model is not None, "--integrate-model required for socratic-self-refine"
     elif args.method == "budget-forcing":
         from methods.budget_forcing import solve
-        if args.orchestrator_model is None:
-            args.orchestrator_model = args.explore_model
-        if args.integrate_model is None:
-            args.integrate_model = args.explore_model
+        assert args.orchestrator_model is not None, "--orchestrator-model required for budget-forcing"
+        assert args.integrate_model is not None, "--integrate-model required for budget-forcing"
     elif args.method == "rerank":
         import functools
         from methods.reward_rerank import solve as _rerank_solve
         assert args.reward_model is not None, "--reward-model required for rerank"
+        assert args.orchestrator_model is not None, "--orchestrator-model required for rerank"
+        assert args.integrate_model is not None, "--integrate-model required for rerank"
         solve = functools.partial(_rerank_solve, reward_model_name=args.reward_model)
-        if args.orchestrator_model is None:
-            args.orchestrator_model = args.explore_model
-        if args.integrate_model is None:
-            args.integrate_model = args.explore_model
     elif args.method == "standalone-integrator":
         import functools
         from methods.standalone_integrator import solve as _si_solve
         assert args.integrate_model is not None, "--integrate-model required for standalone-integrator"
+        assert args.orchestrator_model is not None, "--orchestrator-model required for standalone-integrator"
         solve = functools.partial(_si_solve, integrate_model=args.integrate_model)
-        if args.orchestrator_model is None:
-            args.orchestrator_model = args.explore_model
     elif args.method == "tts-agent-multi":
         import functools
         from methods.tts_agent_multi import solve as _multi_solve

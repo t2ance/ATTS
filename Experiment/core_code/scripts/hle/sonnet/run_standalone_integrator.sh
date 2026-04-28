@@ -16,6 +16,7 @@ PYTHONUNBUFFERED=1 nohup python eval.py --benchmark hle \
 	--num-workers 16 \
 	--log-dir ../analysis/run/hle/sonnet_standalone_integrator \
 	--explore-model claude-sonnet-4-6 \
+	--orchestrator-model claude-sonnet-4-6 \
 	--integrate-model claude-sonnet-4-6 \
 	--cache-dirs ../analysis/cache/hle/sonnet/gold \
 	> ../analysis/run/hle/sonnet_standalone_integrator/run.log 2>&1 &

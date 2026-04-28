@@ -13,6 +13,7 @@ PYTHONUNBUFFERED=1 nohup python eval.py --benchmark babyvision \
 	--num-workers 4 \
 	--log-dir ../analysis/run/babyvision/sonnet_standalone_integrator \
 	--explore-model claude-sonnet-4-6 \
+	--orchestrator-model claude-sonnet-4-6 \
 	--integrate-model claude-sonnet-4-6 \
 	--cache-dirs ../analysis/cache/babyvision/sonnet \
 	> ../analysis/run/babyvision/sonnet_standalone_integrator/run.log 2>&1 &
