@@ -156,10 +156,7 @@ def main() -> None:
     print(f"Loading {benchmark.name.upper()} dataset...")
     all_rows = benchmark.load_dataset()
 
-    filter_kwargs = {}
-    for key in benchmark.filter_keys:
-        if hasattr(args, key):
-            filter_kwargs[key] = getattr(args, key)
+    filter_kwargs = {key: getattr(args, key) for key in benchmark.filter_keys}
     filtered = benchmark.filter_dataset(all_rows, **filter_kwargs)
     print(f"Filtered to {len(filtered)} questions")
 
