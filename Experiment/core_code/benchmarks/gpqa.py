@@ -7,6 +7,7 @@ import hashlib
 import random
 
 from benchmarks.base import BenchmarkConfig, ANSWER_FORMAT_RULES
+from benchmarks.grader import check_answer
 
 
 # ---------------------------------------------------------------------------
@@ -101,8 +102,8 @@ Your job:
     def classify_subset(self, row: dict) -> str:
         return row.get("High-level domain", "unknown")
 
-    def get_answer_type(self, row: dict) -> str:
-        return "multipleChoice"
+    async def grade(self, predicted, gold, question, row, backend, out_dir=None):
+        return check_answer(predicted, gold, "multipleChoice"), 0.0
 
     def add_dataset_args(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--domain", type=str, default=None, help="Filter by domain (e.g. Physics, Chemistry, Biology)")
