@@ -9,7 +9,7 @@ Source : analysis/run/hle/sonnet_training/run_20260409_222818/
             rounds.jsonl (round-by-round tool args)
             trajectories/<qid>/trajectory.md (orchestrator deliberation)
          + benchmarks.hle (problem text)
-Target : training_data/sft_hle_q101_300_thinking.jsonl
+Target : training/training_data/sft_hle_q101_300_thinking.jsonl
 
 Format (per row):
   {
@@ -65,7 +65,7 @@ RUN_DIR = (
 )
 ROUNDS_PATH = RUN_DIR / "rounds.jsonl"
 TRAJ_DIR = RUN_DIR / "trajectories"
-OUT_PATH = CORE_CODE_DIR / "training_data" / "sft_hle_q101_300_thinking.jsonl"
+OUT_PATH = CORE_CODE_DIR / "training" / "training_data" / "sft_hle_q101_300_thinking.jsonl"
 TOOL_CONFIG_PATH = CORE_CODE_DIR / "training" / "grpo" / "tool_config.yaml"
 
 MAX_EXPLORES = 8

@@ -1,5 +1,18 @@
-# Experiment data (large)
-Experiment/analysis/
+# Large training/eval data — never commit
+*.parquet
+Experiment/core_code/training/training_data/
+
+# analysis/ — track READMEs and small code, ignore the data subdirs
+Experiment/analysis/cache/
+Experiment/analysis/run/aime2025/
+Experiment/analysis/run/aime2026/
+Experiment/analysis/run/babyvision/
+Experiment/analysis/run/gpqa/
+Experiment/analysis/run/hle/
+Experiment/analysis/run/lcb/
+Experiment/analysis/run/rbenchv/
+
+# Legacy paths kept ignored
 Experiment/code_references/
 Experiment/datasets/
 Experiment/core_code/tmp/

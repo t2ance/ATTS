@@ -76,7 +76,7 @@ def _get_hle_eval_qids() -> set[str]:
 def main():
     core_code = Path(__file__).resolve().parent.parent.parent  # core_code/
     base = core_code.parent  # Experiment/
-    sft_data_path = core_code / "training_data" / "sft_all.jsonl"
+    sft_data_path = core_code / "training" / "training_data" / "sft_all.jsonl"
 
     assert sft_data_path.exists(), f"SFT data not found: {sft_data_path}"
 
@@ -165,7 +165,7 @@ def main():
     print(f"Train: {len(train_rows)}, Val: {len(val_rows)}")
 
     # Write parquet
-    out_dir = core_code / "training_data" / "grpo"
+    out_dir = core_code / "training" / "training_data" / "grpo"
     out_dir.mkdir(parents=True, exist_ok=True)
 
     for name, data in [("train", train_rows), ("val", val_rows)]:

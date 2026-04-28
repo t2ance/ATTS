@@ -15,7 +15,7 @@ export LD_LIBRARY_PATH="$VERL_ENV/lib/python3.11/site-packages/nvidia/cuda_runti
 
 PROJECT_DIR="/data3/peijia/dr-claw/Explain/Experiment/core_code"
 CONFIG_PATH="$PROJECT_DIR/training/grpo"
-DATA_DIR="$PROJECT_DIR/training_data/grpo"
+DATA_DIR="$PROJECT_DIR/training/training_data/grpo"
 TOOL_CONFIG="$CONFIG_PATH/tool_config.yaml"
 REWARD_FN="$CONFIG_PATH/reward_fn.py"
 MODEL_PATH="$PROJECT_DIR/checkpoints/sft_qwen3_8b_merged"

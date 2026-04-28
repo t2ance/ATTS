@@ -40,7 +40,7 @@ SKIP = 100         # first 100 HLE gold text-only questions are the held-out eva
 NUM_TRAIN_POOL = 300  # q101-400 (after skip)
 VAL_FRACTION = 0.20   # first 20% becomes val (8:2 split)
 HLE_HAIKU_CACHE = EXPERIMENT_DIR / "analysis" / "cache" / "hle" / "haiku" / "gold"
-OUT_DIR = CORE_CODE_DIR / "training_data" / "grpo"
+OUT_DIR = CORE_CODE_DIR / "training" / "training_data" / "grpo"
 
 
 def build_permutation_id(qid: str, perm: list[int]) -> str:
