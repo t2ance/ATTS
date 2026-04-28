@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 
 from benchmarks.base import BenchmarkConfig, ANSWER_FORMAT_RULES, image_to_data_url
+from benchmarks.grader import judge_answer
 
 
 # ---------------------------------------------------------------------------
@@ -88,6 +89,13 @@ If you cannot solve it exactly, give your best estimate and set confidence accor
         # field 'catagory' (sic) returns "Physics"/"Game"/etc; we normalize at
         # the boundary so per_subset keys in results.jsonl + audit are consistent.
         return row.get("catagory", "unknown").lower()
+
+    async def grade(self, predicted, gold, question, row, backend, out_dir=None):
+        grade_backend = "claude" if backend == "vllm" else backend
+        return await judge_answer(
+            predicted, gold, question, self.judge_model,
+            backend=grade_backend, out_dir=out_dir,
+        )
 
     def add_dataset_args(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--category", type=str, default=None, help="Filter by category")
