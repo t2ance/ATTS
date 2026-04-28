@@ -13,8 +13,6 @@ CUDA_VISIBLE_DEVICES=0 PYTHONUNBUFFERED=1 nohup python eval.py --benchmark babyv
 	--num-workers 16 \
 	--log-dir ../analysis/run/babyvision/sonnet_visualprm_rerank \
 	--explore-model claude-sonnet-4-6 \
-	--orchestrator-model claude-sonnet-4-6 \
-	--integrate-model claude-sonnet-4-6 \
 	--cache-dirs ../analysis/cache/babyvision/sonnet \
 	--resume ../analysis/run/babyvision/sonnet_visualprm_rerank/run_20260315_153901 \
 	> ../analysis/run/babyvision/sonnet_visualprm_rerank/rerank.log 2>&1 &

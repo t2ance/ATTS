@@ -13,7 +13,5 @@ CUDA_VISIBLE_DEVICES=0 PYTHONUNBUFFERED=1 nohup python eval.py --benchmark rbenc
 	--num-workers 16 \
 	--log-dir ../analysis/run/rbenchv/sonnet_visualprm_rerank \
 	--explore-model claude-sonnet-4-6 \
-	--orchestrator-model claude-sonnet-4-6 \
-	--integrate-model claude-sonnet-4-6 \
 	--cache-dirs ../analysis/cache/rbenchv/sonnet \
 	> ../analysis/run/rbenchv/sonnet_visualprm_rerank/rerank.log 2>&1 &

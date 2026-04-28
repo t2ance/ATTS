@@ -13,7 +13,5 @@ CUDA_VISIBLE_DEVICES=0 PYTHONUNBUFFERED=1 nohup python eval.py --benchmark gpqa 
 	--num-workers 16 \
 	--log-dir ../analysis/run/gpqa/sonnet_skywork_rerank \
 	--explore-model claude-sonnet-4-6 \
-	--orchestrator-model claude-sonnet-4-6 \
-	--integrate-model claude-sonnet-4-6 \
 	--cache-dirs ../analysis/cache/gpqa/sonnet \
 	> ../analysis/run/gpqa/sonnet_skywork_rerank/rerank.log 2>&1 &
