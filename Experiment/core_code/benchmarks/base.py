@@ -368,36 +368,10 @@ class BenchmarkConfig(ABC):
         ...
 
     # -- Grading --
-
-    def get_answer_type(self, row: dict) -> str:
-        """Return the answer type for grading. Override per benchmark."""
-        return "exactMatch"
-
-    # Map Claude judge models to GPT equivalents for the codex backend.
-    _JUDGE_MODEL_CODEX = {"claude-haiku-4-5-20251001": "gpt-5-codex-mini"}
-
-    async def grade(
-        self,
-        predicted: str,
-        gold: str,
-        question: str,
-        row: dict,
-        backend: str,
-        out_dir: Path | None = None,
-    ) -> tuple[bool, float]:
-        """Grade a predicted answer. Returns (is_correct, judge_cost_usd)."""
-        from benchmarks.grader import grade_answer
-        judge_model = self.judge_model
-        # Grading always uses Claude backend (vLLM serves the orchestrator, not the judge)
-        grade_backend = backend
-        if backend == "vllm":
-            grade_backend = "claude"
-        if grade_backend == "codex" and judge_model in self._JUDGE_MODEL_CODEX:
-            judge_model = self._JUDGE_MODEL_CODEX[judge_model]
-        return await grade_answer(
-            predicted, gold, question, self.get_answer_type(row),
-            judge_model=judge_model, backend=grade_backend, out_dir=out_dir,
-        )
+    # Each benchmark subclass implements its own async grade(predicted, gold,
+    # question, row, backend, out_dir) calling grader.py primitives directly.
+    # eval.py:_grade_with_cache reads benchmark.judge_model (declared per subclass)
+    # as a cache-invalidation key.
 
     def normalize_answer(self, text: str) -> str:
         """Normalize answer text for comparison (e.g. majority vote)."""
