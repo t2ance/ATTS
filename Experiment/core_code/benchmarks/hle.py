@@ -9,6 +9,7 @@ import zipfile
 from pathlib import Path
 
 from benchmarks.base import BenchmarkConfig
+from benchmarks.grader import check_answer, judge_answer
 from multimodal_input import has_image, normalize_image_data_url
 
 
@@ -150,8 +151,19 @@ class HLEBenchmark(BenchmarkConfig):
     def classify_subset(self, row: dict) -> str:
         return _classify_subset(row)
 
-    def get_answer_type(self, row: dict) -> str:
-        return row.get("answer_type", "exactMatch")
+    async def grade(self, predicted, gold, question, row, backend, out_dir=None):
+        # HLE rows carry per-row answer_type; multipleChoice rows skip the LLM judge.
+        answer_type = row.get("answer_type", "exactMatch")
+        if answer_type == "multipleChoice":
+            return check_answer(predicted, gold, "multipleChoice"), 0.0
+        # vLLM serves the orchestrator, not the judge -> route judge through Claude.
+        grade_backend = "claude" if backend == "vllm" else backend
+        # Codex-backend HLE eval scripts (gpt5.2_low, gpt5.4) need a GPT judge model.
+        judge_model = "gpt-5-codex-mini" if grade_backend == "codex" else self.judge_model
+        return await judge_answer(
+            predicted, gold, question, judge_model,
+            backend=grade_backend, out_dir=out_dir,
+        )
 
     def add_dataset_args(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--subset", choices=["gold", "revision", "uncertain"], default=None)
