@@ -106,3 +106,68 @@ class EvalConfig(BaseModel):
         assert self.num_rollouts >= 1, f"num_rollouts must be >= 1, got {self.num_rollouts}"
 
         return self
+
+
+import yaml
+
+
+def _coerce_scalar(s: str) -> Any:
+    """Best-effort coerce a CLI-string scalar to int/float/bool/str."""
+    if s.lower() in ("true", "false"):
+        return s.lower() == "true"
+    try:
+        return int(s)
+    except ValueError:
+        pass
+    try:
+        return float(s)
+    except ValueError:
+        pass
+    return s
+
+
+def _set_dotpath(d: dict, path: str, value: str) -> None:
+    """Set d[a][b][c] = value for path 'a.b.c'. Creates nested dicts as needed."""
+    parts = path.split(".")
+    assert parts and all(parts), f"empty segment in path {path!r}"
+    target = d
+    for p in parts[:-1]:
+        nxt = target.get(p)
+        if not isinstance(nxt, dict):
+            nxt = {}
+            target[p] = nxt
+        target = nxt
+    target[parts[-1]] = _coerce_scalar(value)
+
+
+def load_config(
+    *,
+    config_path: Path | str | None,
+    flat_overrides: dict[str, Any],
+    dot_overrides: list[str],
+) -> EvalConfig:
+    """Merge config sources and validate via pydantic.
+
+    Order of precedence (later wins):
+      1. YAML file (if config_path is given)
+      2. Flat overrides (kwargs from argparse, key matches field name)
+      3. Dot-path overrides (e.g. "model_budgets.haiku=2")
+    """
+    merged: dict[str, Any] = {}
+    if config_path is not None:
+        with open(config_path, "r") as f:
+            yaml_data = yaml.safe_load(f) or {}
+        assert isinstance(yaml_data, dict), (
+            f"top level of {config_path} must be a mapping, got {type(yaml_data).__name__}"
+        )
+        merged.update(yaml_data)
+
+    for key, val in flat_overrides.items():
+        merged[key] = val
+
+    for ov in dot_overrides:
+        k, sep, v = ov.partition("=")
+        assert sep == "=", f"override must be key=value, got {ov!r}"
+        _set_dotpath(merged, k.strip(), v.strip())
+
+    return EvalConfig.model_validate(merged)

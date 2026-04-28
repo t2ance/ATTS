@@ -71,3 +71,103 @@ def test_rerank_requires_reward_model():
 def test_extra_field_forbidden():
     with pytest.raises(ValidationError, match="typoed_field|extra"):
         EvalConfig(**_minimal_kwargs(typoed_field=True))
+
+
+import textwrap
+import yaml
+from eval_config import load_config, _set_dotpath
+
+
+def _write(tmp_path, name, body):
+    p = tmp_path / name
+    p.write_text(textwrap.dedent(body))
+    return p
+
+
+def test_load_config_yaml_only(tmp_path):
+    yml = _write(tmp_path, "x.yaml", """
+        benchmark: hle
+        backend: claude
+        explore_model: claude-sonnet-4-6
+        method: self-refine
+        cache_dir: /cache/single
+        num: 50
+    """)
+    cfg = load_config(config_path=yml, flat_overrides={}, dot_overrides=[])
+    assert cfg.cache_dir == Path("/cache/single")
+    assert cfg.num == 50
+
+
+def test_flat_overrides_beat_yaml(tmp_path):
+    yml = _write(tmp_path, "x.yaml", """
+        benchmark: hle
+        backend: claude
+        explore_model: claude-sonnet-4-6
+        method: self-refine
+        seed: 42
+    """)
+    cfg = load_config(config_path=yml, flat_overrides={"seed": 7}, dot_overrides=[])
+    assert cfg.seed == 7
+
+
+def test_dot_overrides_beat_flat(tmp_path):
+    yml = _write(tmp_path, "x.yaml", """
+        benchmark: hle
+        backend: claude
+        explore_model: claude-sonnet-4-6
+        method: self-refine
+    """)
+    cfg = load_config(
+        config_path=yml,
+        flat_overrides={"seed": 7},
+        dot_overrides=["seed=99"],
+    )
+    assert cfg.seed == 99
+
+
+def test_dot_override_dict_field(tmp_path):
+    yml = _write(tmp_path, "x.yaml", """
+        benchmark: hle
+        backend: claude
+        explore_model: claude-sonnet-4-6
+        method: tts-agent-multi
+        orchestrator_model: claude-sonnet-4-6
+        cache_dirs:
+          haiku: /cache/haiku
+          sonnet: /cache/sonnet
+        model_budgets:
+          haiku: 8
+          sonnet: 8
+    """)
+    cfg = load_config(
+        config_path=yml, flat_overrides={},
+        dot_overrides=["model_budgets.haiku=2"],
+    )
+    assert cfg.model_budgets == {"haiku": 2, "sonnet": 8}
+
+
+def test_set_dotpath_creates_nested():
+    d = {}
+    _set_dotpath(d, "a.b.c", "1")
+    assert d == {"a": {"b": {"c": 1}}}
+
+
+def test_set_dotpath_coerces_int_float_bool():
+    d = {}
+    _set_dotpath(d, "x", "42")
+    _set_dotpath(d, "y", "3.5")
+    _set_dotpath(d, "z", "true")
+    _set_dotpath(d, "s", "hello")
+    assert d == {"x": 42, "y": 3.5, "z": True, "s": "hello"}
+
+
+def test_load_without_yaml(tmp_path):
+    cfg = load_config(
+        config_path=None,
+        flat_overrides={
+            "benchmark": "hle", "backend": "claude",
+            "explore_model": "claude-sonnet-4-6", "method": "self-refine",
+        },
+        dot_overrides=[],
+    )
+    assert cfg.benchmark == "hle"
