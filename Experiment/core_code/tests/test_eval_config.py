@@ -66,3 +66,8 @@ def test_num_rollouts_constrained_to_tts_agent_vllm():
 def test_rerank_requires_reward_model():
     with pytest.raises(ValidationError, match="reward_model"):
         EvalConfig(**_minimal_kwargs(method="rerank"))
+
+
+def test_extra_field_forbidden():
+    with pytest.raises(ValidationError, match="typoed_field|extra"):
+        EvalConfig(**_minimal_kwargs(typoed_field=True))

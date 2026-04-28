@@ -1,4 +1,4 @@
-"""Pydantic schema and loader for eval.py configuration."""
+"""Pydantic schema for eval.py configuration. Loader added in Task 2."""
 from __future__ import annotations
 
 from pathlib import Path
