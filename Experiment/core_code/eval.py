@@ -680,191 +680,112 @@ def parse_cli() -> "EvalConfig":
     )
 
 
-def parse_args() -> tuple[argparse.Namespace, BenchmarkConfig]:
-    # First sniff --benchmark with parse_known_args so we know which benchmark
-    # class to instantiate; reuse the same sub-parser as parents= on the full
-    # parser below to avoid re-declaring --benchmark.
-    base = argparse.ArgumentParser(add_help=False)
-    base.add_argument("--benchmark", type=str, required=True, help="Benchmark name (hle, lcb)")
-    known, _ = base.parse_known_args()
-    benchmark = get_benchmark(known.benchmark)
-
-    parser = argparse.ArgumentParser(
-        description=f"Evaluate TTS agent on {benchmark.name.upper()}",
-        parents=[base],
-    )
-    benchmark.add_dataset_args(parser)
-    benchmark.add_model_args(parser)
-    parser.add_argument("--verbose", action="store_true", help="Print per-round TTS output")
-    parser.add_argument("--resume", type=str, default=None, metavar="RUN_DIR", help="Resume into an existing run directory")
-    parser.add_argument("--log-dir", type=str, default="logs", help="Directory for real-time logs (default: logs/)")
-    parser.add_argument("--method", type=str, choices=["tts-agent", "tts-agent-multi", "tts-agent-effort", "self-refine", "socratic-self-refine", "budget-forcing", "rerank", "standalone-integrator"], default="tts-agent",
-                        help="Solving method (default: tts-agent)")
-    parser.add_argument("--reward-model", type=str, default=None,
-                        help="HuggingFace reward model for reranking")
-    parser.add_argument("--orchestrator-model", type=str, default=None)
-    parser.add_argument("--integrate-model", type=str, default=None)
-    parser.add_argument("--no-cache-only", action="store_true", help="Allow live calls on cache miss")
-    parser.add_argument("--timeout", type=float, default=1200, help="Wall-clock timeout in seconds per sub-model call (default: 1200)")
-    parser.add_argument("--no-integrate", action="store_true", help="Disable integrate: explore-only mode with aggressive exploration prompt and confidence-based selection")
-    parser.add_argument("--model-budgets", type=str, default=None,
-                        help="Per-model budget limits for tts-agent-multi, e.g. 'haiku:4,sonnet:4,opus:4'")
-    parser.add_argument("--effort-budgets", type=str, default=None,
-                        help="Per-effort budget limits for tts-agent-effort, e.g. 'low:8,medium:6,high:4'")
-    parser.add_argument("--exploration-effort", type=str, default=None,
-                        choices=["low", "medium", "high"],
-                        help="Exploration effort for multi-model: low (stop early), medium (cross-model verify), high (thorough)")
-    parser.add_argument("--num-rollouts", type=int, default=1,
-                        help="Number of rollouts per question for rejection sampling. Default 1 = old "
-                             "single-rollout behavior. When >1, each question runs K times: rollout 0 at "
-                             "temperature=0.0 (greedy best-effort), rollouts 1..K-1 at temperature=0.7 "
-                             "(diversity sampling). Per-rollout trajectories under trajectories/<qid>/rollout_<k>/.")
-
-    args = parser.parse_args()
-    assert args.num_rollouts >= 1, f"--num-rollouts must be >= 1, got {args.num_rollouts}"
-    return args, benchmark
-
-
 async def async_main() -> None:
-    args, benchmark = parse_args()
-    # Each method asserts only the models it actually consumes. self-refine /
-    # socratic-self-refine / budget-forcing / rerank internally use explore_model
-    # only (required=True in argparse). standalone-integrator uses integrate_model.
-    # tts-agent / tts-agent-multi use all three / orchestrator respectively.
-    if args.method == "self-refine":
+    cfg = parse_cli()
+    benchmark = get_benchmark(cfg.benchmark)
+
+    if cfg.method == "self-refine":
         from methods.self_refine import solve
-    elif args.method == "socratic-self-refine":
+    elif cfg.method == "socratic-self-refine":
         from methods.socratic_self_refine import solve
-    elif args.method == "budget-forcing":
+    elif cfg.method == "budget-forcing":
         from methods.budget_forcing import solve
-    elif args.method == "rerank":
+    elif cfg.method == "rerank":
         import functools
         from methods.reward_rerank import solve as _rerank_solve
-        assert args.reward_model is not None, "--reward-model required for rerank"
-        solve = functools.partial(_rerank_solve, reward_model_name=args.reward_model)
-    elif args.method == "standalone-integrator":
+        solve = functools.partial(_rerank_solve, reward_model_name=cfg.reward_model)
+    elif cfg.method == "standalone-integrator":
         import functools
         from methods.standalone_integrator import solve as _si_solve
-        assert args.integrate_model is not None, "--integrate-model required for standalone-integrator"
-        solve = functools.partial(_si_solve, integrate_model=args.integrate_model)
-    elif args.method == "tts-agent-multi":
+        solve = functools.partial(_si_solve, integrate_model=cfg.integrate_model)
+    elif cfg.method == "tts-agent-multi":
         import functools
         from methods.tts_agent_multi import solve as _multi_solve
-        assert args.orchestrator_model is not None, "--orchestrator-model is required for tts-agent-multi"
-        assert args.cache_dirs is not None, "--cache-dirs with model:path pairs is required for tts-agent-multi"
-        assert args.model_budgets is not None, "--model-budgets is required for tts-agent-multi"
-        cache_dirs = {}
-        for pair in args.cache_dirs.split(","):
-            model_alias, path = pair.split(":")
-            cache_dirs[model_alias.strip()] = Path(path.strip())
-        model_budgets = {}
-        for pair in args.model_budgets.split(","):
-            model_alias, budget = pair.split(":")
-            model_budgets[model_alias.strip()] = int(budget.strip())
-        solve = functools.partial(_multi_solve, cache_dirs=cache_dirs, model_budgets=model_budgets,
-                                  exploration_effort=args.exploration_effort)
-        args.integrate_model = args.orchestrator_model
-        args._cache_dirs_multi = cache_dirs
-    elif args.method == "tts-agent-effort":
+        solve = functools.partial(
+            _multi_solve,
+            cache_dirs=cfg.cache_dirs,
+            model_budgets=cfg.model_budgets,
+            exploration_effort=cfg.exploration_effort,
+        )
+    elif cfg.method == "tts-agent-effort":
         import functools
         from methods.tts_agent_effort import solve as _effort_solve
-        assert args.orchestrator_model is not None, "--orchestrator-model is required for tts-agent-effort"
-        assert args.cache_dirs is not None, "--cache-dirs with effort:path pairs is required for tts-agent-effort"
-        assert args.effort_budgets is not None, "--effort-budgets is required for tts-agent-effort"
-        cache_dirs = {}
-        for pair in args.cache_dirs.split(","):
-            level, path = pair.split(":")
-            cache_dirs[level.strip()] = Path(path.strip())
-        effort_budgets = {}
-        for pair in args.effort_budgets.split(","):
-            level, budget = pair.split(":")
-            effort_budgets[level.strip()] = int(budget.strip())
-        solve = functools.partial(_effort_solve, cache_dirs=cache_dirs, effort_budgets=effort_budgets)
-        args.integrate_model = args.orchestrator_model
-        args._cache_dirs_multi = cache_dirs
+        solve = functools.partial(
+            _effort_solve,
+            cache_dirs=cfg.cache_dirs,
+            effort_budgets=cfg.effort_budgets,
+        )
     else:
-        assert args.orchestrator_model is not None, "--orchestrator-model is required for tts-agent"
-        assert args.integrate_model is not None, "--integrate-model is required for tts-agent"
         from methods.tts_agent import solve
+
+    # tts-agent-multi and tts-agent-effort reuse orchestrator_model as integrate_model
+    # downstream (mirrors the pre-migration aliasing at lines 686 and 703).
+    if cfg.method in ("tts-agent-multi", "tts-agent-effort"):
+        integrate_model = cfg.orchestrator_model
+        cache_dirs_multi = cfg.cache_dirs
+    else:
+        integrate_model = cfg.integrate_model
+        cache_dirs_multi = None
 
     print(f"Loading {benchmark.name.upper()} dataset...")
     all_rows = benchmark.load_dataset()
     print(f"Loaded {len(all_rows)} total questions")
 
-    filter_kwargs = {key: getattr(args, key) for key in benchmark.filter_keys}
-    filtered = benchmark.filter_dataset(all_rows, **filter_kwargs)
+    filtered = benchmark.filter_dataset(all_rows, **cfg.filters)
     print(f"Filtered to {len(filtered)} questions")
-
     if not filtered:
         print("No questions match the filter criteria.")
         return
 
-    if args.shuffle:
+    if cfg.shuffle:
         import random
-        random.seed(args.seed)
+        random.seed(cfg.seed)
         random.shuffle(filtered)
 
-    if args.skip > 0:
-        print(f"Skipping first {args.skip} questions")
-        filtered = filtered[args.skip:]
+    if cfg.skip > 0:
+        print(f"Skipping first {cfg.skip} questions")
+        filtered = filtered[cfg.skip:]
 
-    # Parse cache_dirs: plain path for single-model, model:path pairs for multi-model
-    cache_dir = None
-    if args.cache_dirs:
-        if ":" in args.cache_dirs:
-            # Multi-model format: use first entry as cache_dir for infra
-            first_pair = args.cache_dirs.split(",")[0]
-            cache_dir = Path(first_pair.split(":")[1].strip())
-        else:
-            cache_dir = Path(args.cache_dirs)
+    # Replaces the buggy 731-739 block. cfg.cache_dir is None for multi/effort
+    # methods (validator enforces); single-cache methods set it via YAML or
+    # the legacy --cache-dirs CLI flag (parse_cli routes to cfg.cache_dir).
+    cache_dir = cfg.cache_dir
 
-    if args.method in ("rerank", "standalone-integrator") and cache_dir:
+    if cfg.method in ("rerank", "standalone-integrator") and cache_dir:
         cached_ids = {p.name for p in cache_dir.iterdir() if p.is_dir() and (p / "explore_1" / "result.json").exists()}
         before = len(filtered)
         filtered = [r for r in filtered if benchmark.get_id(r) in cached_ids]
-        print(f"{args.method}: {len(filtered)} questions with cache (from {before})")
+        print(f"{cfg.method}: {len(filtered)} questions with cache (from {before})")
 
-    # Expand rows for K-rollouts (rejection sampling). K=1 leaves rows untouched
-    # so all existing code paths are byte-identical to old behavior.
-    if args.num_rollouts > 1:
-        # Guard: temperature diversity is only wired into the tts-agent method
-        # with the vllm backend. Other methods/backends absorb the kwarg via
-        # **_extra and produce K identical outputs at K times the cost.
-        assert args.method == "tts-agent", (
-            f"--num-rollouts > 1 only supported for --method tts-agent, got {args.method}"
-        )
-        assert args.backend == "vllm", (
-            f"--num-rollouts > 1 only supported for --backend vllm (Claude SDK does not expose "
-            f"temperature); got {args.backend}"
-        )
-        question_rows = filtered if args.num is None else filtered[:args.num]
+    if cfg.num_rollouts > 1:
+        question_rows = filtered if cfg.num is None else filtered[:cfg.num]
         expanded: list[dict] = []
         for row in question_rows:
-            for k in range(args.num_rollouts):
-                vrow = dict(row)  # shallow copy; preserves benchmark.get_id(r) -> real qid
+            for k in range(cfg.num_rollouts):
+                vrow = dict(row)
                 vrow["_rollout_idx"] = k
                 vrow["_temperature"] = 0.0 if k == 0 else 0.7
                 expanded.append(vrow)
-        assert len(expanded) == len(question_rows) * args.num_rollouts
+        assert len(expanded) == len(question_rows) * cfg.num_rollouts
         filtered = expanded
         effective_num = len(expanded)
-        print(f"Rejection sampling: expanded {len(question_rows)} questions x {args.num_rollouts} rollouts = {effective_num} tasks")
+        print(f"Rejection sampling: expanded {len(question_rows)} questions x {cfg.num_rollouts} rollouts = {effective_num} tasks")
     else:
-        effective_num = args.num
+        effective_num = cfg.num
 
     infra = InfraConfig(
-        backend=args.backend,
-        max_iterations=args.num_explores,
+        backend=cfg.backend,
+        max_iterations=cfg.num_explores,
         cache_dir=cache_dir,
-        cache_only=not args.no_cache_only,
-        budget_tokens=args.budget_tokens,
-        effort=args.effort,
-        timeout=args.timeout,
+        cache_only=not cfg.no_cache_only,
+        budget_tokens=cfg.budget_tokens,
+        effort=cfg.effort,
+        timeout=cfg.timeout,
         benchmark=benchmark,
-        quiet=not args.verbose,
+        quiet=not cfg.verbose,
         logger=None,
-        enable_integrate=not args.no_integrate,
-        max_output_chars=args.max_output_chars,
+        enable_integrate=not cfg.no_integrate,
+        max_output_chars=cfg.max_output_chars,
     )
 
     await evaluate(
@@ -872,22 +793,22 @@ async def async_main() -> None:
         rows=filtered,
         solve_fn=solve,
         num=effective_num,
-        num_workers=args.num_workers,
-        resume_run_dir=args.resume,
-        log_dir=args.log_dir,
-        orchestrator_model=args.orchestrator_model,
-        explore_model=args.explore_model,
-        integrate_model=args.integrate_model,
+        num_workers=cfg.num_workers,
+        resume_run_dir=cfg.resume,
+        log_dir=cfg.log_dir,
+        orchestrator_model=cfg.orchestrator_model,
+        explore_model=cfg.explore_model,
+        integrate_model=integrate_model,
         dataset_config={
             "benchmark": benchmark.name,
-            **filter_kwargs,
-            "seed": args.seed,
-            "shuffle": args.shuffle,
-            "num": args.num,
-            "num_rollouts": args.num_rollouts,
+            **cfg.filters,
+            "seed": cfg.seed,
+            "shuffle": cfg.shuffle,
+            "num": cfg.num,
+            "num_rollouts": cfg.num_rollouts,
         },
-        cache_dirs_multi=getattr(args, "_cache_dirs_multi", None),
-        num_rollouts=args.num_rollouts,
+        cache_dirs_multi=cache_dirs_multi,
+        num_rollouts=cfg.num_rollouts,
     )
 
 
