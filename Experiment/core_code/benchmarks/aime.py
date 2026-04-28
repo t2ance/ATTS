@@ -70,6 +70,7 @@ class AIMEBenchmark(BenchmarkConfig):
     name = "aime"
     filter_keys = ("year",)
     judge_model = None
+    grading_summary = "string match (integer normalize, modulo 1000)"
     _year: int | None = None
     explorer_base_prompt = f"""\
 You are an expert mathematician solving AIME competition problems.

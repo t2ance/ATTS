@@ -121,6 +121,11 @@ class HLEBenchmark(BenchmarkConfig):
     # written with judge_model="none" and is_correct came from str(predicted) ==
     # str(gold). Restored 2026-04-28.
     judge_model = "claude-haiku-4-5-20251001"
+    grading_summary = (
+        "LLM judge: claude-haiku-4-5-20251001 "
+        "(codex backend remaps to gpt-5-codex-mini); "
+        "multipleChoice rows fall through to string match"
+    )
 
     def load_dataset(self) -> list[dict]:
         return _load_hle_dataset()

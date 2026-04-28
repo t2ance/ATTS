@@ -48,6 +48,10 @@ class BabyVisionBenchmark(BenchmarkConfig):
     name = "babyvision"
     filter_keys = ("type", "subtype")
     judge_model = "claude-haiku-4-5-20251001"
+    grading_summary = (
+        "hybrid: string match for ansType=choice rows; "
+        "LLM judge claude-haiku-4-5-20251001 for ansType=blank rows"
+    )
     explorer_base_prompt = f"""\
 You are an expert problem solver specializing in visual reasoning and cognitive tasks.
 Solve the given problem step by step.

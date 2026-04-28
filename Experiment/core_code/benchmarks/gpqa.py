@@ -56,6 +56,7 @@ class GPQABenchmark(BenchmarkConfig):
     name = "gpqa"
     filter_keys = ("domain",)
     judge_model = None
+    grading_summary = "string match (multipleChoice letter A-E)"
     explorer_base_prompt = f"""\
 You are an expert scientist solving graduate-level science questions.
 Solve the given problem step by step.

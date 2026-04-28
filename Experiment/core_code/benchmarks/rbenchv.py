@@ -38,6 +38,7 @@ class RBenchVBenchmark(BenchmarkConfig):
     filter_keys = ("category",)
     majority_vote_compatible = False
     judge_model = "claude-haiku-4-5-20251001"
+    grading_summary = "LLM judge: claude-haiku-4-5-20251001"
     explorer_base_prompt = f"""\
 You are an expert problem solver specializing in visual reasoning tasks.
 Solve the given problem step by step.
