@@ -719,7 +719,8 @@ async def async_main() -> None:
         from methods.tts_agent import solve
 
     # tts-agent-multi and tts-agent-effort reuse orchestrator_model as integrate_model
-    # downstream (mirrors the pre-migration aliasing at lines 686 and 703).
+    # downstream (mirrors the pre-migration in-place mutation of args.integrate_model
+    # in the tts-agent-multi and tts-agent-effort branches).
     if cfg.method in ("tts-agent-multi", "tts-agent-effort"):
         integrate_model = cfg.orchestrator_model
         cache_dirs_multi = cfg.cache_dirs
