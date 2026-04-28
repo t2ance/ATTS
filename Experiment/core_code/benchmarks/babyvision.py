@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 
 from benchmarks.base import BenchmarkConfig, ANSWER_FORMAT_RULES, image_to_data_url
+from benchmarks.grader import check_answer, judge_answer
 
 
 # ---------------------------------------------------------------------------
@@ -90,8 +91,14 @@ If you cannot solve it exactly, give your best estimate and set confidence accor
     def classify_subset(self, row: dict) -> str:
         return row.get("type", "unknown")
 
-    def get_answer_type(self, row: dict) -> str:
-        return "multipleChoice" if row.get("ansType") == "choice" else "exactMatch"
+    async def grade(self, predicted, gold, question, row, backend, out_dir=None):
+        if row.get("ansType") == "choice":
+            return check_answer(predicted, gold, "multipleChoice"), 0.0
+        grade_backend = "claude" if backend == "vllm" else backend
+        return await judge_answer(
+            predicted, gold, question, self.judge_model,
+            backend=grade_backend, out_dir=out_dir,
+        )
 
     def add_dataset_args(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--type", type=str, default=None, help="Filter by type category")
