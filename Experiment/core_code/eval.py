@@ -600,6 +600,72 @@ async def evaluate(
 # CLI entry point
 # ---------------------------------------------------------------------------
 
+def parse_cli() -> "EvalConfig":
+    """Build EvalConfig from CLI: --config FILE.yaml + flat flags + -o key=value overrides.
+
+    Precedence: YAML < flat CLI flags < dot-path overrides. Dict-typed fields
+    (cache_dirs, model_budgets, effort_budgets) are NOT exposed as flat flags;
+    they must come from --config or -o.
+    """
+    from eval_config import load_config
+
+    base = argparse.ArgumentParser(add_help=False)
+    base.add_argument("--benchmark", type=str, required=True,
+                      help="Benchmark name (hle, lcb, gpqa, babyvision, aime2025, aime2026, rbenchv)")
+    base.add_argument("--config", type=str, default=None, help="Path to YAML config")
+    known, _ = base.parse_known_args()
+    benchmark = get_benchmark(known.benchmark)
+
+    parser = argparse.ArgumentParser(
+        description=f"Evaluate TTS agent on {benchmark.name.upper()}",
+        parents=[base],
+    )
+    benchmark.add_dataset_args(parser)
+    benchmark.add_model_args(parser)
+    parser.add_argument("--verbose", action="store_true", default=None)
+    parser.add_argument("--resume", type=str, default=None, metavar="RUN_DIR")
+    parser.add_argument("--log-dir", type=str, default=None)
+    parser.add_argument("--method", type=str, default=None,
+                        choices=["tts-agent", "tts-agent-multi", "tts-agent-effort",
+                                 "self-refine", "socratic-self-refine", "budget-forcing",
+                                 "rerank", "standalone-integrator"])
+    parser.add_argument("--reward-model", type=str, default=None)
+    parser.add_argument("--orchestrator-model", type=str, default=None)
+    parser.add_argument("--integrate-model", type=str, default=None)
+    parser.add_argument("--no-cache-only", action="store_true", default=None)
+    parser.add_argument("--timeout", type=float, default=None)
+    parser.add_argument("--no-integrate", action="store_true", default=None)
+    parser.add_argument("--exploration-effort", type=str, default=None,
+                        choices=["low", "medium", "high"])
+    parser.add_argument("--num-rollouts", type=int, default=None)
+    parser.add_argument("-o", "--override", action="append", default=[],
+                        help="Dot-path override, e.g. -o model_budgets.haiku=2")
+
+    args = parser.parse_args()
+
+    # Strip None values (so they don't override YAML defaults), and pull filter
+    # keys into nested 'filters' dict.
+    flat: dict[str, object] = {}
+    filters: dict[str, object] = {}
+    for key, val in vars(args).items():
+        if key in ("config", "override"):
+            continue
+        if val is None:
+            continue
+        if key in benchmark.filter_keys:
+            filters[key] = val
+        else:
+            flat[key] = val
+    if filters:
+        flat["filters"] = filters
+
+    return load_config(
+        config_path=args.config,
+        flat_overrides=flat,
+        dot_overrides=args.override,
+    )
+
+
 def parse_args() -> tuple[argparse.Namespace, BenchmarkConfig]:
     # First sniff --benchmark with parse_known_args so we know which benchmark
     # class to instantiate; reuse the same sub-parser as parents= on the full

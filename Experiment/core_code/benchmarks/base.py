@@ -433,23 +433,29 @@ class BenchmarkConfig(ABC):
         )
 
     def add_dataset_args(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("--num", type=int, default=None, help="Number of questions")
-        parser.add_argument("--skip", type=int, default=0, help="Skip first N questions (applied after filtering, before --num)")
-        parser.add_argument("--seed", type=int, default=42)
-        parser.add_argument("--shuffle", action="store_true")
+        # Defaults are None so that an unset CLI flag does NOT silently overwrite
+        # a YAML value when parse_cli builds EvalConfig. Schema-level defaults
+        # live in eval_config.EvalConfig.
+        parser.add_argument("--num", type=int, default=None)
+        parser.add_argument("--skip", type=int, default=None)
+        parser.add_argument("--seed", type=int, default=None)
+        parser.add_argument("--shuffle", action="store_true", default=None)
 
     def add_model_args(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("--backend", type=str, required=True, choices=["codex", "claude", "vllm"], help="API backend")
-        parser.add_argument("--explore-model", type=str, required=True, help="Model for explore sub-model calls")
-        parser.add_argument("--budget-tokens", type=int, default=32000, help="Thinking token budget for Claude backend (default: 32000)")
-        parser.add_argument("--effort", choices=["low", "medium", "high", "max"], default="low", help="Reasoning effort level (default: low)")
-        parser.add_argument("--num-explores", type=int, default=8, help="Explore rounds per question (default: 8)")
-        parser.add_argument("--cache-dirs", type=str, default=None,
-                            help="Cache directory for explore results. Single path for one model, or model:path pairs for multi-model (e.g. haiku:cache/haiku,sonnet:cache/sonnet)")
-        parser.add_argument("--num-workers", type=int, default=1, help="Concurrent workers (default: 1)")
-        parser.add_argument("--explore-timeout", type=float, default=1200, help="Timeout in seconds per explore call (default: 1200)")
-        parser.add_argument("--max-output-chars", type=int, default=None,
-                            help="Max orchestrator output chars (thinking+response). Kills session if exceeded. Default: no limit.")
+        # Defaults are None for the same reason as add_dataset_args: schema-level
+        # defaults are owned by eval_config.EvalConfig, not by argparse.
+        parser.add_argument("--backend", type=str, default=None, choices=["codex", "claude", "vllm"])
+        parser.add_argument("--explore-model", type=str, default=None)
+        parser.add_argument("--budget-tokens", type=int, default=None)
+        parser.add_argument("--effort", choices=["low", "medium", "high", "max"], default=None)
+        parser.add_argument("--num-explores", type=int, default=None)
+        # --cache-dir (singular) is the single-model cache path. Multi-model
+        # cache_dirs (dict) come from YAML or -o; no CLI flag.
+        parser.add_argument("--cache-dir", type=str, default=None,
+                            help="Single cache dir for non-multi methods. Use YAML 'cache_dirs' for multi/effort.")
+        parser.add_argument("--num-workers", type=int, default=None)
+        parser.add_argument("--explore-timeout", type=float, default=None)
+        parser.add_argument("--max-output-chars", type=int, default=None)
 
     # -- Metrics --
 

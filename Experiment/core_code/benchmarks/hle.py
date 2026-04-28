@@ -178,5 +178,6 @@ class HLEBenchmark(BenchmarkConfig):
     def add_dataset_args(self, parser: argparse.ArgumentParser) -> None:
         parser.add_argument("--subset", choices=["gold", "revision", "uncertain"], default=None)
         parser.add_argument("--category", type=str, default=None)
-        parser.add_argument("--text-only", action="store_true")
+        # default=None so an unset flag doesn't overwrite YAML filters.text_only.
+        parser.add_argument("--text-only", action="store_true", default=None)
         super().add_dataset_args(parser)

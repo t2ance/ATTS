@@ -232,3 +232,48 @@ def test_filters_empty_validates_for_all_benchmarks():
         assert isinstance(cfg.filters, dict)
         # With exclude_defaults=True, an empty input round-trips to empty dict
         assert cfg.filters == {}
+
+
+def test_parse_cli_only(tmp_path, monkeypatch):
+    import importlib
+    import eval as eval_mod
+    importlib.reload(eval_mod)
+
+    argv = [
+        "eval.py",
+        "--benchmark", "hle",
+        "--backend", "claude",
+        "--explore-model", "claude-sonnet-4-6",
+        "--method", "self-refine",
+        "--num", "20",
+    ]
+    monkeypatch.setattr("sys.argv", argv)
+    cfg = eval_mod.parse_cli()
+    assert cfg.benchmark == "hle"
+    assert cfg.num == 20
+    assert cfg.method == "self-refine"
+
+
+def test_parse_cli_with_yaml_and_override(tmp_path, monkeypatch):
+    import importlib
+    import eval as eval_mod
+    importlib.reload(eval_mod)
+
+    yml = _write(tmp_path, "x.yaml", """
+        benchmark: hle
+        backend: claude
+        explore_model: claude-sonnet-4-6
+        method: tts-agent-multi
+        orchestrator_model: claude-sonnet-4-6
+        cache_dirs:
+          haiku: /cache/haiku
+          sonnet: /cache/sonnet
+        model_budgets:
+          haiku: 8
+          sonnet: 8
+    """)
+    argv = ["eval.py", "--benchmark", "hle", "--config", str(yml), "-o", "model_budgets.haiku=2", "-o", "seed=99"]
+    monkeypatch.setattr("sys.argv", argv)
+    cfg = eval_mod.parse_cli()
+    assert cfg.model_budgets == {"haiku": 2, "sonnet": 8}
+    assert cfg.seed == 99
