@@ -341,3 +341,27 @@ def test_cli_cache_dirs_with_colons_rejects(tmp_path, monkeypatch):
     monkeypatch.setattr("sys.argv", argv)
     with pytest.raises(AssertionError, match="multi-model cache dicts must come from"):
         eval_mod.parse_cli()
+
+
+def test_o_override_beats_cli_filter_flag(tmp_path, monkeypatch):
+    """Documented precedence: -o (highest) wins over CLI filter flags (--subset etc.)."""
+    import importlib
+    import eval as eval_mod
+    importlib.reload(eval_mod)
+
+    yml = _write(tmp_path, "x.yaml", """
+        benchmark: hle
+        backend: claude
+        explore_model: claude-sonnet-4-6
+        method: self-refine
+    """)
+    argv = [
+        "eval.py",
+        "--benchmark", "hle",
+        "--config", str(yml),
+        "--subset", "gold",
+        "-o", "filters.subset=revision",
+    ]
+    monkeypatch.setattr("sys.argv", argv)
+    cfg = eval_mod.parse_cli()
+    assert cfg.filters["subset"] == "revision"
