@@ -4,6 +4,13 @@
 **Owner:** Peijia
 **Status:** Draft
 
+> **Update 2026-04-29:** During execution we discovered `--benchmark` on the CLI
+> duplicates the YAML's `benchmark:` field. The final design is **two flags
+> only**: `--config` and `-o`. The `benchmark:` field is also restructured as a
+> discriminated union with each benchmark's filters nested inside it (see
+> `benchmarks/specs.py`). The corrected plan lives in
+> `docs/superpowers/plans/2026-04-29-yaml-discriminated-benchmark.md`.
+
 ## Goal
 
 Collapse `eval.py` and `precache_explores.py` from a three-source CLI (YAML + flat argparse + dot-path overrides) to a two-source CLI (YAML + dot-path overrides). Eliminate every flat argparse flag that mirrors a Pydantic field. Migrate all 73 shell scripts to thin `--config` wrappers in a single, traceless cutover.

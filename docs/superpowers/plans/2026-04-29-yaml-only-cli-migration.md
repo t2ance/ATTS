@@ -1,5 +1,11 @@
 # YAML-Only CLI Migration Implementation Plan
 
+> **SUPERSEDED 2026-04-29:** Tasks T1-T6 of this plan are complete and committed.
+> Tasks T7-T9 are obsolete because the architecture changed (CLI is 2 flags, not
+> 3, and `filters:` is folded into `benchmark:`). See
+> `docs/superpowers/plans/2026-04-29-yaml-discriminated-benchmark.md` for the
+> in-flight plan.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Collapse `eval.py` and `precache_explores.py` CLIs to `--benchmark + --config + -o` only. Migrate all 73 shell scripts to thin `--config` wrappers. Delete every backward-compat flat argparse flag in one cutover, with empirical risk verification (no predictions).
