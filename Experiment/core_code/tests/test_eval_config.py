@@ -75,7 +75,7 @@ def test_extra_field_forbidden():
 
 import textwrap
 import yaml
-from eval_config import load_config, _set_dotpath
+from eval_config import load_config, _set_dotpath, EvalConfig
 
 
 def _write(tmp_path, name, body):
@@ -93,12 +93,12 @@ def test_load_config_yaml_only(tmp_path):
         cache_dir: /cache/single
         num: 50
     """)
-    cfg = load_config(config_path=yml, flat_overrides={}, dot_overrides=[])
+    cfg = load_config(config_path=yml, dot_overrides=[], schema=EvalConfig)
     assert cfg.cache_dir == Path("/cache/single")
     assert cfg.num == 50
 
 
-def test_flat_overrides_beat_yaml(tmp_path):
+def test_dot_overrides_beat_yaml(tmp_path):
     yml = _write(tmp_path, "x.yaml", """
         benchmark: hle
         backend: claude
@@ -106,7 +106,7 @@ def test_flat_overrides_beat_yaml(tmp_path):
         method: self-refine
         seed: 13
     """)
-    cfg = load_config(config_path=yml, flat_overrides={"seed": 7}, dot_overrides=[])
+    cfg = load_config(config_path=yml, dot_overrides=["seed=7"], schema=EvalConfig)
     assert cfg.seed == 7
 
 
@@ -119,8 +119,8 @@ def test_dot_overrides_beat_flat(tmp_path):
     """)
     cfg = load_config(
         config_path=yml,
-        flat_overrides={"seed": 7},
-        dot_overrides=["seed=99"],
+        dot_overrides=["seed=7", "seed=99"],
+        schema=EvalConfig,
     )
     assert cfg.seed == 99
 
@@ -140,8 +140,9 @@ def test_dot_override_dict_field(tmp_path):
           sonnet: 8
     """)
     cfg = load_config(
-        config_path=yml, flat_overrides={},
+        config_path=yml,
         dot_overrides=["model_budgets.haiku=2"],
+        schema=EvalConfig,
     )
     assert cfg.model_budgets == {"haiku": 2, "sonnet": 8}
 
@@ -164,11 +165,11 @@ def test_set_dotpath_coerces_int_float_bool():
 def test_load_without_yaml(tmp_path):
     cfg = load_config(
         config_path=None,
-        flat_overrides={
-            "benchmark": "hle", "backend": "claude",
-            "explore_model": "claude-sonnet-4-6", "method": "self-refine",
-        },
-        dot_overrides=[],
+        dot_overrides=[
+            "benchmark=hle", "backend=claude",
+            "explore_model=claude-sonnet-4-6", "method=self-refine",
+        ],
+        schema=EvalConfig,
     )
     assert cfg.benchmark == "hle"
 
@@ -189,7 +190,7 @@ def test_hle_filters_validate(tmp_path):
           subset: gold
           text_only: true
     """)
-    cfg = load_config(config_path=yml, flat_overrides={}, dot_overrides=[])
+    cfg = load_config(config_path=yml, dot_overrides=[], schema=EvalConfig)
     assert cfg.filters["subset"] == "gold"
     assert cfg.filters["text_only"] is True
 
@@ -204,7 +205,7 @@ def test_hle_filters_reject_unknown_field(tmp_path):
           domain: physics
     """)
     with pytest.raises(ValidationError, match="domain"):
-        load_config(config_path=yml, flat_overrides={}, dot_overrides=[])
+        load_config(config_path=yml, dot_overrides=[], schema=EvalConfig)
 
 
 def test_gpqa_filters_validate(tmp_path):
@@ -216,7 +217,7 @@ def test_gpqa_filters_validate(tmp_path):
         filters:
           domain: Physics
     """)
-    cfg = load_config(config_path=yml, flat_overrides={}, dot_overrides=[])
+    cfg = load_config(config_path=yml, dot_overrides=[], schema=EvalConfig)
     assert cfg.filters["domain"] == "Physics"
 
 

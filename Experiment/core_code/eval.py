@@ -607,7 +607,7 @@ def parse_cli() -> "EvalConfig":
     (cache_dirs, model_budgets, effort_budgets) are NOT exposed as flat flags;
     they must come from --config or -o.
     """
-    from eval_config import load_config
+    from eval_config import load_config, EvalConfig
 
     base = argparse.ArgumentParser(add_help=False)
     base.add_argument("--benchmark", type=str, required=True,
@@ -646,7 +646,7 @@ def parse_cli() -> "EvalConfig":
     # Strip None values (so they don't override YAML defaults), and route filter
     # keys + the legacy --cache-dirs flag into per-key dot-path overrides so each
     # CLI value merges with (rather than replaces) the YAML's filters / dict.
-    flat: dict[str, object] = {}
+    flat_kvs: list[str] = []
     extra_dot: list[str] = []
     for key, val in vars(args).items():
         if key in ("config", "override"):
@@ -662,7 +662,7 @@ def parse_cli() -> "EvalConfig":
                 f"--cache-dirs accepts only a single path; multi-model cache "
                 f"dicts must come from --config FILE.yaml. Got: {val!r}"
             )
-            flat["cache_dir"] = val
+            flat_kvs.append(f"cache_dir={val}")
             continue
         if key in benchmark.filter_keys:
             # Use dot-path routing so each CLI filter flag is merged into the
@@ -671,12 +671,12 @@ def parse_cli() -> "EvalConfig":
             # overridden on the CLI.
             extra_dot.append(f"filters.{key}={val}")
         else:
-            flat[key] = val
+            flat_kvs.append(f"{key}={val}")
 
     return load_config(
         config_path=args.config,
-        flat_overrides=flat,
-        dot_overrides=list(args.override) + extra_dot,
+        dot_overrides=flat_kvs + extra_dot + list(args.override),
+        schema=EvalConfig,
     )
 
 

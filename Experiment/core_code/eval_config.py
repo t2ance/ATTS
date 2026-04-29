@@ -155,15 +155,17 @@ def _set_dotpath(d: dict, path: str, value: str) -> None:
 def load_config(
     *,
     config_path: Path | str | None,
-    flat_overrides: dict[str, Any],
     dot_overrides: list[str],
-) -> EvalConfig:
-    """Merge config sources and validate via pydantic.
+    schema: type[BaseModel] = EvalConfig,
+) -> BaseModel:
+    """Merge config sources and validate via the given pydantic schema.
 
     Order of precedence (later wins):
       1. YAML file (if config_path is given)
-      2. Flat overrides (kwargs from argparse, key matches field name)
-      3. Dot-path overrides (e.g. "model_budgets.haiku=2")
+      2. Dot-path overrides (e.g. "model_budgets.haiku=2")
+
+    The schema parameter selects which Pydantic model validates the merged dict.
+    Defaults to EvalConfig for callers that pre-date PrecacheConfig.
     """
     merged: dict[str, Any] = {}
     if config_path is not None:
@@ -174,12 +176,9 @@ def load_config(
         )
         merged.update(yaml_data)
 
-    for key, val in flat_overrides.items():
-        merged[key] = val
-
     for ov in dot_overrides:
         k, sep, v = ov.partition("=")
         assert sep == "=", f"override must be key=value, got {ov!r}"
         _set_dotpath(merged, k.strip(), v.strip())
 
-    return EvalConfig.model_validate(merged)
+    return schema.model_validate(merged)
