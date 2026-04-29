@@ -1,24 +1,19 @@
-# configs/lcb_multi_effort_high.yaml
-# Replaces args of scripts/lcb/multi_model/run_effort_high.sh
-benchmark: lcb
+benchmark:
+  name: lcb
 backend: claude
 explore_model: claude-sonnet-4-6
 method: tts-agent-multi
 orchestrator_model: claude-sonnet-4-6
-# integrate_model is auto-aliased from orchestrator_model by async_main for tts-agent-multi
-
 cache_dirs:
-  haiku:  ../analysis/cache/lcb/haiku
+  haiku: ../analysis/cache/lcb/haiku
   sonnet: ../analysis/cache/lcb/sonnet
-  opus:   ../analysis/cache/lcb/opus
+  opus: ../analysis/cache/lcb/opus
 model_budgets:
-  haiku:  8
+  haiku: 8
   sonnet: 8
-  opus:   4
-
+  opus: 4
 exploration_effort: high
 no_integrate: true
-
 seed: 42
 num_explores: 16
 num_workers: 8

@@ -1,0 +1,9 @@
+benchmark:
+  name: lcb
+backend: claude
+explore_model: claude-haiku-4-5-20251001
+cache_dir: ../analysis/cache/lcb/haiku
+num: 100
+num_explores: 8
+num_workers: 16
+seed: 42

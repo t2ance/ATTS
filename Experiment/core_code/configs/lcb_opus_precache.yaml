@@ -1,0 +1,8 @@
+benchmark:
+  name: lcb
+backend: claude
+explore_model: claude-opus-4-6
+cache_dir: ../analysis/cache/lcb/opus
+num_explores: 4
+num_workers: 8
+seed: 42

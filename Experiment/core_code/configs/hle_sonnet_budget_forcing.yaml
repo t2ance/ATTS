@@ -1,0 +1,16 @@
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+backend: claude
+explore_model: claude-sonnet-4-6
+method: budget-forcing
+orchestrator_model: claude-sonnet-4-6
+integrate_model: claude-sonnet-4-6
+no_cache_only: true
+cache_dir: ../analysis/cache/hle/sonnet_budget_forcing/gold
+num: 100
+num_explores: 8
+num_workers: 4
+seed: 42
+log_dir: ../analysis/run/hle/sonnet_budget_forcing

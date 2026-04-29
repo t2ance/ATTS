@@ -1,0 +1,13 @@
+benchmark:
+  name: lcb
+backend: vllm
+explore_model: grpo-8b
+method: tts-agent
+orchestrator_model: grpo-8b
+integrate_model: grpo-8b
+cache_dir: ../analysis/cache/lcb/sonnet
+no_integrate: true
+num_explores: 8
+num_workers: 3
+seed: 42
+log_dir: ../analysis/run/lcb/grpo_8b_step78

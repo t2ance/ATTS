@@ -1,0 +1,11 @@
+benchmark:
+  name: aime2026
+backend: claude
+explore_model: claude-sonnet-4-6
+method: rerank
+reward_model: Skywork/Skywork-Reward-V2-Qwen3-8B
+cache_dir: ../analysis/cache/aime2026/sonnet
+num_explores: 8
+num_workers: 16
+seed: 42
+log_dir: ../analysis/run/aime2026/sonnet_skywork_rerank

@@ -1,0 +1,14 @@
+benchmark:
+  name: gpqa
+backend: codex
+explore_model: gpt-5.2
+method: tts-agent
+orchestrator_model: gpt-5.2
+integrate_model: gpt-5.2
+no_integrate: true
+effort: high
+cache_dir: ../analysis/cache/gpqa/gpt5.2
+num_explores: 8
+num_workers: 1
+seed: 42
+log_dir: ../analysis/run/gpqa/gpt5.2_no_integrate_high

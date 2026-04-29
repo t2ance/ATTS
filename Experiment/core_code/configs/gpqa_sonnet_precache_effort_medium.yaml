@@ -1,0 +1,10 @@
+benchmark:
+  name: gpqa
+backend: claude
+explore_model: claude-sonnet-4-6
+effort: medium
+cache_dir: ../analysis/cache/gpqa/sonnet_effort_medium
+num_explores: 8
+num_workers: 1
+seed: 42
+explore_timeout: 1200

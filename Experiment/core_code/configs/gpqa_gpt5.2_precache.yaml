@@ -1,0 +1,9 @@
+benchmark:
+  name: gpqa
+backend: codex
+explore_model: gpt-5.2
+effort: low
+cache_dir: ../analysis/cache/gpqa/gpt5.2
+num_explores: 8
+num_workers: 4
+seed: 42

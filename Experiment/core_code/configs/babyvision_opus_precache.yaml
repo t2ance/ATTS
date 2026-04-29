@@ -1,0 +1,8 @@
+benchmark:
+  name: babyvision
+backend: claude
+explore_model: claude-opus-4-6
+cache_dir: ../analysis/cache/babyvision/opus
+num_explores: 2
+num_workers: 8
+seed: 42

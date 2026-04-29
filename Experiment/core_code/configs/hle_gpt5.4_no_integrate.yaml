@@ -1,0 +1,16 @@
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+backend: codex
+explore_model: gpt-5.4
+method: tts-agent
+orchestrator_model: gpt-5.4
+integrate_model: gpt-5.4
+no_integrate: true
+cache_dir: ../analysis/cache/hle/gpt5.4/gold
+num: 100
+num_explores: 8
+num_workers: 4
+seed: 42
+log_dir: ../analysis/run/hle/gpt5.4_no_integrate

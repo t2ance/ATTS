@@ -1,0 +1,12 @@
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+backend: claude
+explore_model: claude-sonnet-4-6
+effort: low
+cache_dir: ../analysis/cache/hle/sonnet/gold
+num: 100
+num_explores: 8
+num_workers: 8
+seed: 42

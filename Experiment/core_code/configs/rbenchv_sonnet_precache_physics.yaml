@@ -1,0 +1,9 @@
+benchmark:
+  name: rbenchv
+  category: Physics
+backend: claude
+explore_model: claude-sonnet-4-6
+cache_dir: ../analysis/cache/rbenchv/sonnet
+num_explores: 8
+num_workers: 1
+seed: 42

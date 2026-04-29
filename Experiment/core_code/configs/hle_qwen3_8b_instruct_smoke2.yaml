@@ -1,0 +1,17 @@
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+backend: vllm
+explore_model: qwen3-8b-base
+method: tts-agent
+orchestrator_model: qwen3-8b-base
+integrate_model: qwen3-8b-base
+cache_dir: ../analysis/cache/hle/haiku/gold
+no_integrate: true
+skip: 100
+num: 64
+num_explores: 8
+num_workers: 16
+seed: 42
+log_dir: ../analysis/run/hle/qwen3_8b_instruct_smoke2

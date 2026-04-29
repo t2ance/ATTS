@@ -1,0 +1,13 @@
+benchmark:
+  name: lcb
+backend: claude
+explore_model: claude-sonnet-4-6
+method: tts-agent
+orchestrator_model: claude-sonnet-4-6
+integrate_model: claude-sonnet-4-6
+no_integrate: true
+cache_dir: ../analysis/cache/lcb/sonnet
+num_explores: 8
+num_workers: 2
+seed: 42
+log_dir: ../analysis/run/lcb/sonnet_no_integrate

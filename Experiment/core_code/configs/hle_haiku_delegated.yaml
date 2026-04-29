@@ -1,0 +1,15 @@
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+backend: claude
+explore_model: claude-haiku-4-5-20251001
+method: tts-agent
+orchestrator_model: claude-haiku-4-5-20251001
+integrate_model: claude-haiku-4-5-20251001
+cache_dir: ../analysis/cache/hle/haiku/gold
+num: 100
+num_explores: 8
+num_workers: 16
+seed: 42
+log_dir: ../analysis/run/hle/haiku

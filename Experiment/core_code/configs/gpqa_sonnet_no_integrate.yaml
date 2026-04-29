@@ -1,0 +1,13 @@
+benchmark:
+  name: gpqa
+backend: claude
+explore_model: claude-sonnet-4-6
+method: tts-agent
+orchestrator_model: claude-sonnet-4-6
+integrate_model: claude-sonnet-4-6
+no_integrate: true
+cache_dir: ../analysis/cache/gpqa/sonnet
+num_explores: 8
+num_workers: 4
+seed: 42
+log_dir: ../analysis/run/gpqa/sonnet_no_integrate

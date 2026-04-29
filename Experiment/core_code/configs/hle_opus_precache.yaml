@@ -1,0 +1,12 @@
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+backend: claude
+explore_model: claude-opus-4-6
+effort: low
+cache_dir: ../analysis/cache/hle/opus/gold
+num: 100
+num_explores: 8
+num_workers: 10
+seed: 42

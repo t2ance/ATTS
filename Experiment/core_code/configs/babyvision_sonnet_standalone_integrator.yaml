@@ -1,0 +1,11 @@
+benchmark:
+  name: babyvision
+backend: claude
+explore_model: claude-sonnet-4-6
+method: standalone-integrator
+integrate_model: claude-sonnet-4-6
+cache_dir: ../analysis/cache/babyvision/sonnet
+num_explores: 8
+num_workers: 4
+seed: 42
+log_dir: ../analysis/run/babyvision/sonnet_standalone_integrator

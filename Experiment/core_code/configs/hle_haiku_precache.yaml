@@ -1,0 +1,11 @@
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+backend: claude
+explore_model: claude-haiku-4-5-20251001
+cache_dir: /data3/peijia/dr-claw/Explain/Experiment/analysis/cache/hle/haiku/gold
+num: 400
+num_explores: 8
+num_workers: 8
+seed: 42

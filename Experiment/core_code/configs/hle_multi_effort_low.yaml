@@ -1,30 +1,23 @@
-# configs/hle_multi_effort_low.yaml
-# Replaces args of scripts/hle/multi_model/run_effort_low.sh
-benchmark: hle
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
 backend: claude
 explore_model: claude-sonnet-4-6
 method: tts-agent-multi
 orchestrator_model: claude-sonnet-4-6
-# integrate_model is auto-aliased from orchestrator_model by async_main for tts-agent-multi
-
 cache_dirs:
-  haiku:  ../analysis/cache/hle/haiku/gold
+  haiku: ../analysis/cache/hle/haiku/gold
   sonnet: ../analysis/cache/hle/sonnet/gold
-  opus:   ../analysis/cache/hle/opus/gold
+  opus: ../analysis/cache/hle/opus/gold
 model_budgets:
-  haiku:  8
+  haiku: 8
   sonnet: 8
-  opus:   4
-
+  opus: 4
 exploration_effort: low
 no_integrate: true
-
 num: 100
 seed: 42
-filters:
-  subset: gold
-  text_only: true
-
 num_explores: 16
 num_workers: 8
 log_dir: ../analysis/run/hle/multi_model_effort_low

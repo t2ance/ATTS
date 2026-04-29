@@ -1,0 +1,12 @@
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+backend: codex
+explore_model: gpt-5.2
+effort: low
+cache_dir: ../analysis/cache/hle/gpt5.2_low/gold
+num: 200
+num_explores: 8
+num_workers: 8
+seed: 42

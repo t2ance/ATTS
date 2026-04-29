@@ -1,0 +1,8 @@
+benchmark:
+  name: aime2025
+backend: claude
+explore_model: claude-sonnet-4-6
+cache_dir: ../analysis/cache/aime2025/sonnet
+num_explores: 8
+num_workers: 8
+seed: 42

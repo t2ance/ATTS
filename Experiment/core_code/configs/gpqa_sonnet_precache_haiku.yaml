@@ -1,0 +1,8 @@
+benchmark:
+  name: gpqa
+backend: claude
+explore_model: claude-haiku-4-5-20251001
+cache_dir: ../analysis/cache/gpqa/haiku
+num_explores: 8
+num_workers: 8
+seed: 42
