@@ -12,7 +12,7 @@ from eval_config import EvalConfig
 
 def _minimal_kwargs(**overrides):
     base = {
-        "benchmark": "hle",
+        "benchmark": {"name": "hle"},
         "backend": "claude",
         "explore_model": "claude-sonnet-4-6",
         "method": "self-refine",
@@ -27,6 +27,7 @@ def test_minimal_config_validates():
     assert cfg.cache_dirs == {}
     assert cfg.cache_dir is None
     assert cfg.num_rollouts == 1
+    assert cfg.benchmark.name == "hle"
 
 
 def test_tts_agent_multi_requires_cache_dirs_and_budgets():
@@ -86,7 +87,8 @@ def _write(tmp_path, name, body):
 
 def test_load_config_yaml_only(tmp_path):
     yml = _write(tmp_path, "x.yaml", """
-        benchmark: hle
+        benchmark:
+          name: hle
         backend: claude
         explore_model: claude-sonnet-4-6
         method: self-refine
@@ -100,7 +102,8 @@ def test_load_config_yaml_only(tmp_path):
 
 def test_dot_overrides_beat_yaml(tmp_path):
     yml = _write(tmp_path, "x.yaml", """
-        benchmark: hle
+        benchmark:
+          name: hle
         backend: claude
         explore_model: claude-sonnet-4-6
         method: self-refine
@@ -112,7 +115,8 @@ def test_dot_overrides_beat_yaml(tmp_path):
 
 def test_dot_overrides_beat_flat(tmp_path):
     yml = _write(tmp_path, "x.yaml", """
-        benchmark: hle
+        benchmark:
+          name: hle
         backend: claude
         explore_model: claude-sonnet-4-6
         method: self-refine
@@ -127,7 +131,8 @@ def test_dot_overrides_beat_flat(tmp_path):
 
 def test_dot_override_dict_field(tmp_path):
     yml = _write(tmp_path, "x.yaml", """
-        benchmark: hle
+        benchmark:
+          name: hle
         backend: claude
         explore_model: claude-sonnet-4-6
         method: tts-agent-multi
@@ -166,12 +171,12 @@ def test_load_without_yaml(tmp_path):
     cfg = load_config(
         config_path=None,
         dot_overrides=[
-            "benchmark=hle", "backend=claude",
+            "benchmark.name=hle", "backend=claude",
             "explore_model=claude-sonnet-4-6", "method=self-refine",
         ],
         schema=EvalConfig,
     )
-    assert cfg.benchmark == "hle"
+    assert cfg.benchmark.name == "hle"
 
 
 def test_set_dotpath_rejects_non_dict_intermediate():
@@ -182,27 +187,27 @@ def test_set_dotpath_rejects_non_dict_intermediate():
 
 def test_hle_filters_validate(tmp_path):
     yml = _write(tmp_path, "x.yaml", """
-        benchmark: hle
+        benchmark:
+          name: hle
+          subset: gold
+          text_only: true
         backend: claude
         explore_model: claude-sonnet-4-6
         method: self-refine
-        filters:
-          subset: gold
-          text_only: true
     """)
     cfg = load_config(config_path=yml, dot_overrides=[], schema=EvalConfig)
-    assert cfg.filters["subset"] == "gold"
-    assert cfg.filters["text_only"] is True
+    assert cfg.benchmark.subset == "gold"
+    assert cfg.benchmark.text_only is True
 
 
 def test_hle_filters_reject_unknown_field(tmp_path):
     yml = _write(tmp_path, "x.yaml", """
-        benchmark: hle
+        benchmark:
+          name: hle
+          domain: physics
         backend: claude
         explore_model: claude-sonnet-4-6
         method: self-refine
-        filters:
-          domain: physics
     """)
     with pytest.raises(ValidationError, match="domain"):
         load_config(config_path=yml, dot_overrides=[], schema=EvalConfig)
@@ -210,29 +215,27 @@ def test_hle_filters_reject_unknown_field(tmp_path):
 
 def test_gpqa_filters_validate(tmp_path):
     yml = _write(tmp_path, "x.yaml", """
-        benchmark: gpqa
+        benchmark:
+          name: gpqa
+          domain: Physics
         backend: claude
         explore_model: claude-sonnet-4-6
         method: self-refine
-        filters:
-          domain: Physics
     """)
     cfg = load_config(config_path=yml, dot_overrides=[], schema=EvalConfig)
-    assert cfg.filters["domain"] == "Physics"
+    assert cfg.benchmark.domain == "Physics"
 
 
 def test_filters_empty_validates_for_all_benchmarks():
-    """Every concrete benchmark must declare a filter model that accepts {}."""
-    for name in ("hle", "lcb", "gpqa", "babyvision", "aime", "aime2025", "aime2026", "rbenchv"):
+    """Every concrete benchmark must accept a name-only spec."""
+    for name in ("hle", "lcb", "gpqa", "babyvision", "aime2025", "aime2026", "rbenchv"):
         cfg = EvalConfig(
-            benchmark=name,
+            benchmark={"name": name},
             backend="claude",
             explore_model="m",
             method="self-refine",
         )
-        assert isinstance(cfg.filters, dict)
-        # With exclude_defaults=True, an empty input round-trips to empty dict
-        assert cfg.filters == {}
+        assert cfg.benchmark.name == name
 
 
 def test_parse_cli_only(tmp_path, monkeypatch):
@@ -250,7 +253,7 @@ def test_parse_cli_only(tmp_path, monkeypatch):
     ]
     monkeypatch.setattr("sys.argv", argv)
     cfg = eval_mod.parse_cli()
-    assert cfg.benchmark == "hle"
+    assert cfg.benchmark.name == "hle"
     assert cfg.num == 20
     assert cfg.method == "self-refine"
 
@@ -261,7 +264,8 @@ def test_parse_cli_with_yaml_and_override(tmp_path, monkeypatch):
     importlib.reload(eval_mod)
 
     yml = _write(tmp_path, "x.yaml", """
-        benchmark: hle
+        benchmark:
+          name: hle
         backend: claude
         explore_model: claude-sonnet-4-6
         method: tts-agent-multi
@@ -287,20 +291,20 @@ def test_cli_filter_flag_preserves_yaml_filter_siblings(tmp_path, monkeypatch):
     importlib.reload(eval_mod)
 
     yml = _write(tmp_path, "x.yaml", """
-        benchmark: hle
+        benchmark:
+          name: hle
+          subset: gold
+          text_only: true
         backend: claude
         explore_model: claude-sonnet-4-6
         method: self-refine
-        filters:
-          subset: gold
-          text_only: true
     """)
     argv = ["eval.py", "--benchmark", "hle", "--config", str(yml), "--category", "physics"]
     monkeypatch.setattr("sys.argv", argv)
     cfg = eval_mod.parse_cli()
-    assert cfg.filters["subset"] == "gold"
-    assert cfg.filters["text_only"] is True
-    assert cfg.filters["category"] == "physics"
+    assert cfg.benchmark.subset == "gold"
+    assert cfg.benchmark.text_only is True
+    assert cfg.benchmark.category == "physics"
 
 
 def test_cli_cache_dirs_single_path_routes_to_cache_dir(tmp_path, monkeypatch):
@@ -350,7 +354,8 @@ def test_o_override_beats_cli_filter_flag(tmp_path, monkeypatch):
     importlib.reload(eval_mod)
 
     yml = _write(tmp_path, "x.yaml", """
-        benchmark: hle
+        benchmark:
+          name: hle
         backend: claude
         explore_model: claude-sonnet-4-6
         method: self-refine
@@ -360,8 +365,8 @@ def test_o_override_beats_cli_filter_flag(tmp_path, monkeypatch):
         "--benchmark", "hle",
         "--config", str(yml),
         "--subset", "gold",
-        "-o", "filters.subset=revision",
+        "-o", "benchmark.subset=revision",
     ]
     monkeypatch.setattr("sys.argv", argv)
     cfg = eval_mod.parse_cli()
-    assert cfg.filters["subset"] == "revision"
+    assert cfg.benchmark.subset == "revision"

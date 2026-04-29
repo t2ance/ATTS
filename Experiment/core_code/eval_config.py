@@ -7,6 +7,8 @@ from typing import Any, Literal
 import yaml
 from pydantic import BaseModel, Field, model_validator
 
+from benchmarks.specs import BenchmarkSpec
+
 
 METHODS = Literal[
     "tts-agent",
@@ -23,8 +25,8 @@ METHODS = Literal[
 class EvalConfig(BaseModel):
     model_config = {"extra": "forbid", "arbitrary_types_allowed": False}
 
-    # Required identity
-    benchmark: str
+    # Benchmark + dataset selection (single discriminated block)
+    benchmark: BenchmarkSpec
     backend: Literal["codex", "claude", "vllm"]
     explore_model: str
 
@@ -43,12 +45,11 @@ class EvalConfig(BaseModel):
     effort_budgets: dict[str, int] = Field(default_factory=dict)
     exploration_effort: Literal["low", "medium", "high"] | None = None
 
-    # Dataset
+    # Dataset slicing
     num: int | None = None
     skip: int = 0
     seed: int = 42
     shuffle: bool = False
-    filters: dict[str, Any] = Field(default_factory=dict)
 
     # Model knobs
     budget_tokens: int = 32000
@@ -105,16 +106,6 @@ class EvalConfig(BaseModel):
                 f"num_rollouts > 1 only supported for backend=vllm, got {self.backend}"
             )
         assert self.num_rollouts >= 1, f"num_rollouts must be >= 1, got {self.num_rollouts}"
-
-        # Validate per-benchmark filter shape
-        from benchmarks import get_benchmark
-        bench = get_benchmark(self.benchmark)
-        filter_model = bench.make_filter_model()
-        # model_validate raises ValidationError if filter keys don't match
-        validated = filter_model.model_validate(self.filters)
-        # Re-export as plain dict so downstream code keeps using cfg.filters
-        self.filters = validated.model_dump(exclude_defaults=True)
-
         return self
 
 
