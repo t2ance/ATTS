@@ -76,3 +76,15 @@ def test_precache_filter_validation(tmp_path):
     """)
     with pytest.raises(ValidationError, match="difficulty"):
         load_config(config_path=yml, dot_overrides=[], schema=PrecacheConfig)
+
+
+def test_precache_extra_field_forbidden():
+    """A typoed field in PrecacheConfig must fail loudly."""
+    with pytest.raises(ValidationError, match="typoed_field|extra"):
+        PrecacheConfig(**_minimal_kwargs(typoed_field=True))
+
+
+def test_precache_rejects_eval_only_keys():
+    """A user pasting an EvalConfig YAML into precache must fail at validation."""
+    with pytest.raises(ValidationError, match="method|extra"):
+        PrecacheConfig(**_minimal_kwargs(method="tts-agent"))
