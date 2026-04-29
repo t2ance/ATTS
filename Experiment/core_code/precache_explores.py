@@ -130,39 +130,32 @@ async def precache(
 
 
 def parse_cli() -> "PrecacheConfig":
-    """Build PrecacheConfig from --benchmark + --config + -o overrides."""
+    """Build PrecacheConfig from --config + -o overrides only."""
     from precache_config import PrecacheConfig
     from eval_config import load_config
 
-    base = argparse.ArgumentParser(add_help=False)
-    base.add_argument("--benchmark", type=str, required=True,
-                      help="Benchmark name (hle, lcb, gpqa, babyvision, aime2025, aime2026, rbenchv)")
-    base.add_argument("--config", type=str, required=True, help="Path to YAML config")
-    known, _ = base.parse_known_args()
-
-    parser = argparse.ArgumentParser(
-        description="Pre-cache explore results",
-        parents=[base],
-    )
+    parser = argparse.ArgumentParser(description="Pre-cache explore results")
+    parser.add_argument("--config", type=str, required=True, help="Path to YAML config")
     parser.add_argument("-o", "--override", action="append", default=[],
                         help="Dot-path override, e.g. -o num_explores=4")
     args = parser.parse_args()
 
     return load_config(
         config_path=args.config,
-        dot_overrides=[f"benchmark={args.benchmark}"] + list(args.override),
+        dot_overrides=list(args.override),
         schema=PrecacheConfig,
     )
 
 
 def main() -> None:
     cfg = parse_cli()
-    benchmark = get_benchmark(cfg.benchmark)
+    benchmark = get_benchmark(cfg.benchmark.name)
+    bench_filters = cfg.benchmark.model_dump(exclude={"name"}, exclude_defaults=True)
 
     print(f"Loading {benchmark.name.upper()} dataset...")
     all_rows = benchmark.load_dataset()
 
-    filtered = benchmark.filter_dataset(all_rows, **cfg.filters)
+    filtered = benchmark.filter_dataset(all_rows, **bench_filters)
     print(f"Filtered to {len(filtered)} questions")
 
     if cfg.shuffle:
