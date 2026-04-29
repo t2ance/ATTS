@@ -9,7 +9,7 @@ sys.path.insert(0, str(_CORE_CODE_DIR))
 import pytest
 import yaml
 from pydantic import ValidationError
-from eval_config import load_config
+from eval import load_config
 from precache_config import PrecacheConfig
 
 

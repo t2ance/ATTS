@@ -132,7 +132,7 @@ async def precache(
 def parse_cli() -> "PrecacheConfig":
     """Build PrecacheConfig from --config + -o overrides only."""
     from precache_config import PrecacheConfig
-    from eval_config import load_config
+    from eval import load_config
 
     parser = argparse.ArgumentParser(description="Pre-cache explore results")
     parser.add_argument("--config", type=str, required=True, help="Path to YAML config")

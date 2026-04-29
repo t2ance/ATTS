@@ -7,7 +7,7 @@ sys.path.insert(0, str(_CORE_CODE_DIR))
 
 import pytest
 from pydantic import ValidationError
-from eval_config import EvalConfig
+from eval import EvalConfig
 
 
 def _minimal_kwargs(**overrides):
@@ -76,7 +76,7 @@ def test_extra_field_forbidden():
 
 import textwrap
 import yaml
-from eval_config import load_config, _set_dotpath, EvalConfig
+from eval import load_config, _set_dotpath, EvalConfig
 
 
 def _write(tmp_path, name, body):
