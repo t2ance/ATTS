@@ -21,7 +21,7 @@ mkdir -p ../analysis/run/babyvision/sonnet_socratic_self_refine
 
 # --resume <RUN_DIR> stays as a CLI override (per-launch, not per-config) via -o.
 PYTHONUNBUFFERED=1 nohup python eval.py \
-	--config configs/babyvision_sonnet_socratic_self_refine.yaml \
+	--config scripts/babyvision/sonnet/babyvision_sonnet_socratic_self_refine.yaml \
 	-o resume=../analysis/run/babyvision/sonnet_socratic_self_refine/run_20260428_075116 \
 	>> ../analysis/run/babyvision/sonnet_socratic_self_refine/socratic_self_refine.log 2>&1 &
 

@@ -1,4 +1,4 @@
-# configs/_template.yaml
+# _template.yaml
 # Annotated template for eval.py. Every field shown here is OPTIONAL unless flagged required.
 
 # === Required ===

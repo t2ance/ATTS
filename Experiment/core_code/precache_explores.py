@@ -5,7 +5,7 @@ saving structured results + trajectories to disk. These can then be replayed
 by the orchestrator via --cache-dir.
 
 Usage:
-    python precache_explores.py --config configs/precache_hle.yaml \
+    python precache_explores.py --config scripts/hle/sonnet/hle_sonnet_precache.yaml \
         -o num_explores=4 -o num=10
 """
 

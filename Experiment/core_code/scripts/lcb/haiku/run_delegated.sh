@@ -5,5 +5,5 @@ unset CLAUDECODE 2>/dev/null || true
 
 cd /data3/peijia/dr-claw/Explain/Experiment/core_code
 PYTHONUNBUFFERED=1 nohup python eval.py \
-	--config configs/lcb_haiku_delegated.yaml \
+	--config scripts/lcb/haiku/lcb_haiku_delegated.yaml \
 	> ../analysis/run/lcb/haiku/delegated.log 2>&1 &

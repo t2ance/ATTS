@@ -8,6 +8,6 @@ export PYTHONPATH="/data3/peijia/dr-claw/Explain/Experiment/code_references/Live
 
 # --resume <RUN_DIR> stays as a CLI override (per-launch, not per-config) via -o.
 PYTHONUNBUFFERED=1 python eval.py \
-	--config configs/lcb_grpo_8b.yaml \
+	--config scripts/lcb/grpo/lcb_grpo_8b.yaml \
 	-o resume=../analysis/run/lcb/grpo_8b_step78/run_20260410_210724 \
 	2>&1 | tee tmp/eval_grpo_8b_lcb_resume.log

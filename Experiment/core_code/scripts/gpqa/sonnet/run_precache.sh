@@ -5,5 +5,5 @@ unset CLAUDECODE 2>/dev/null || true
 
 cd /data3/peijia/dr-claw/Explain/Experiment/core_code
 PYTHONUNBUFFERED=1 nohup python precache_explores.py \
-	--config configs/gpqa_sonnet_precache.yaml \
+	--config scripts/gpqa/sonnet/gpqa_sonnet_precache.yaml \
 	> ../analysis/run/gpqa/sonnet/precache.log 2>&1 &

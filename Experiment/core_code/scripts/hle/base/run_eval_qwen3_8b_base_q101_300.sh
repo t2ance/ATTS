@@ -5,5 +5,5 @@ unset CLAUDECODE 2>/dev/null || true
 
 cd /data3/peijia/dr-claw/Explain/Experiment/core_code
 PYTHONUNBUFFERED=1 python eval.py \
-	--config configs/hle_qwen3_8b_base_q101_300.yaml \
+	--config scripts/hle/base/hle_qwen3_8b_base_q101_300.yaml \
 	2>&1 | tee tmp/eval_qwen3_8b_base_q101_300.log

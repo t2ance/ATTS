@@ -3,5 +3,5 @@ set -euo pipefail
 unset CLAUDECODE 2>/dev/null || true
 cd /data3/peijia/dr-claw/Explain/Experiment/core_code
 PYTHONUNBUFFERED=1 nohup python eval.py \
-        --config configs/lcb_multi_effort_low.yaml \
+        --config scripts/lcb/multi_model/lcb_multi_effort_low.yaml \
         > ../analysis/run/lcb/multi_model_effort_low/delegated.log 2>&1 &

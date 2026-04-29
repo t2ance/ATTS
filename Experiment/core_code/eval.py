@@ -1,7 +1,7 @@
 """Unified evaluation: CLI entry point + EvalConfig schema + evaluation loop.
 
 Usage:
-    python eval.py --config configs/<name>.yaml [-o key.subkey=value ...]
+    python eval.py --config scripts/<bench>/<model>/<name>.yaml [-o key.subkey=value ...]
 """
 
 from __future__ import annotations

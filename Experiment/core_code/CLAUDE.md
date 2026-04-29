@@ -122,9 +122,11 @@ No command-line arguments. Every path, model name, worker count, and seed is wri
 
 `eval.py` and `precache_explores.py` accept exactly two CLI flags:
 
-1. `--config configs/<name>.yaml` — required. YAML is the single source of truth.
-   The full schema lives in `eval_config.py` (`EvalConfig`) and `precache_config.py`
-   (`PrecacheConfig`). Reference template: `configs/_template.yaml`.
+1. `--config <path>.yaml` — required. YAML is the single source of truth.
+   Each benchmark/model/method has its own YAML next to the launcher script:
+   `scripts/<benchmark>/<model>/<benchmark>_<model>_<method>.yaml`. The full
+   schema lives in `eval.py` (`EvalConfig`) and `precache_explores.py`
+   (`PrecacheConfig`). Reference template: `_template.yaml` (repo root).
 2. `-o key.subkey=value` — repeatable dot-path overrides applied on top of YAML.
    Use this for one-off tweaks: `-o model_budgets.haiku=2 -o seed=99`.
 
@@ -169,7 +171,7 @@ model_budgets:
 Or:
 
 ```bash
-python eval.py --config configs/base.yaml \
+python eval.py --config scripts/hle/multi_model/hle_multi_delegated.yaml \
   -o model_budgets.haiku=4 -o cache_dirs.haiku=/new/path
 ```
 
@@ -186,7 +188,7 @@ A pydantic validator rejects mixing them.
 
 ### Example config
 
-`configs/example.yaml`:
+`scripts/hle/multi_model/hle_multi_delegated.yaml`:
 ```yaml
 benchmark:
   name: hle
@@ -210,5 +212,5 @@ num: 100
 
 Shell script:
 ```bash
-python eval.py --config configs/example.yaml
+python eval.py --config scripts/hle/multi_model/hle_multi_delegated.yaml
 ```

@@ -19,7 +19,7 @@ cd /data3/peijia/dr-claw/Explain/Experiment/core_code
 mkdir -p ../analysis/run/rbenchv/sonnet_socratic_self_refine
 
 PYTHONUNBUFFERED=1 nohup python eval.py \
-	--config configs/rbenchv_sonnet_socratic_self_refine.yaml \
+	--config scripts/rbenchv/sonnet/rbenchv_sonnet_socratic_self_refine.yaml \
 	>> ../analysis/run/rbenchv/sonnet_socratic_self_refine/socratic_self_refine.log 2>&1 &
 
 echo "Launched. PID=$!"

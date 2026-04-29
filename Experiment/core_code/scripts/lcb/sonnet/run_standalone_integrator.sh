@@ -9,5 +9,5 @@ conda activate explain
 export PYTHONPATH="../code_references/LiveCodeBench:${PYTHONPATH:-}"
 mkdir -p ../analysis/run/lcb/sonnet_standalone_integrator
 PYTHONUNBUFFERED=1 nohup python eval.py \
-	--config configs/lcb_sonnet_standalone_integrator.yaml \
+	--config scripts/lcb/sonnet/lcb_sonnet_standalone_integrator.yaml \
 	> ../analysis/run/lcb/sonnet_standalone_integrator/run.log 2>&1 &

@@ -20,7 +20,7 @@ mkdir -p ../analysis/run/gpqa/sonnet_socratic_self_refine
 
 # --resume <RUN_DIR> stays as a CLI override (per-launch, not per-config) via -o.
 PYTHONUNBUFFERED=1 nohup python eval.py \
-	--config configs/gpqa_sonnet_socratic_self_refine.yaml \
+	--config scripts/gpqa/sonnet/gpqa_sonnet_socratic_self_refine.yaml \
 	-o resume=../analysis/run/gpqa/sonnet_socratic_self_refine/run_20260428_163751 \
 	>> ../analysis/run/gpqa/sonnet_socratic_self_refine/socratic_self_refine.log 2>&1 &
 

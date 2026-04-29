@@ -5,5 +5,5 @@ unset CLAUDECODE 2>/dev/null || true
 
 cd /data3/peijia/dr-claw/Explain/Experiment/core_code
 CUDA_VISIBLE_DEVICES=0 PYTHONUNBUFFERED=1 nohup python eval.py \
-	--config configs/rbenchv_sonnet_visualprm_rerank.yaml \
+	--config scripts/rbenchv/sonnet/rbenchv_sonnet_visualprm_rerank.yaml \
 	> ../analysis/run/rbenchv/sonnet_visualprm_rerank/rerank.log 2>&1 &
