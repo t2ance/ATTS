@@ -120,24 +120,44 @@ No command-line arguments. Every path, model name, worker count, and seed is wri
 
 ## eval.py configuration
 
-`eval.py` reads its configuration from three sources, in this order (later wins):
+`eval.py` and `precache_explores.py` accept exactly two CLI flags:
 
-1. **YAML file**: `--config configs/<name>.yaml`. The full schema lives in
-   `Experiment/core_code/eval_config.py` (`EvalConfig`). Reference template:
-   `Experiment/core_code/configs/_template.yaml`.
-2. **Flat CLI flags**: backward-compatible flags like `--num 100`, `--seed 42`,
-   `--backend claude`, `--cache-dirs /single/path`. They override YAML when
-   explicitly passed. Defaults are `None` so unset flags do NOT overwrite YAML.
-3. **Dot-path overrides**: `-o key.subkey=value`, repeatable. Highest precedence.
+1. `--config configs/<name>.yaml` — required. YAML is the single source of truth.
+   The full schema lives in `eval_config.py` (`EvalConfig`) and `precache_config.py`
+   (`PrecacheConfig`). Reference template: `configs/_template.yaml`.
+2. `-o key.subkey=value` — repeatable dot-path overrides applied on top of YAML.
    Use this for one-off tweaks: `-o model_budgets.haiku=2 -o seed=99`.
 
-### Dict-typed fields are YAML/`-o` only
+There are no other flags. `--benchmark`, `--num`, `--subset`, `--cache-dirs`, etc.
+are gone — set them in the YAML or via `-o`.
 
-`cache_dirs` (multi-model), `model_budgets`, `effort_budgets` are dictionaries.
-They are NOT settable via flat CLI flags. Set them via YAML or dot-path:
+### `benchmark:` is a discriminated union, not a string
+
+`benchmark` in YAML is a mapping with a `name:` field and the benchmark's filter
+fields. Each benchmark has its own Pydantic spec (`benchmarks/specs.py`), so
+unknown filter keys fail validation:
 
 ```yaml
-# YAML
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+```
+
+Per benchmark, the valid filter fields are:
+- `hle`: `subset` (gold/revision/uncertain), `category`, `text_only`
+- `gpqa`: `domain`
+- `lcb`: `difficulty`
+- `babyvision`: `type`, `subtype`
+- `rbenchv`: `category`
+- `aime2025` / `aime2026`: `year`
+
+### Dict-typed fields are YAML or `-o` only
+
+`cache_dirs` (multi-model), `model_budgets`, `effort_budgets` are dictionaries.
+Set them via YAML or dot-path:
+
+```yaml
 cache_dirs:
   haiku: ../analysis/cache/hle/haiku/gold
   sonnet: ../analysis/cache/hle/sonnet/gold
@@ -149,55 +169,32 @@ model_budgets:
 Or:
 
 ```bash
-python eval.py --benchmark hle --config configs/base.yaml \
+python eval.py --config configs/base.yaml \
   -o model_budgets.haiku=4 -o cache_dirs.haiku=/new/path
 ```
 
-The legacy flat-flag format `--cache-dirs "haiku:/p1,sonnet:/p2"` is gone.
-`parse_cli` rejects strings containing `:` with a clear error pointing here.
-
 ### Single-cache vs multi-cache
 
-The schema has TWO separate fields, mutually exclusive by method:
+The schema has two separate fields, mutually exclusive by method:
 
 - `cache_dir: Path | None` — for single-cache methods (`tts-agent`, `self-refine`,
   `socratic-self-refine`, `budget-forcing`, `rerank`, `standalone-integrator`).
-  Settable via YAML `cache_dir: /path` or via the legacy CLI `--cache-dirs /path`
-  (singular path, no colons; routed by `parse_cli` to `cfg.cache_dir`).
 - `cache_dirs: dict[str, Path]` — for multi/effort methods (`tts-agent-multi`,
-  `tts-agent-effort`). Set via YAML mapping only.
+  `tts-agent-effort`).
 
-A pydantic validator asserts you do not mix them.
+A pydantic validator rejects mixing them.
 
-### Per-benchmark filters
+### Example config
 
-Each benchmark's filter fields are a Pydantic sub-model (declared via
-`BenchmarkConfig.make_filter_model()`). Unknown filter keys are rejected at
-validation time with `extra="forbid"`. CLI filter flags (e.g. `--subset gold`,
-`--text-only`, `--difficulty hard`) are routed through dot-path overrides so
-they MERGE with YAML's `filters:` block instead of replacing it wholesale.
-
-### Migrating an old shell script
-
-Old:
-```bash
-python eval.py --benchmark hle --backend claude --method tts-agent-multi \
-    --orchestrator-model claude-sonnet-4-6 \
-    --explore-model claude-sonnet-4-6 \
-    --integrate-model claude-sonnet-4-6 \
-    --cache-dirs "haiku:/cache/h,sonnet:/cache/s,opus:/cache/o" \
-    --model-budgets "haiku:8,sonnet:8,opus:4" \
-    --subset gold --num 100 --no-integrate --exploration-effort low
-```
-
-New (`configs/example.yaml`):
+`configs/example.yaml`:
 ```yaml
-benchmark: hle
+benchmark:
+  name: hle
+  subset: gold
 backend: claude
 explore_model: claude-sonnet-4-6
 method: tts-agent-multi
 orchestrator_model: claude-sonnet-4-6
-# integrate_model auto-aliased from orchestrator_model for tts-agent-multi
 cache_dirs:
   haiku:  /cache/h
   sonnet: /cache/s
@@ -209,11 +206,9 @@ model_budgets:
 exploration_effort: low
 no_integrate: true
 num: 100
-filters:
-  subset: gold
 ```
 
 Shell script:
 ```bash
-python eval.py --benchmark hle --config configs/example.yaml
+python eval.py --config configs/example.yaml
 ```
