@@ -5,8 +5,8 @@ saving structured results + trajectories to disk. These can then be replayed
 by the orchestrator via --cache-dir.
 
 Usage:
-    python precache_explores.py --benchmark hle --backend codex --cache-dir cache/gold \
-        --subset gold --num 10 --num-explores 8 --num-workers 4 --explore-model gpt-5.2
+    python precache_explores.py --benchmark hle --config configs/precache_hle.yaml \
+        -o num_explores=4 -o num=10
 """
 
 from __future__ import annotations
@@ -129,57 +129,61 @@ async def precache(
     print(f"\nDone. {completed} cached, {skipped} skipped (already existed).")
 
 
-def parse_args() -> tuple[argparse.Namespace, BenchmarkConfig]:
-    # Sniff --benchmark via parse_known_args so we know which benchmark class
-    # to instantiate; reuse the same sub-parser as parents= on the full parser
-    # below to avoid re-declaring --benchmark.
+def parse_cli() -> "PrecacheConfig":
+    """Build PrecacheConfig from --benchmark + --config + -o overrides."""
+    from precache_config import PrecacheConfig
+    from eval_config import load_config
+
     base = argparse.ArgumentParser(add_help=False)
-    base.add_argument("--benchmark", type=str, default="hle", help="Benchmark name (default: hle)")
+    base.add_argument("--benchmark", type=str, required=True,
+                      help="Benchmark name (hle, lcb, gpqa, babyvision, aime2025, aime2026, rbenchv)")
+    base.add_argument("--config", type=str, required=True, help="Path to YAML config")
     known, _ = base.parse_known_args()
-    benchmark = get_benchmark(known.benchmark)
 
     parser = argparse.ArgumentParser(
-        description="Pre-cache explore results for delegated TTS agent",
+        description="Pre-cache explore results",
         parents=[base],
     )
-    benchmark.add_dataset_args(parser)
-    benchmark.add_model_args(parser)
-
+    parser.add_argument("-o", "--override", action="append", default=[],
+                        help="Dot-path override, e.g. -o num_explores=4")
     args = parser.parse_args()
-    assert args.cache_dirs is not None, "--cache-dirs is required"
-    return args, benchmark
+
+    return load_config(
+        config_path=args.config,
+        dot_overrides=[f"benchmark={args.benchmark}"] + list(args.override),
+        schema=PrecacheConfig,
+    )
 
 
 def main() -> None:
-    args, benchmark = parse_args()
+    cfg = parse_cli()
+    benchmark = get_benchmark(cfg.benchmark)
 
     print(f"Loading {benchmark.name.upper()} dataset...")
     all_rows = benchmark.load_dataset()
 
-    filter_kwargs = {key: getattr(args, key) for key in benchmark.filter_keys}
-    filtered = benchmark.filter_dataset(all_rows, **filter_kwargs)
+    filtered = benchmark.filter_dataset(all_rows, **cfg.filters)
     print(f"Filtered to {len(filtered)} questions")
 
-    if args.shuffle:
+    if cfg.shuffle:
         import random
-        random.seed(args.seed)
+        random.seed(cfg.seed)
         random.shuffle(filtered)
 
-    cache_dir = Path(args.cache_dirs)
-    cache_dir.mkdir(parents=True, exist_ok=True)
+    cfg.cache_dir.mkdir(parents=True, exist_ok=True)
 
     asyncio.run(precache(
         benchmark=benchmark,
         rows=filtered,
-        cache_dir=cache_dir,
-        num_explores=args.num_explores,
-        num_workers=args.num_workers,
-        backend=args.backend,
-        model=args.explore_model,
-        num=args.num,
-        budget_tokens=args.budget_tokens,
-        effort=args.effort,
-        explore_timeout=args.explore_timeout,
+        cache_dir=cfg.cache_dir,
+        num_explores=cfg.num_explores,
+        num_workers=cfg.num_workers,
+        backend=cfg.backend,
+        model=cfg.explore_model,
+        num=cfg.num,
+        budget_tokens=cfg.budget_tokens,
+        effort=cfg.effort,
+        explore_timeout=cfg.explore_timeout,
     ))
 
 
