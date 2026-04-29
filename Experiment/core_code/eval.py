@@ -770,27 +770,18 @@ async def evaluate(
 # CLI entry point
 # ---------------------------------------------------------------------------
 
-def parse_cli() -> "EvalConfig":
-    """Build EvalConfig from --config FILE.yaml + -o dot.path=value overrides.
-
-    YAML is the single source of truth. The only CLI flags are --config and -o.
-    """
+async def async_main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate TTS agent")
     parser.add_argument("--config", type=str, required=True,
                         help="Path to YAML config")
     parser.add_argument("-o", "--override", action="append", default=[],
                         help="Dot-path override, e.g. -o benchmark.subset=gold")
     args = parser.parse_args()
-
-    return load_config(
+    cfg = load_config(
         config_path=args.config,
         dot_overrides=list(args.override),
         schema=EvalConfig,
     )
-
-
-async def async_main() -> None:
-    cfg = parse_cli()
     benchmark = get_benchmark(cfg.benchmark.name)
     bench_filters = cfg.benchmark.model_dump(exclude={"name"}, exclude_defaults=True)
 
@@ -860,7 +851,7 @@ async def async_main() -> None:
     # Replaces the legacy `":" in args.cache_dirs` format-detection block.
     # cfg.cache_dir is None for multi/effort methods (validator enforces);
     # single-cache methods set it via YAML or the legacy --cache-dirs CLI flag
-    # (parse_cli routes to cfg.cache_dir).
+    # (the inlined CLI parse routes to cfg.cache_dir).
     cache_dir = cfg.cache_dir
 
     if cfg.method in ("rerank", "standalone-integrator") and cache_dir:

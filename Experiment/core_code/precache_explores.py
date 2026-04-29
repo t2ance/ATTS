@@ -152,8 +152,7 @@ async def precache(
     print(f"\nDone. {completed} cached, {skipped} skipped (already existed).")
 
 
-def parse_cli() -> "PrecacheConfig":
-    """Build PrecacheConfig from --config + -o overrides only."""
+def main() -> None:
     from eval import load_config
 
     parser = argparse.ArgumentParser(description="Pre-cache explore results")
@@ -161,16 +160,11 @@ def parse_cli() -> "PrecacheConfig":
     parser.add_argument("-o", "--override", action="append", default=[],
                         help="Dot-path override, e.g. -o num_explores=4")
     args = parser.parse_args()
-
-    return load_config(
+    cfg = load_config(
         config_path=args.config,
         dot_overrides=list(args.override),
         schema=PrecacheConfig,
     )
-
-
-def main() -> None:
-    cfg = parse_cli()
     benchmark = get_benchmark(cfg.benchmark.name)
     bench_filters = cfg.benchmark.model_dump(exclude={"name"}, exclude_defaults=True)
 
