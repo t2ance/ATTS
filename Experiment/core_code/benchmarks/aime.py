@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import re
 
 from benchmarks.base import BenchmarkConfig, ANSWER_FORMAT_RULES
@@ -68,7 +67,6 @@ def _normalize_aime_answer(text: str) -> str:
 
 class AIMEBenchmark(BenchmarkConfig):
     name = "aime"
-    filter_keys = ("year",)
     judge_model = None
     grading_summary = "string match (integer normalize, modulo 1000)"
     _year: int | None = None
@@ -123,16 +121,6 @@ Your job:
     def normalize_answer(self, text: str) -> str:
         return _normalize_aime_answer(text)
 
-    def make_filter_model(self) -> type:
-        from pydantic import BaseModel
-        class AIMEFilters(BaseModel):
-            model_config = {"extra": "forbid"}
-            year: int | None = None
-        return AIMEFilters
-
-    def add_dataset_args(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("--year", type=int, default=None, help="Filter by competition year (e.g. 2025)")
-        super().add_dataset_args(parser)
 
 
 class AIME2025Benchmark(AIMEBenchmark):

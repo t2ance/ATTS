@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 from typing import Any
 
 from benchmarks.base import BenchmarkConfig
@@ -86,7 +85,6 @@ _INTEGRATION_SCHEMA: dict[str, Any] = {
 
 class LCBBenchmark(BenchmarkConfig):
     name = "lcb"
-    filter_keys = ("difficulty",)
     majority_vote_compatible = False
     judge_model = None
     grading_summary = "code execution (lcb_runner test cases)"
@@ -170,14 +168,3 @@ Put your final solution code in the `final_code` field.
     def get_answer_from_integrate(self, result: dict) -> str:
         return result.get("final_code", "")
 
-    def make_filter_model(self) -> type:
-        from pydantic import BaseModel
-        from typing import Literal
-        class LCBFilters(BaseModel):
-            model_config = {"extra": "forbid"}
-            difficulty: Literal["easy", "medium", "hard"] | None = None
-        return LCBFilters
-
-    def add_dataset_args(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("--difficulty", choices=["easy", "medium", "hard"], default=None)
-        super().add_dataset_args(parser)

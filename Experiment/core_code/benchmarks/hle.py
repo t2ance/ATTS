@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import json
 import os
 import zipfile
@@ -113,7 +112,6 @@ def _filter_dataset(
 
 class HLEBenchmark(BenchmarkConfig):
     name = "hle"
-    filter_keys = ("subset", "category", "text_only")
     majority_vote_compatible = False
     # judge_model: HLE answers (free-form text + LaTeX expressions) require an
     # LLM judge for semantic equivalence, not string match. Default 'none' (set
@@ -165,19 +163,3 @@ class HLEBenchmark(BenchmarkConfig):
             backend=grade_backend, out_dir=out_dir,
         )
 
-    def make_filter_model(self) -> type:
-        from pydantic import BaseModel
-        from typing import Literal
-        class HLEFilters(BaseModel):
-            model_config = {"extra": "forbid"}
-            subset: Literal["gold", "revision", "uncertain"] | None = None
-            category: str | None = None
-            text_only: bool = False
-        return HLEFilters
-
-    def add_dataset_args(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("--subset", choices=["gold", "revision", "uncertain"], default=None)
-        parser.add_argument("--category", type=str, default=None)
-        # default=None so an unset flag doesn't overwrite YAML filters.text_only.
-        parser.add_argument("--text-only", action="store_true", default=None)
-        super().add_dataset_args(parser)

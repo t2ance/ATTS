@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
-
 from benchmarks.base import BenchmarkConfig, ANSWER_FORMAT_RULES, image_to_data_url
 from benchmarks.grader import judge_answer
 
@@ -36,7 +34,6 @@ def _filter_dataset(
 
 class RBenchVBenchmark(BenchmarkConfig):
     name = "rbenchv"
-    filter_keys = ("category",)
     majority_vote_compatible = False
     judge_model = "claude-haiku-4-5-20251001"
     grading_summary = "LLM judge: claude-haiku-4-5-20251001"
@@ -97,13 +94,3 @@ If you cannot solve it exactly, give your best estimate and set confidence accor
             backend=grade_backend, out_dir=out_dir,
         )
 
-    def make_filter_model(self) -> type:
-        from pydantic import BaseModel
-        class RBenchVFilters(BaseModel):
-            model_config = {"extra": "forbid"}
-            category: str | None = None
-        return RBenchVFilters
-
-    def add_dataset_args(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("--category", type=str, default=None, help="Filter by category")
-        super().add_dataset_args(parser)

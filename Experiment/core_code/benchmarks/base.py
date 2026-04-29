@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import base64
 import io
 from abc import ABC, abstractmethod
@@ -325,13 +324,12 @@ def _save_multi_model_plot(plt, summary: dict, run_dir: Path, per_model: dict, t
 class BenchmarkConfig(ABC):
     """Base class for benchmark configurations.
 
-    Subclasses must set class attributes: name, filter_keys, judge_model.
+    Subclasses must set class attributes: name, judge_model.
     Override explore_schema / integrate_schema / explorer_base_prompt /
     integrator_base_prompt only when they differ from the defaults.
     """
 
     name: str
-    filter_keys: tuple[str, ...]
     judge_model: str | None
     majority_vote_compatible: bool = True
     explore_schema: dict[str, Any] = EXPLORE_SCHEMA
@@ -419,46 +417,6 @@ class BenchmarkConfig(ABC):
 
     def get_answer_from_integrate(self, result: dict) -> str:
         return result["final_answer"]
-
-    # -- CLI --
-
-    def make_filter_model(self) -> type["BaseModel"]:
-        """Return a Pydantic model class describing this benchmark's filter fields.
-
-        Every concrete benchmark MUST override this. Use extra='forbid' on the
-        returned model so misspelled filter keys fail loudly.
-        """
-        raise NotImplementedError(
-            f"{type(self).__name__} must override make_filter_model()"
-        )
-
-    def add_dataset_args(self, parser: argparse.ArgumentParser) -> None:
-        # Defaults are None so that an unset CLI flag does NOT silently overwrite
-        # a YAML value when parse_cli builds EvalConfig. Schema-level defaults
-        # live in eval_config.EvalConfig.
-        parser.add_argument("--num", type=int, default=None)
-        parser.add_argument("--skip", type=int, default=None,
-                            help="Skip first N questions (applied after filtering, before --num)")
-        parser.add_argument("--seed", type=int, default=None)
-        parser.add_argument("--shuffle", action="store_true", default=None)
-
-    def add_model_args(self, parser: argparse.ArgumentParser) -> None:
-        # Defaults are None for the same reason as add_dataset_args: schema-level
-        # defaults are owned by eval_config.EvalConfig, not by argparse.
-        parser.add_argument("--backend", type=str, default=None, choices=["codex", "claude", "vllm"])
-        parser.add_argument("--explore-model", type=str, default=None)
-        parser.add_argument("--budget-tokens", type=int, default=None)
-        parser.add_argument("--effort", choices=["low", "medium", "high", "max"], default=None)
-        parser.add_argument("--num-explores", type=int, default=None)
-        # CLI flag stays plural (--cache-dirs) for backward compat with 67 legacy
-        # shell scripts. parse_cli routes it to cfg.cache_dir (singular) for
-        # single-model use. Multi-model dict must come from YAML or -o; legacy
-        # comma-pair string parsing is gone.
-        parser.add_argument("--cache-dirs", type=str, default=None,
-                            help="Cache directory for single-model methods. For multi-model, use --config FILE.yaml with cache_dirs as a YAML mapping.")
-        parser.add_argument("--num-workers", type=int, default=None)
-        parser.add_argument("--explore-timeout", type=float, default=None)
-        parser.add_argument("--max-output-chars", type=int, default=None)
 
     # -- Metrics --
 

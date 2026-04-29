@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 
 from benchmarks.base import BenchmarkConfig, ANSWER_FORMAT_RULES, image_to_data_url
 from benchmarks.grader import check_answer, judge_answer
@@ -47,7 +46,6 @@ def _format_choices(row: dict) -> str:
 
 class BabyVisionBenchmark(BenchmarkConfig):
     name = "babyvision"
-    filter_keys = ("type", "subtype")
     judge_model = "claude-haiku-4-5-20251001"
     grading_summary = (
         "hybrid: string match for ansType=choice rows; "
@@ -100,15 +98,3 @@ If you cannot solve it exactly, give your best estimate and set confidence accor
             backend=grade_backend, out_dir=out_dir,
         )
 
-    def make_filter_model(self) -> type:
-        from pydantic import BaseModel
-        class BabyVisionFilters(BaseModel):
-            model_config = {"extra": "forbid"}
-            type: str | None = None
-            subtype: str | None = None
-        return BabyVisionFilters
-
-    def add_dataset_args(self, parser: argparse.ArgumentParser) -> None:
-        parser.add_argument("--type", type=str, default=None, help="Filter by type category")
-        parser.add_argument("--subtype", type=str, default=None, help="Filter by subtype")
-        super().add_dataset_args(parser)
