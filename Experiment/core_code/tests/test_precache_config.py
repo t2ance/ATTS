@@ -1,0 +1,78 @@
+from __future__ import annotations
+import sys
+from pathlib import Path
+import textwrap
+
+_CORE_CODE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_CORE_CODE_DIR))
+
+import pytest
+import yaml
+from pydantic import ValidationError
+from eval_config import load_config
+from precache_config import PrecacheConfig
+
+
+def _write(tmp_path, name, body):
+    p = tmp_path / name
+    p.write_text(textwrap.dedent(body))
+    return p
+
+
+def _minimal_kwargs(**overrides):
+    base = {
+        "benchmark": "hle",
+        "backend": "claude",
+        "explore_model": "claude-sonnet-4-6",
+        "cache_dir": "/cache/x",
+    }
+    base.update(overrides)
+    return base
+
+
+def test_minimal_precache_validates():
+    cfg = PrecacheConfig(**_minimal_kwargs())
+    assert cfg.benchmark == "hle"
+    assert cfg.cache_dir == Path("/cache/x")
+    assert cfg.num_explores == 8
+    assert cfg.filters == {}
+
+
+def test_precache_requires_cache_dir():
+    kw = _minimal_kwargs()
+    del kw["cache_dir"]
+    with pytest.raises(ValidationError, match="cache_dir"):
+        PrecacheConfig(**kw)
+
+
+def test_precache_loader_yaml_plus_override(tmp_path):
+    yml = _write(tmp_path, "p.yaml", """
+        benchmark: hle
+        backend: claude
+        explore_model: claude-sonnet-4-6
+        cache_dir: /cache/h
+        num_explores: 16
+        filters:
+          subset: gold
+    """)
+    cfg = load_config(
+        config_path=yml,
+        dot_overrides=["num_explores=4"],
+        schema=PrecacheConfig,
+    )
+    assert cfg.cache_dir == Path("/cache/h")
+    assert cfg.num_explores == 4
+    assert cfg.filters == {"subset": "gold"}
+
+
+def test_precache_filter_validation(tmp_path):
+    yml = _write(tmp_path, "p.yaml", """
+        benchmark: hle
+        backend: claude
+        explore_model: claude-sonnet-4-6
+        cache_dir: /cache/h
+        filters:
+          difficulty: hard
+    """)
+    with pytest.raises(ValidationError, match="difficulty"):
+        load_config(config_path=yml, dot_overrides=[], schema=PrecacheConfig)
