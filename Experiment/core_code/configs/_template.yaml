@@ -2,7 +2,14 @@
 # Annotated template for eval.py. Every field shown here is OPTIONAL unless flagged required.
 
 # === Required ===
-benchmark: hle              # one of: hle, lcb, gpqa, babyvision, aime2025, aime2026, rbenchv
+# Benchmark is a single discriminated block: pick one of hle / gpqa / lcb /
+# babyvision / rbenchv / aime2025 / aime2026 and set name + that benchmark's
+# filter fields (subset, category, domain, difficulty, year, ...). Unknown
+# fields are rejected at validate time. See benchmarks/specs.py for the schema.
+benchmark:
+  name: hle                 # required
+  subset: gold              # HLE-only filter; remove for other benchmarks
+  text_only: true           # HLE-only filter
 backend: claude             # one of: codex, claude, vllm
 explore_model: claude-sonnet-4-6   # required: model for explore sub-calls
 
@@ -30,7 +37,6 @@ num: null
 skip: 0
 seed: 42
 shuffle: false
-filters: {}                 # benchmark-specific (see make_filter_model() per benchmark)
 
 # === Model knobs ===
 budget_tokens: 32000
