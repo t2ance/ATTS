@@ -238,27 +238,29 @@ def test_filters_empty_validates_for_all_benchmarks():
         assert cfg.benchmark.name == name
 
 
-def test_parse_cli_only(tmp_path, monkeypatch):
+def test_parse_cli_yaml_only(tmp_path, monkeypatch):
+    """parse_cli accepts --config alone."""
     import importlib
     import eval as eval_mod
     importlib.reload(eval_mod)
 
-    argv = [
-        "eval.py",
-        "--benchmark", "hle",
-        "--backend", "claude",
-        "--explore-model", "claude-sonnet-4-6",
-        "--method", "self-refine",
-        "--num", "20",
-    ]
-    monkeypatch.setattr("sys.argv", argv)
+    yml = _write(tmp_path, "x.yaml", """
+        benchmark:
+          name: hle
+        backend: claude
+        explore_model: claude-sonnet-4-6
+        method: self-refine
+        num: 20
+    """)
+    monkeypatch.setattr("sys.argv", ["eval.py", "--config", str(yml)])
     cfg = eval_mod.parse_cli()
     assert cfg.benchmark.name == "hle"
     assert cfg.num == 20
     assert cfg.method == "self-refine"
 
 
-def test_parse_cli_with_yaml_and_override(tmp_path, monkeypatch):
+def test_parse_cli_with_overrides(tmp_path, monkeypatch):
+    """-o overrides apply on top of --config; later -o wins."""
     import importlib
     import eval as eval_mod
     importlib.reload(eval_mod)
@@ -277,78 +279,33 @@ def test_parse_cli_with_yaml_and_override(tmp_path, monkeypatch):
           haiku: 8
           sonnet: 8
     """)
-    argv = ["eval.py", "--benchmark", "hle", "--config", str(yml), "-o", "model_budgets.haiku=2", "-o", "seed=99"]
+    argv = ["eval.py", "--config", str(yml), "-o", "model_budgets.haiku=2", "-o", "seed=99"]
     monkeypatch.setattr("sys.argv", argv)
     cfg = eval_mod.parse_cli()
     assert cfg.model_budgets == {"haiku": 2, "sonnet": 8}
     assert cfg.seed == 99
 
 
-def test_cli_filter_flag_preserves_yaml_filter_siblings(tmp_path, monkeypatch):
-    """C1 regression: CLI --category should NOT erase YAML's subset/text_only."""
+def test_parse_cli_rejects_unknown_flag(tmp_path, monkeypatch):
+    """Removed flat flags like --benchmark must be rejected."""
     import importlib
     import eval as eval_mod
     importlib.reload(eval_mod)
 
     yml = _write(tmp_path, "x.yaml", """
-        benchmark:
-          name: hle
-          subset: gold
-          text_only: true
+        benchmark: {name: hle}
         backend: claude
-        explore_model: claude-sonnet-4-6
+        explore_model: m
         method: self-refine
     """)
-    argv = ["eval.py", "--benchmark", "hle", "--config", str(yml), "--category", "physics"]
+    argv = ["eval.py", "--config", str(yml), "--benchmark", "hle"]
     monkeypatch.setattr("sys.argv", argv)
-    cfg = eval_mod.parse_cli()
-    assert cfg.benchmark.subset == "gold"
-    assert cfg.benchmark.text_only is True
-    assert cfg.benchmark.category == "physics"
-
-
-def test_cli_cache_dirs_single_path_routes_to_cache_dir(tmp_path, monkeypatch):
-    """C2 regression: legacy --cache-dirs <single-path> still works post-rename-revert."""
-    import importlib
-    import eval as eval_mod
-    importlib.reload(eval_mod)
-
-    argv = [
-        "eval.py",
-        "--benchmark", "hle",
-        "--backend", "claude",
-        "--explore-model", "claude-sonnet-4-6",
-        "--method", "self-refine",
-        "--cache-dirs", "/some/cache/path",
-    ]
-    monkeypatch.setattr("sys.argv", argv)
-    cfg = eval_mod.parse_cli()
-    assert cfg.cache_dir == Path("/some/cache/path")
-    assert cfg.cache_dirs == {}
-
-
-def test_cli_cache_dirs_with_colons_rejects(tmp_path, monkeypatch):
-    """C2: legacy multi-cache string form must error, point to YAML."""
-    import importlib
-    import eval as eval_mod
-    importlib.reload(eval_mod)
-
-    argv = [
-        "eval.py",
-        "--benchmark", "hle",
-        "--backend", "claude",
-        "--explore-model", "claude-sonnet-4-6",
-        "--method", "tts-agent-multi",
-        "--orchestrator-model", "x",
-        "--cache-dirs", "haiku:/cache/a,sonnet:/cache/b",
-    ]
-    monkeypatch.setattr("sys.argv", argv)
-    with pytest.raises(AssertionError, match="multi-model cache dicts must come from"):
+    with pytest.raises(SystemExit):
         eval_mod.parse_cli()
 
 
-def test_o_override_beats_cli_filter_flag(tmp_path, monkeypatch):
-    """Documented precedence: -o (highest) wins over CLI filter flags (--subset etc.)."""
+def test_o_override_targets_benchmark_field(tmp_path, monkeypatch):
+    """-o benchmark.subset=X reaches the discriminated spec."""
     import importlib
     import eval as eval_mod
     importlib.reload(eval_mod)
@@ -360,13 +317,7 @@ def test_o_override_beats_cli_filter_flag(tmp_path, monkeypatch):
         explore_model: claude-sonnet-4-6
         method: self-refine
     """)
-    argv = [
-        "eval.py",
-        "--benchmark", "hle",
-        "--config", str(yml),
-        "--subset", "gold",
-        "-o", "benchmark.subset=revision",
-    ]
+    argv = ["eval.py", "--config", str(yml), "-o", "benchmark.subset=revision"]
     monkeypatch.setattr("sys.argv", argv)
     cfg = eval_mod.parse_cli()
     assert cfg.benchmark.subset == "revision"

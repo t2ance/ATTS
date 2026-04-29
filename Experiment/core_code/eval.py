@@ -601,80 +601,30 @@ async def evaluate(
 # ---------------------------------------------------------------------------
 
 def parse_cli() -> "EvalConfig":
-    """Build EvalConfig from CLI: --config FILE.yaml + flat flags + -o key=value overrides.
+    """Build EvalConfig from --config FILE.yaml + -o dot.path=value overrides.
 
-    Precedence: YAML < flat CLI flags < dot-path overrides. Dict-typed fields
-    (cache_dirs, model_budgets, effort_budgets) are NOT exposed as flat flags;
-    they must come from --config or -o.
+    YAML is the single source of truth. The only CLI flags are --config and -o.
     """
     from eval_config import load_config, EvalConfig
 
-    base = argparse.ArgumentParser(add_help=False)
-    base.add_argument("--benchmark", type=str, required=True,
-                      help="Benchmark name (hle, lcb, gpqa, babyvision, aime2025, aime2026, rbenchv)")
-    base.add_argument("--config", type=str, default=None, help="Path to YAML config")
-    known, _ = base.parse_known_args()
-    benchmark = get_benchmark(known.benchmark)
-
-    parser = argparse.ArgumentParser(
-        description=f"Evaluate TTS agent on {benchmark.name.upper()}",
-        parents=[base],
-    )
-    benchmark.add_dataset_args(parser)
-    benchmark.add_model_args(parser)
-    parser.add_argument("--verbose", action="store_true", default=None)
-    parser.add_argument("--resume", type=str, default=None, metavar="RUN_DIR")
-    parser.add_argument("--log-dir", type=str, default=None)
-    parser.add_argument("--method", type=str, default=None,
-                        choices=["tts-agent", "tts-agent-multi", "tts-agent-effort",
-                                 "self-refine", "socratic-self-refine", "budget-forcing",
-                                 "rerank", "standalone-integrator"])
-    parser.add_argument("--reward-model", type=str, default=None)
-    parser.add_argument("--orchestrator-model", type=str, default=None)
-    parser.add_argument("--integrate-model", type=str, default=None)
-    parser.add_argument("--no-cache-only", action="store_true", default=None)
-    parser.add_argument("--timeout", type=float, default=None)
-    parser.add_argument("--no-integrate", action="store_true", default=None)
-    parser.add_argument("--exploration-effort", type=str, default=None,
-                        choices=["low", "medium", "high"])
-    parser.add_argument("--num-rollouts", type=int, default=None)
+    parser = argparse.ArgumentParser(description="Evaluate TTS agent")
+    parser.add_argument("--config", type=str, required=True,
+                        help="Path to YAML config")
     parser.add_argument("-o", "--override", action="append", default=[],
-                        help="Dot-path override, e.g. -o model_budgets.haiku=2")
-
+                        help="Dot-path override, e.g. -o benchmark.subset=gold")
     args = parser.parse_args()
-
-    # Strip None values (so they don't override YAML defaults), and route filter
-    # keys + the legacy --cache-dirs flag into per-key dot-path overrides so each
-    # CLI value merges with (rather than replaces) the YAML's benchmark / dict.
-    flat_kvs: list[str] = [f"benchmark.name={known.benchmark}"]
-    extra_dot: list[str] = []
-    for key, val in vars(args).items():
-        if key in ("config", "override", "benchmark"):
-            continue
-        if val is None:
-            continue
-        if key == "cache_dirs":
-            assert ":" not in val, (
-                f"--cache-dirs accepts only a single path; multi-model cache "
-                f"dicts must come from --config FILE.yaml. Got: {val!r}"
-            )
-            flat_kvs.append(f"cache_dir={val}")
-            continue
-        if key in benchmark.filter_keys:
-            extra_dot.append(f"benchmark.{key}={val}")
-        else:
-            flat_kvs.append(f"{key}={val}")
 
     return load_config(
         config_path=args.config,
-        dot_overrides=flat_kvs + extra_dot + list(args.override),
+        dot_overrides=list(args.override),
         schema=EvalConfig,
     )
 
 
 async def async_main() -> None:
     cfg = parse_cli()
-    benchmark = get_benchmark(cfg.benchmark)
+    benchmark = get_benchmark(cfg.benchmark.name)
+    bench_filters = cfg.benchmark.model_dump(exclude={"name"}, exclude_defaults=True)
 
     if cfg.method == "self-refine":
         from methods.self_refine import solve
@@ -724,7 +674,7 @@ async def async_main() -> None:
     all_rows = benchmark.load_dataset()
     print(f"Loaded {len(all_rows)} total questions")
 
-    filtered = benchmark.filter_dataset(all_rows, **cfg.filters)
+    filtered = benchmark.filter_dataset(all_rows, **bench_filters)
     print(f"Filtered to {len(filtered)} questions")
     if not filtered:
         print("No questions match the filter criteria.")
@@ -795,7 +745,7 @@ async def async_main() -> None:
         integrate_model=integrate_model,
         dataset_config={
             "benchmark": benchmark.name,
-            **cfg.filters,
+            **bench_filters,
             "seed": cfg.seed,
             "shuffle": cfg.shuffle,
             "num": cfg.num,
