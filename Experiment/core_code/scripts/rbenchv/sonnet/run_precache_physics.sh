@@ -20,14 +20,7 @@ cd /data3/peijia/dr-claw/Explain/Experiment/core_code
 mkdir -p ../analysis/run/rbenchv/sonnet
 
 PYTHONUNBUFFERED=1 nohup python precache_explores.py \
-	--benchmark rbenchv \
-	--backend claude \
-	--category Physics \
-	--cache-dirs ../analysis/cache/rbenchv/sonnet \
-	--num-explores 8 \
-	--num-workers 1 \
-	--seed 42 \
-	--explore-model claude-sonnet-4-6 \
+	--config configs/rbenchv_sonnet_precache_physics.yaml \
 	>> ../analysis/run/rbenchv/sonnet/precache_physics.log 2>&1 &
 
 echo "Launched. PID=$!"

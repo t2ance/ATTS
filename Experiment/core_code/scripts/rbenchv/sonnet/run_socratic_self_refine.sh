@@ -18,19 +18,8 @@ cd /data3/peijia/dr-claw/Explain/Experiment/core_code
 
 mkdir -p ../analysis/run/rbenchv/sonnet_socratic_self_refine
 
-PYTHONUNBUFFERED=1 nohup python eval.py --benchmark rbenchv \
-	--backend claude \
-	--method socratic-self-refine \
-	--category Physics \
-	--seed 42 \
-	--num-explores 8 \
-	--num-workers 4 \
-	--log-dir ../analysis/run/rbenchv/sonnet_socratic_self_refine \
-	--orchestrator-model claude-sonnet-4-6 \
-	--explore-model claude-sonnet-4-6 \
-	--integrate-model claude-sonnet-4-6 \
-	--no-cache-only \
-	--cache-dirs ../analysis/cache/rbenchv/sonnet_socratic_self_refine \
+PYTHONUNBUFFERED=1 nohup python eval.py \
+	--config configs/rbenchv_sonnet_socratic_self_refine.yaml \
 	>> ../analysis/run/rbenchv/sonnet_socratic_self_refine/socratic_self_refine.log 2>&1 &
 
 echo "Launched. PID=$!"

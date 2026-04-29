@@ -5,11 +5,5 @@ unset CLAUDECODE 2>/dev/null || true
 
 cd /data3/peijia/dr-claw/Explain/Experiment/core_code
 PYTHONUNBUFFERED=1 nohup python precache_explores.py \
-	--benchmark aime2025 \
-	--backend claude \
-	--cache-dirs ../analysis/cache/aime2025/sonnet \
-	--num-explores 8 \
-	--num-workers 8 \
-	--seed 42 \
-	--explore-model claude-sonnet-4-6 \
+	--config configs/aime2025_sonnet_precache.yaml \
 	> ../analysis/run/aime2025/sonnet/precache.log 2>&1 &

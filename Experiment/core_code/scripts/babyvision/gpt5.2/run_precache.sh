@@ -6,12 +6,5 @@ unset CLAUDECODE 2>/dev/null || true
 cd /data3/peijia/dr-claw/Explain/Experiment/core_code
 mkdir -p ../analysis/run/babyvision/gpt5.2_no_integrate_high
 PYTHONUNBUFFERED=1 nohup python precache_explores.py \
-	--benchmark babyvision \
-	--backend codex \
-	--cache-dirs ../analysis/cache/babyvision/gpt5.2 \
-	--num-explores 8 \
-	--num-workers 1 \
-	--seed 42 \
-	--explore-model gpt-5.2 \
-	--effort low \
+	--config configs/babyvision_gpt5.2_precache.yaml \
 	> ../analysis/run/babyvision/gpt5.2_no_integrate_high/precache.log 2>&1 &

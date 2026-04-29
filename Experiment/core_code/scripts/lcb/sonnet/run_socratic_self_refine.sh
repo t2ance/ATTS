@@ -24,19 +24,10 @@ cd /data3/peijia/dr-claw/Explain/Experiment/core_code
 
 mkdir -p ../analysis/run/lcb/sonnet_socratic_self_refine
 
-PYTHONUNBUFFERED=1 nohup python eval.py --benchmark lcb \
-	--backend claude \
-	--method socratic-self-refine \
-	--seed 42 \
-	--num-explores 8 \
-	--num-workers 1 \
-	--log-dir ../analysis/run/lcb/sonnet_socratic_self_refine \
-	--orchestrator-model claude-sonnet-4-6 \
-	--explore-model claude-sonnet-4-6 \
-	--integrate-model claude-sonnet-4-6 \
-	--no-cache-only \
-	--cache-dirs ../analysis/cache/lcb/sonnet_socratic_self_refine \
-	--resume ../analysis/run/lcb/sonnet_socratic_self_refine/run_20260428_163748 \
+# --resume <RUN_DIR> stays as a CLI override (per-launch, not per-config) via -o.
+PYTHONUNBUFFERED=1 nohup python eval.py \
+	--config configs/lcb_sonnet_socratic_self_refine.yaml \
+	-o resume=../analysis/run/lcb/sonnet_socratic_self_refine/run_20260428_163748 \
 	>> ../analysis/run/lcb/sonnet_socratic_self_refine/socratic_self_refine.log 2>&1 &
 
 echo "Launched. PID=$!"

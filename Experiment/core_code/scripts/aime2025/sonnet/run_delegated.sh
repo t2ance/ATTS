@@ -4,15 +4,8 @@ set -euo pipefail
 unset CLAUDECODE 2>/dev/null || true
 
 cd /data3/peijia/dr-claw/Explain/Experiment/core_code
-PYTHONUNBUFFERED=1 nohup python eval.py --benchmark aime2025 \
-	--backend claude \
-	--seed 42 \
-	--num-explores 8 \
-	--num-workers 16 \
-	--log-dir ../analysis/run/aime2025/sonnet \
-	--orchestrator-model claude-sonnet-4-6 \
-	--explore-model claude-sonnet-4-6 \
-	--integrate-model claude-sonnet-4-6 \
-	--cache-dirs ../analysis/cache/aime2025/sonnet \
-	--resume ../analysis/run/aime2025/sonnet/run_20260308_161617 \
+# --resume <RUN_DIR> stays as a CLI override (per-launch, not per-config) via -o.
+PYTHONUNBUFFERED=1 nohup python eval.py \
+	--config configs/aime2025_sonnet_delegated.yaml \
+	-o resume=../analysis/run/aime2025/sonnet/run_20260308_161617 \
 	> ../analysis/run/aime2025/sonnet/delegated.log 2>&1 &

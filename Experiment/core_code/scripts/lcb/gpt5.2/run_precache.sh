@@ -9,12 +9,5 @@ conda activate explain
 export PYTHONPATH="../code_references/LiveCodeBench:${PYTHONPATH:-}"
 mkdir -p ../analysis/run/lcb/gpt5.2_no_integrate_high
 PYTHONUNBUFFERED=1 nohup python precache_explores.py \
-	--benchmark lcb \
-	--backend codex \
-	--cache-dirs ../analysis/cache/lcb/gpt5.2 \
-	--num-explores 8 \
-	--num-workers 1 \
-	--seed 42 \
-	--explore-model gpt-5.2 \
-	--effort low \
+	--config configs/lcb_gpt5.2_precache.yaml \
 	> ../analysis/run/lcb/gpt5.2_no_integrate_high/precache.log 2>&1 &
