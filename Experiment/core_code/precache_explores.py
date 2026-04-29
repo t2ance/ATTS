@@ -5,7 +5,7 @@ saving structured results + trajectories to disk. These can then be replayed
 by the orchestrator via --cache-dir.
 
 Usage:
-    python precache_explores.py --benchmark hle --config configs/precache_hle.yaml \
+    python precache_explores.py --config configs/precache_hle.yaml \
         -o num_explores=4 -o num=10
 """
 
@@ -15,9 +15,12 @@ import argparse
 import asyncio
 import os
 import sys
+from pathlib import Path
+from typing import Literal
+
+from pydantic import BaseModel
 
 os.environ.pop("CLAUDECODE", None)
-from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
@@ -25,7 +28,27 @@ if str(ROOT_DIR) not in sys.path:
 
 from benchmarks import get_benchmark
 from benchmarks.base import BenchmarkConfig
+from benchmarks.specs import BenchmarkSpec
 from methods.base import make_sub_model_caller
+
+
+class PrecacheConfig(BaseModel):
+    model_config = {"extra": "forbid", "arbitrary_types_allowed": False}
+
+    benchmark: BenchmarkSpec
+    backend: Literal["codex", "claude", "vllm"]
+    explore_model: str
+    cache_dir: Path
+
+    num_explores: int = 8
+    num_workers: int = 1
+    num: int | None = None
+    skip: int = 0
+    seed: int = 42
+    shuffle: bool = False
+    budget_tokens: int = 32000
+    effort: Literal["low", "medium", "high", "max"] = "low"
+    explore_timeout: float = 1200.0
 
 
 async def precache(
@@ -131,7 +154,6 @@ async def precache(
 
 def parse_cli() -> "PrecacheConfig":
     """Build PrecacheConfig from --config + -o overrides only."""
-    from precache_config import PrecacheConfig
     from eval import load_config
 
     parser = argparse.ArgumentParser(description="Pre-cache explore results")

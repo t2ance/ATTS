@@ -10,7 +10,7 @@ import pytest
 import yaml
 from pydantic import ValidationError
 from eval import load_config
-from precache_config import PrecacheConfig
+from precache_explores import PrecacheConfig
 
 
 def _write(tmp_path, name, body):
