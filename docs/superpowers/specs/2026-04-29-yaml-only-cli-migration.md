@@ -145,21 +145,11 @@ Write `Experiment/core_code/scripts/migrate_eval_scripts.py` (one-shot tool, del
 
 **Arg → YAML key map** (precache_explores.py): same as eval.py minus `method` / orchestrator / integrate / reward / multi-cache / budgets / exploration_effort / num_rollouts / no_integrate / verbose / resume / log_dir / max_output_chars / no_cache_only / timeout. The 14 fields from `PrecacheConfig`.
 
-### Renames in existing 18 YAMLs
+### Existing 18 YAMLs
 
-The current `configs/` has two `_v2` / dual-named pairs that encode real semantic distinctions (verified by diff):
+Untouched. No renames, no consolidations, no deletions. The 17 concrete configs and `_template.yaml` retain their current filenames and contents. Migration only ADDS new YAMLs for the 55 unmigrated shell scripts.
 
-- `gpqa_multi_delegated_v2.yaml` differs from `gpqa_multi_effort_high.yaml`: the former has NO `exploration_effort`, the latter has `exploration_effort: high`.
-- `gpqa_multi_delegated_effort_high.yaml` differs from `gpqa_multi_effort_high.yaml`: only by `log_dir` (`..._effort_high` vs `..._effort_high_v2`).
-
-Renames during migration:
-
-| Current | New | Reason |
-|---|---|---|
-| `gpqa_multi_delegated_v2.yaml` | `gpqa_multi_delegated_freeform.yaml` | "freeform" = no `exploration_effort` set; "v2" was a launcher-version suffix not a semantic distinction |
-| `gpqa_multi_delegated_effort_high.yaml` | (consolidated; delete the file) | Identical to `gpqa_multi_effort_high.yaml` modulo log_dir. The shell script for `run_delegated_effort_high.sh` after migration points to `configs/gpqa_multi_effort_high.yaml` with `-o log_dir=../analysis/run/gpqa/multi_model_effort_high` to override the suffixed log_dir. Net: one fewer YAML. |
-
-The 16 other existing YAMLs keep their names.
+(Earlier proposal to rename `gpqa_multi_delegated_v2.yaml` and consolidate `gpqa_multi_delegated_effort_high.yaml` was rejected by the user 2026-04-29: keep historical names as-is.)
 
 ### Test changes
 
@@ -193,8 +183,6 @@ Total expected after migration: 24 (current) - 4 dropped + 2 new = **22 tests** 
 | CREATE | `Experiment/core_code/tests/test_precache_config.py` |
 | CREATE then DELETE | `Experiment/core_code/scripts/migrate_eval_scripts.py` |
 | CREATE | `Experiment/core_code/configs/<55 new YAMLs>` |
-| RENAME | `configs/gpqa_multi_delegated_v2.yaml` → `configs/gpqa_multi_delegated_freeform.yaml` |
-| DELETE | `configs/gpqa_multi_delegated_effort_high.yaml` (consolidated) |
 | MODIFY | All 73 shell scripts under `Experiment/core_code/scripts/` (thin wrappers) |
 | MODIFY | `Experiment/core_code/CLAUDE.md` (rewrite eval.py configuration section) |
 
@@ -238,26 +226,36 @@ Git workflow: per the user's CLAUDE.md rule, all work happens directly on `main`
 
 ## Testing strategy
 
-1. **Unit tests for `PrecacheConfig`**: schema, loader, filter validation, dot-path override. 4 tests.
+1. **Unit tests for `PrecacheConfig`**: schema, loader, filter validation, dot-path override. 4 tests in `tests/test_precache_config.py`.
 2. **Updated `test_eval_config.py`**: 24 existing - 4 stale + 2 new = 22 tests.
-3. **End-to-end smoke**: pick 1 representative migrated YAML per benchmark family (5 YAMLs), parse-only invoke `parse_cli`, assert no exception.
-4. **Dry-parse harness from Task 8**: re-run on all 73 migrated `.sh` files, assert 0 failures.
-5. **broad pytest suite**: must stay green (43 tests previously passing).
+3. **Migration safety tests**: 9 tests in `tests/test_migrate_scripts.py` (R1-R9 from §Risks). Each is a hard gate.
+4. **End-to-end smoke**: pick 1 representative migrated YAML per benchmark family (5 YAMLs), parse-only invoke `parse_cli`, assert no exception.
+5. **Dry-parse harness from Task 8**: re-run on all 73 migrated `.sh` files, assert 0 failures.
+6. **broad pytest suite**: must stay green (43 + 4 PrecacheConfig + 9 migration = ~56 tests after migration).
+
+`tests/test_migrate_scripts.py` is itself deleted after the migration script self-deletes; it's also a one-shot artifact (the tests are about validating the migration, not about the long-term codebase). This is part of "no traces left".
 
 ## Open questions
 
 None. (`precache_explores.py` scope: confirmed in. Self-deleting migration script: confirmed. v2-name cleanup: confirmed.)
 
-## Risks
+## Risks — verified by test, not predicted
 
-| Risk | Likelihood | Mitigation |
-|---|---|---|
-| Migration script `shlex.split` mishandles edge-case shell quoting (backticks, `${VAR}` inside argv) | Low (verified 0/73 scripts use vars in argv) | Hard-fail on unparseable; user manually migrates that one |
-| YAML filename collision after path-flatten | Low (paths verified unique) | Hard-fail on collision |
-| precache_explores.py callers (other than shell scripts) | Unknown | Grep verifies no other callers (`grep -r "precache_explores" Experiment/`) before deleting `parse_args` |
-| `cache_dir: Path` required in PrecacheConfig but a script omits it | Low (existing scripts always pass `--cache-dirs`) | Pydantic validation hard-fails the YAML load; user updates YAML |
-| async_main reads `cfg.filters` but new validator emits `exclude_defaults=True` (drop unset keys) | None | This is current behavior on main; no change |
-| Loader extraction (generic schema arg) breaks existing tests | Medium | `eval_config.load_config` keeps current signature; new schema-generic helper sits one layer beneath |
+Each risk below is paired with an executable test that determines whether the risk is real BEFORE it can break production. Predictions are explicitly excluded; the migration plan only proceeds past each risk after its test passes.
+
+| # | Risk | Verifying test | Test location |
+|---|---|---|---|
+| R1 | `shlex.split` cannot parse one of the 73 shell scripts (edge quoting, heredoc, `<()`) | Run `migrate_eval_scripts.py --dry-run` on all 73 scripts; assert each emits a parsed argv list. | `tests/test_migrate_scripts.py::test_dry_run_parses_all_73` |
+| R2 | YAML filename collision after `path → flat_name` flatten | Generate target paths for all 73 scripts; assert `len(set) == 73`. | `tests/test_migrate_scripts.py::test_no_filename_collisions` |
+| R3 | precache_explores.py has external callers beyond shell scripts | Grep all `*.py`, `*.ipynb`, `.github/`, `docs/` for `precache_explores`; assert hits are confined to known sites. | `tests/test_migrate_scripts.py::test_no_unknown_callers` |
+| R4 | eval.py has external callers (`from eval import …`) beyond test files | Same grep pattern for `from eval import` / `import eval`; assert only test files match. | `tests/test_migrate_scripts.py::test_no_unknown_eval_importers` |
+| R5 | `cache_dir` required in `PrecacheConfig` but some script omitted `--cache-dirs` | After all `.sh` migrate, run `parse_cli` on each precache YAML; assert no `ValidationError`. | `tests/test_migrate_scripts.py::test_all_precache_yamls_validate` |
+| R6 | Migration script's atomic per-file rename leaves partial state on crash | Run migration script with a forced exception after the 5th file; verify all 5 generated files are intact AND scripts 6-73 are untouched. | `tests/test_migrate_scripts.py::test_partial_failure_safety` |
+| R7 | A script writes argv values that don't map to any known YAML key | After dry-run translation, assert every translated key exists on `EvalConfig` or `PrecacheConfig`. | `tests/test_migrate_scripts.py::test_all_args_have_target_keys` |
+| R8 | Loader extraction (generic schema parameter) breaks existing 24 tests | Run full `pytest tests/` after refactor commit. | Existing test suite |
+| R9 | The 73 dry-parse harness from prior Task 8 still works after migration | Re-run the harness on all 73 newly-rewritten `.sh`. | `tests/test_migrate_scripts.py::test_all_73_sh_dry_parse` |
+
+Each test in `tests/test_migrate_scripts.py` is a hard gate: if it fails, the migration script aborts. No risk is "low likelihood, accept and proceed" — every risk is verified empirically before commit.
 
 ## Success criteria
 
@@ -265,7 +263,7 @@ None. (`precache_explores.py` scope: confirmed in. Self-deleting migration scrip
 - [ ] argparse exposes exactly 3 user-facing flags + `-h`
 - [ ] `benchmarks/base.py` and 6 subclass files have NO `add_dataset_args` / `add_model_args` methods
 - [ ] All 73 shell scripts use `--config FILE.yaml` form
-- [ ] `Experiment/core_code/configs/` contains 72 YAMLs (55 new + 17 retained, after the 2 renames/consolidation)
+- [ ] `Experiment/core_code/configs/` contains 73 YAMLs (55 new + 18 retained including `_template.yaml`)
 - [ ] `migrate_eval_scripts.py` is gone (deleted itself)
 - [ ] `pytest tests/` green
 - [ ] Dry-parse all 73 `.sh` succeeds (0 failures)
