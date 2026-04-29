@@ -169,7 +169,7 @@ The 16 other existing YAMLs keep their names.
 - **Drop**: existing `test_parse_cli_only` (it passes `--num 20` flat; that flag is gone). Replace with a `--config` smoke test.
 - **Add**: 4 tests for `PrecacheConfig` — schema, loader, filter validation, dot-path override.
 
-Total expected after migration: ~22 tests in `test_eval_config.py` + 4 in `test_precache_config.py` = 26.
+Total expected after migration: 24 (current) - 4 dropped + 2 new = **22 tests** in `test_eval_config.py`, plus **4 tests** in `test_precache_config.py` = **26 total**.
 
 ### Documentation
 
@@ -239,7 +239,7 @@ Git workflow: per the user's CLAUDE.md rule, all work happens directly on `main`
 ## Testing strategy
 
 1. **Unit tests for `PrecacheConfig`**: schema, loader, filter validation, dot-path override. 4 tests.
-2. **Updated `test_eval_config.py`**: 21 existing - 4 stale + 2 new = 19 tests.
+2. **Updated `test_eval_config.py`**: 24 existing - 4 stale + 2 new = 22 tests.
 3. **End-to-end smoke**: pick 1 representative migrated YAML per benchmark family (5 YAMLs), parse-only invoke `parse_cli`, assert no exception.
 4. **Dry-parse harness from Task 8**: re-run on all 73 migrated `.sh` files, assert 0 failures.
 5. **broad pytest suite**: must stay green (43 tests previously passing).
