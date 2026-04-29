@@ -1,5 +1,8 @@
 # CLAUDE.md
 
+# Developing
+CRITICAL: NEVER CREATE NEW BRANCH UNTIL THE USER ASK YOU TO DO SO. ESPECIALLY WHEN DEVELOP A NEW FEATURE, DIRECTLY ADD TO THE CURRENT BRANCH.
+
 ## Per-benchmark grading reference
 
 Each benchmark's grading logic is FIXED — we never swap judge models or grading
