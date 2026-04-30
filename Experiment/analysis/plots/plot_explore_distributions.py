@@ -37,7 +37,7 @@ import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]  # dr-claw/Explain
+PROJECT_ROOT = Path(__file__).resolve().parents[3]  # dr-claw/Explain (was parents[2]; pre-existing bug -- file lives under Experiment/analysis/plots, so parents[3] is Explain)
 RUN_DIR = PROJECT_ROOT / "Experiment/analysis/run"
 FIGURES_DIR = PROJECT_ROOT / "Publication/paper/figures"
 
@@ -60,12 +60,14 @@ METHOD_EXTRACTORS = {
     "ATTS":           _from_num_explores,
     "Self-Refine":    _from_num_explores,
     "Budget Forcing": _from_num_explores,
+    "Socratic Self-Refine": _from_num_explores,
 }
 
 METHOD_COLORS = {
     "ATTS":           "#4C78A8",  # blue   -- default ATTS (no integrator)
     "Self-Refine":    "#54A24B",  # green  -- iterative critic-revise
     "Budget Forcing": "#E45756",  # red    -- forced N rounds with "Wait"
+    "Socratic Self-Refine": "#2E7D32",  # dark green -- match scatter plot
 }
 
 # Cache namespace -> method label. The cache namespace is the name under
@@ -75,6 +77,16 @@ NAMESPACE_FOR_METHOD = {
     "ATTS":           "sonnet_no_integrate",
     "Self-Refine":    "sonnet_self_refine",
     "Budget Forcing": "sonnet_budget_forcing",
+    "Socratic Self-Refine": "sonnet_socratic_self_refine",
+}
+
+# Per-(method, benchmark) panels that should NOT be plotted because the
+# run is incomplete. Listed explicitly so a partial-run histogram is never
+# silently passed off as a finished distribution.
+INCOMPLETE_PANELS: set[tuple[str, str]] = {
+    ("Socratic Self-Refine", "lcb"),
+    ("Socratic Self-Refine", "gpqa"),
+    ("Socratic Self-Refine", "babyvision"),
 }
 
 BENCHMARKS = [
@@ -146,11 +158,51 @@ def _fill_method_row(axes_row, method: str) -> None:
         _draw_histogram(ax, counts, title, METHOD_COLORS[method], font_scale=2.0)
 
 
+def _draw_blank(ax: plt.Axes, title: str, font_scale: float = 1.0) -> None:
+    """Render an empty placeholder panel for an unfinished run."""
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for s in ax.spines.values():
+        s.set_visible(False)
+    ax.text(0.5, 0.5, "run not finished", ha="center", va="center",
+            transform=ax.transAxes, fontsize=10 * font_scale, color="#888888",
+            style="italic")
+    ax.set_title(title, fontsize=10 * font_scale)
+
+
+def _fill_method_row_with_blanks(axes_row, method: str) -> None:
+    """Like _fill_method_row, but skips panels listed in INCOMPLETE_PANELS."""
+    for ax, (bench_label, bench_dir) in zip(axes_row, BENCHMARKS):
+        title = f"{method} -- {bench_label}"
+        if (method, bench_dir) in INCOMPLETE_PANELS:
+            _draw_blank(ax, title, font_scale=2.0)
+            continue
+        counts = load_counts(bench_dir, method)
+        _draw_histogram(ax, counts, title, METHOD_COLORS[method], font_scale=2.0)
+
+
 def plot_atts_sr_stacked(out_stem: Path) -> None:
     """2 rows x 4 benchmarks: row 0 = ATTS, row 1 = Self-Refine. Single shared figure."""
     fig, axes = plt.subplots(2, 4, figsize=(22, 10.4))
     _fill_method_row(axes[0], "ATTS")
     _fill_method_row(axes[1], "Self-Refine")
+    fig.tight_layout()
+    fig.savefig(f"{out_stem}.pdf")
+    fig.savefig(f"{out_stem}.png", dpi=200)
+    plt.close(fig)
+
+
+def plot_atts_sr_ssc_stacked(out_stem: Path) -> None:
+    """3 rows x 4 benchmarks: ATTS / Self-Refine / Socratic Self-Refine.
+
+    Socratic Self-Refine row only has the HLE panel filled today; the other
+    three benchmarks are still running and are rendered as blank placeholders
+    so the row is structurally present but does not falsely report data.
+    """
+    fig, axes = plt.subplots(3, 4, figsize=(22, 15.6))
+    _fill_method_row(axes[0], "ATTS")
+    _fill_method_row(axes[1], "Self-Refine")
+    _fill_method_row_with_blanks(axes[2], "Socratic Self-Refine")
     fig.tight_layout()
     fig.savefig(f"{out_stem}.pdf")
     fig.savefig(f"{out_stem}.png", dpi=200)
@@ -165,17 +217,20 @@ def main() -> None:
     # reference does not need to change. Budget Forcing intentionally omitted:
     # its distribution is degenerate at T=8 by construction (see Section App E).
     out = FIGURES_DIR / "explore_distribution_all"
-    plot_atts_sr_stacked(out)
-    print(f"Saved: {out}.pdf  (ATTS + Self-Refine, 2x4 stacked, shared caption)")
+    plot_atts_sr_ssc_stacked(out)
+    print(f"Saved: {out}.pdf  (3x4 stacked: ATTS / Self-Refine / Socratic Self-Refine)")
 
     print("\nDistribution summary (mean explore-count per question):")
     methods = list(METHOD_EXTRACTORS.keys())
-    print(f"  {'benchmark':16s}  " + "  ".join(f"{m:>14s}" for m in methods))
+    print(f"  {'benchmark':16s}  " + "  ".join(f"{m:>22s}" for m in methods))
     for bench_label, bench_dir in BENCHMARKS:
         means = []
         for method in methods:
+            if (method, bench_dir) in INCOMPLETE_PANELS:
+                means.append(f"{'(unfinished)':>22s}")
+                continue
             counts = load_counts(bench_dir, method)
-            means.append(f"{sum(counts)/len(counts):>14.2f}")
+            means.append(f"{sum(counts)/len(counts):>22.2f}")
         print(f"  {bench_label:16s}  " + "  ".join(means))
 
 

@@ -19,7 +19,7 @@ cd /data3/peijia/dr-claw/Explain/Experiment/core_code
 
 mkdir -p ../analysis/run/rbenchv/sonnet
 
-PYTHONUNBUFFERED=1 nohup python precache_explores.py \
+PYTHONUNBUFFERED=1 nohup conda run -n explain --no-capture-output python precache_explores.py \
 	--config scripts/rbenchv/sonnet/rbenchv_sonnet_precache_physics.yaml \
 	>> ../analysis/run/rbenchv/sonnet/precache_physics.log 2>&1 &
 

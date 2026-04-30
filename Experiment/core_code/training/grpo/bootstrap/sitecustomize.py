@@ -202,6 +202,128 @@ def _install_hf_push_patch() -> None:
     _logger.info("RayPPOTrainer._save_checkpoint patched for HF push -> %s", repo_id)
 
 
+def _install_lora_qkv_patch() -> None:
+    """vllm#36372 / #36478 backport: bounds-checked slice_lora_b + set_lora,
+    plus GQA-aware create_lora_weights override for MergedQKVParallelLinearWithLoRA.
+
+    Bug class: enable_lora=True on Qwen3_5ForConditionalGeneration (and any GQA
+    model with Q output dim != K/V output dim) crashes during
+    profile_cudagraph_memory -> maybe_dummy_run_with_lora with one of:
+      (A) IndexError: list index out of range  (PR#36395, merged 2026-04-17)
+      (B) IndexError: too many indices for tensor of dimension 1  (PR#36603, open)
+          OR RuntimeError: size of tensor a must match size of tensor b
+          at non-singleton dimension 0
+    Phase 0.3 dummy load on Qwen3.6-27B (TP=2 + LoRA + enforce_eager=False)
+    reproduces (B) at column_parallel_linear.py:259 slice_lora_b.
+
+    Without this patch the only workaround is enforce_eager=True, which costs
+    ~50% rollout decode throughput because CUDA graph capture is bypassed.
+    With this patch enforce_eager can return to False -> CUDA graphs restored ->
+    measured power gate climbs from ~107 W to >150 W (target).
+
+    Refs:
+      - vllm#36372: https://github.com/vllm-project/vllm/issues/36372
+      - vllm#36478: https://github.com/vllm-project/vllm/issues/36478
+      - vllm PR#36395 (merged): https://github.com/vllm-project/vllm/pull/36395
+      - vllm PR#36603 (open):  https://github.com/vllm-project/vllm/pull/36603
+
+    Guard: skip in FSDP worker (WG_BACKEND=ray); only patches in vLLMHttpServer
+    actor and its Worker_TP children where vLLM model load actually runs.
+    """
+    if os.environ.get("WG_BACKEND") == "ray":
+        return
+
+    try:
+        import torch
+        from vllm.distributed.utils import divide
+        from vllm.lora.layers.column_parallel_linear import (
+            MergedColumnParallelLinearWithLoRA,
+            MergedQKVParallelLinearWithLoRA,
+        )
+    except ImportError:
+        return
+
+    if getattr(MergedColumnParallelLinearWithLoRA, "_lora_qkv_patched", False):
+        return
+
+    # Patch A1: slice_lora_b — guard `lora_b[i]` with `i < len(lora_b)`.
+    def _patched_slice_lora_b(self, lora_b):
+        sliced_lora_b = [None] * self.n_slices
+        for i, (shard_id, shard_size) in enumerate(
+            zip(self.output_ids, self.output_slices)
+        ):
+            if i < len(lora_b) and (lora_b_i := lora_b[i]) is not None:
+                sliced_lora_b[i] = lora_b_i[
+                    shard_size * shard_id : shard_size * (shard_id + 1), :
+                ]
+        return sliced_lora_b
+
+    # Patch A2: set_lora — iterate via zip(strict=False) instead of range(n_slices)
+    # so that lora_a/lora_b shorter than n_slices doesn't raise IndexError.
+    def _patched_set_lora(self, index, lora_a, lora_b):
+        self.reset_lora(index)
+        if self.tp_size > 1:
+            lora_a = self.slice_lora_a(lora_a)
+            lora_b = self.slice_lora_b(lora_b)
+        for i, (lora_a_i, lora_b_i) in enumerate(
+            zip(lora_a, lora_b, strict=False)
+        ):
+            if lora_a_i is not None:
+                self.lora_a_stacked[i][
+                    index, 0, : lora_a_i.shape[0], : lora_a_i.shape[1]
+                ].copy_(lora_a_i, non_blocking=True)
+            if lora_b_i is not None:
+                self.lora_b_stacked[i][
+                    index, 0, : lora_b_i.shape[0], : lora_b_i.shape[1]
+                ].copy_(lora_b_i, non_blocking=True)
+
+    MergedColumnParallelLinearWithLoRA.slice_lora_b = _patched_slice_lora_b
+    MergedColumnParallelLinearWithLoRA.set_lora = _patched_set_lora
+
+    # Patch B: GQA-aware create_lora_weights override on MergedQKVParallelLinearWithLoRA.
+    # Allocates lora_b_stacked with per-slice output dims (q_proj_shard_size,
+    # kv_proj_shard_size, kv_proj_shard_size) so that set_lora can copy
+    # heterogeneous Q/K/V tensors without shape mismatch on GQA models.
+    def _patched_create_lora_weights(
+        self, max_loras, lora_config, model_config=None
+    ):
+        self.lora_config = lora_config
+        lora_a_output_size_per_partition = (
+            lora_config.max_lora_rank
+            if not lora_config.fully_sharded_loras
+            else divide(lora_config.max_lora_rank, self.tp_size)
+        )
+        self.lora_a_stacked = tuple(
+            torch.zeros(
+                max_loras,
+                1,
+                lora_a_output_size_per_partition,
+                self.input_size,
+                dtype=lora_config.lora_dtype,
+                device=self.device,
+            )
+            for _ in range(self.n_slices)
+        )
+        self.lora_b_stacked = tuple(
+            torch.zeros(
+                max_loras,
+                1,
+                output_size,
+                lora_config.max_lora_rank,
+                dtype=lora_config.lora_dtype,
+                device=self.device,
+            )
+            for output_size in self.output_slices
+        )
+
+    MergedQKVParallelLinearWithLoRA.create_lora_weights = _patched_create_lora_weights
+    MergedColumnParallelLinearWithLoRA._lora_qkv_patched = True
+    _logger.info(
+        "vllm LoRA QKV patches applied (issue #36372/#36478, PR#36395+#36603)"
+    )
+
+
 _install_dp_group_patch()
 _install_patch()
 _install_hf_push_patch()
+_install_lora_qkv_patch()

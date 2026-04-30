@@ -1,0 +1,46 @@
+### Model
+model_name_or_path: Qwen/Qwen3.6-35B-A3B
+trust_remote_code: true
+
+### Method
+stage: sft
+do_train: true
+finetuning_type: lora
+lora_rank: 64
+lora_alpha: 128
+lora_target: all
+
+### Dataset
+dataset_dir: /data3/peijia/dr-claw/Explain/Experiment/core_code/training
+dataset: atts_sft_smoke
+template: qwen3
+cutoff_len: 16384
+
+### Output
+# tmp/ keeps the smoke artifacts out of the canonical checkpoints/ tree.
+output_dir: /data3/peijia/dr-claw/Explain/Experiment/core_code/tmp/sft_smoke_qwen36_35b_a3b
+logging_steps: 1
+save_steps: 5
+overwrite_output_dir: true
+
+### Train
+# 5 train steps is sufficient to verify the pipeline produces a finite loss
+# without burning hours on a real run; smoke goal = no crash, finite loss.
+max_steps: 5
+per_device_train_batch_size: 1
+gradient_accumulation_steps: 8
+learning_rate: 2.0e-4
+lr_scheduler_type: cosine
+warmup_ratio: 0.05
+bf16: true
+gradient_checkpointing: true
+
+### Free-lunch optimizations enabled (per user 2026-04-29)
+# flash-attn 2 for activation memory; verified flash_attn 2.8.3 in env.
+flash_attn: fa2
+# Liger fused kernels (RMSNorm/RoPE/SwiGLU/CE) — saves activation + speed.
+enable_liger_kernel: true
+
+### Logging
+report_to: wandb
+run_name: qwen36-35b-a3b-sft-smoke

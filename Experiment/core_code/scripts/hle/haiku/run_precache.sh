@@ -7,7 +7,7 @@ mkdir -p "$(dirname "$LOG")"
 
 cd /data3/peijia/dr-claw/Explain/Experiment/core_code
 # -o num overrides YAML when NUM is changed above (default in YAML is 400).
-PYTHONUNBUFFERED=1 nohup python precache_explores.py \
+PYTHONUNBUFFERED=1 nohup conda run -n explain --no-capture-output python precache_explores.py \
 	--config scripts/hle/haiku/hle_haiku_precache.yaml \
 	-o num="$NUM" \
 	> "$LOG" 2>&1 &

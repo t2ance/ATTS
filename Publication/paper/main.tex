@@ -212,7 +212,7 @@ Qwen3-Max-Thinking & 48.48 & -- \\
 \groupheader{3}{Test-Time Scaling Methods}
 Pass@1 & 48.00 & 0.50 \\
 Self-Refine & 53.00 & \textbf{0.41} \\
-Socratic Self-Refine & 59.00 & 0.90 \\
+Socratic Self-Refine & 45.00 & 0.90 \\
 Budget Forcing & 51.00 & 0.60 \\
 % Corrected: 10 compaction-failed explores in hle/sonnet/gold cache zeroed (cost_usd -> 0).
 % Skywork/LLM Selection read all 8 explores per question -> all 10 bad explores consumed -> -$79.40.
@@ -774,12 +774,12 @@ The bottom group of Table~\ref{tab:lb-rbenchv} is currently a structural placeho
 \section{Explore-Count Distributions}
 \label{app:explore-distributions}
 
-Figure~\ref{fig:explore-distribution-all} reports how many model calls each per-question trajectory uses, on each of the four main benchmarks, for both \our{} (top row) and the Self-Refine baseline (bottom row). Each panel is a histogram whose $x$-axis is the number of calls used for a question and whose $y$-axis is the number of questions at that count; bar heights are annotated with the exact counts. Panel titles report the method, the benchmark name, the number of evaluated questions $n$, and the mean number of calls per question.
+Figure~\ref{fig:explore-distribution-all} reports how many model calls each per-question trajectory uses, on each of the four main benchmarks, for \our{} (top row), the Self-Refine baseline (middle row), and the Socratic Self-Refine baseline (bottom row). Each panel is a histogram whose $x$-axis is the number of calls used for a question and whose $y$-axis is the number of questions at that count; bar heights are annotated with the exact counts. Panel titles report the method, the benchmark name, the number of evaluated questions $n$, and the mean number of calls per question. Socratic Self-Refine has only finished on HLE-Verified at the time of writing; the other three Socratic Self-Refine panels are left as ``run not finished'' placeholders rather than partial-run histograms.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{figures/explore_distribution_all.pdf}
-\caption{Per-benchmark distribution of the number of model calls used per question, comparing \our{} (top row, blue) against the Self-Refine baseline (bottom row, green). Columns from left to right: HLE-Verified (Gold subset), LiveCodeBench, GPQA-Diamond, BabyVision. Both rows share the same axes and budget cap $T{=}8$, so differences in the observed distributions reflect each method's stopping mechanism. Bar heights are annotated with exact counts; panel titles include the sample size $n$ and the per-question mean. Budget Forcing is omitted because it terminates only at the cap by construction, so its distribution is degenerate at $T{=}8$.}
+\caption{Per-benchmark distribution of the number of model calls used per question, comparing \our{} (top row, blue), the Self-Refine baseline (middle row, light green), and the Socratic Self-Refine baseline (bottom row, dark green). Columns from left to right: HLE-Verified (Gold subset), LiveCodeBench, GPQA-Diamond, BabyVision. All three rows share the same axes and budget cap $T{=}8$, so differences in the observed distributions reflect each method's stopping mechanism. Bar heights are annotated with exact counts; panel titles include the sample size $n$ and the per-question mean. Budget Forcing is omitted because it terminates only at the cap by construction, so its distribution is degenerate at $T{=}8$. The three Socratic Self-Refine panels other than HLE are still pending and rendered as blank placeholders.}
 \label{fig:explore-distribution-all}
 \end{figure}
 

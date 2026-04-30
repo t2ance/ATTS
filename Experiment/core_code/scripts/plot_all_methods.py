@@ -171,6 +171,7 @@ BENCHMARKS = {
         },
         "methods": {
             "Self-Refine": RUN_DIR / "hle/sonnet_self_refine/self_refine.log",
+            "Socratic Self-Refine": RUN_DIR / "hle/sonnet_socratic_self_refine/socratic_self_refine.log",
             "Budget Forcing": RUN_DIR / "hle/sonnet_budget_forcing/budget_forcing.log",
             "Skywork-Reward-V2": RUN_DIR / "hle/sonnet_skywork_rerank/rerank_resume2.log",
         },
@@ -182,6 +183,7 @@ BENCHMARKS = {
 # Baselines: all circles, different colors
 BASELINE_STYLES = {
     "Self-Refine": {"color": "#4CAF50"},
+    "Socratic Self-Refine": {"color": "#2E7D32"},
     "Budget Forcing": {"color": "#9C27B0"},
     "Skywork-Reward-V2": {"color": "#FF5722"},
     "VisualPRM": {"color": "#FF5722"},

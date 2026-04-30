@@ -525,6 +525,18 @@ async def evaluate(
                 )
                 jc += pm_jc
             grade_dir = _rollout_subpath(logger.run_dir / "grading", qid, rec_rollout)
+            # Detect cache-hit BEFORE calling _grade_with_cache so the per-record
+            # log line tells the user "previously graded" vs "freshly judged".
+            # Without this, every resumed record prints the same line regardless
+            # of whether actual work happened, hiding the true progress.
+            judge_key = benchmark.judge_model or "none"
+            final_grade_path = grade_dir / "grade.json"
+            final_cached = False
+            if final_grade_path.exists():
+                try:
+                    final_cached = (json.loads(final_grade_path.read_text(encoding="utf-8")).get("judge_model") == judge_key)
+                except Exception:
+                    final_cached = False
             is_correct, jc_int = await _grade_with_cache(
                 benchmark, predicted, gold_answer, question_text, orig_row,
                 backend=backend, grade_dir=grade_dir,
@@ -532,7 +544,8 @@ async def evaluate(
 
         async with grade_done_lock:
             grade_done_count += 1
-            print(f"  Grading resumed records: {grade_done_count}/{len(done_records)} ({qid})", flush=True)
+            tag = "[cached]" if final_cached else "[judged]"
+            print(f"  Grading resumed records: {grade_done_count}/{len(done_records)} ({qid}) {tag}", flush=True)
 
         return {
             "idx": idx, "cands": cands, "bon_jc": jc,
@@ -582,7 +595,7 @@ async def evaluate(
         qid_label = qid if rollout_idx is None else f"{qid}/rollout_{rollout_idx}"
 
         async with sem:
-            print(f"  [{qid_label}] started")
+            print(f"  [{qid_label}] started at {time.strftime('%Y-%m-%d %H:%M:%S')}")
 
             t0 = time.time()
             image_data_url = benchmark.get_image(row)
@@ -703,7 +716,7 @@ async def evaluate(
             done_so_far = len(all_records)
             status = "correct" if is_correct else "wrong"
             predicted_short = predicted.replace("\n", " ")[:80]
-            print(f"  [{done_so_far}/{total}] {qid_label}: {status}, predicted={predicted_short}, cost=${question_cost}")
+            print(f"  [{done_so_far}/{total}] {qid_label}: {status} at {time.strftime('%Y-%m-%d %H:%M:%S')} ({elapsed:.0f}s), predicted={predicted_short}, cost=${question_cost}")
 
             # Running summary
             metrics = benchmark.compute_metrics(all_candidates, all_integrated, all_subset_labels,

@@ -5,6 +5,6 @@ unset CLAUDECODE 2>/dev/null || true
 
 cd /data3/peijia/dr-claw/Explain/Experiment/core_code
 mkdir -p ../analysis/run/babyvision/sonnet_standalone_integrator
-PYTHONUNBUFFERED=1 nohup python eval.py \
+PYTHONUNBUFFERED=1 nohup conda run -n explain --no-capture-output python eval.py \
 	--config scripts/babyvision/sonnet/babyvision_sonnet_standalone_integrator.yaml \
 	> ../analysis/run/babyvision/sonnet_standalone_integrator/run.log 2>&1 &

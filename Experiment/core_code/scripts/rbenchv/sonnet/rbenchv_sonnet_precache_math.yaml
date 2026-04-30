@@ -1,0 +1,12 @@
+benchmark:
+  name: rbenchv
+  category: Math
+backend: claude
+explore_model: claude-sonnet-4-6
+cache_dir: ../analysis/cache/rbenchv/sonnet
+num_explores: 8
+# Library default: 8. Override to 1 because rbenchv precaches share the same
+# Anthropic per-account rate limit with concurrent socratic-SR jobs (see
+# run_precache_physics.sh). Restore to 8 only when running standalone.
+num_workers: 1
+seed: 42
