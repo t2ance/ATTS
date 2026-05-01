@@ -39,12 +39,22 @@ class SamplingConfig(BaseModel):
     max_tokens: int | None = None
 
 
+class BackendConfig(BaseModel):
+    model_config = {"extra": "forbid"}
+    name: Literal["codex", "claude", "vllm"]
+    budget_tokens: int = 32000
+    effort: Literal["low", "medium", "high", "max"] = "low"
+    timeout: float = 1200.0
+    max_output_tokens: int | None = None
+
+
 class _MethodSpec(BaseModel):
     model_config = {"extra": "forbid"}
 
 
 class TTSAgentSpec(_MethodSpec):
     name: Literal["tts-agent"]
+    backend: BackendConfig
     orchestrator_model: str
     explore_model: str
     integrate_model: str | None = None
@@ -65,6 +75,7 @@ class TTSAgentSpec(_MethodSpec):
 
 class TTSAgentMultiSpec(_MethodSpec):
     name: Literal["tts-agent-multi"]
+    backend: BackendConfig
     orchestrator_model: str
     cache_dirs: dict[str, Path]
     model_budgets: dict[str, int]
@@ -74,6 +85,7 @@ class TTSAgentMultiSpec(_MethodSpec):
 
 class TTSAgentEffortSpec(_MethodSpec):
     name: Literal["tts-agent-effort"]
+    backend: BackendConfig
     orchestrator_model: str
     explore_model: str
     cache_dirs: dict[str, Path]
@@ -83,6 +95,7 @@ class TTSAgentEffortSpec(_MethodSpec):
 
 class SelfRefineSpec(_MethodSpec):
     name: Literal["self-refine"]
+    backend: BackendConfig
     explore_model: str
     cache_dir: Path
     num_explores: int = 8
@@ -90,6 +103,7 @@ class SelfRefineSpec(_MethodSpec):
 
 class SocraticSelfRefineSpec(_MethodSpec):
     name: Literal["socratic-self-refine"]
+    backend: BackendConfig
     explore_model: str
     cache_dir: Path
     num_explores: int = 8
@@ -97,6 +111,7 @@ class SocraticSelfRefineSpec(_MethodSpec):
 
 class BudgetForcingSpec(_MethodSpec):
     name: Literal["budget-forcing"]
+    backend: BackendConfig
     explore_model: str
     cache_dir: Path
     num_explores: int = 8
@@ -112,6 +127,7 @@ class RerankSpec(_MethodSpec):
 
 class StandaloneIntegratorSpec(_MethodSpec):
     name: Literal["standalone-integrator"]
+    backend: BackendConfig
     integrate_model: str
     cache_dir: Path
     # No explore_model / num_explores: reads cached explores, single integrate call.
