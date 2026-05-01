@@ -191,3 +191,96 @@ def test_copy_processes_many_qids(tmp_path):
     mig.run(cache_root=cache, phase="copy", limit=None)
     bundles = list(cache.rglob("judges/claude__claude-haiku-4-5-20251001/grade.json"))
     assert len(bundles) == 9
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: cleanup (only after copy + smoke eval verification pass)
+# ---------------------------------------------------------------------------
+
+def test_cleanup_removes_legacy_after_copy(tmp_path):
+    cache = tmp_path / "cache"
+    explore = cache / "qid1" / "explore_1"
+    _make_legacy_explore(explore)
+    mig.run(cache_root=cache, phase="copy", limit=None)
+    # Pre-cleanup: both legacy and bundle exist.
+    assert (explore / "grade.json").exists()
+    assert (explore / "judge").exists()
+    mig.run(cache_root=cache, phase="cleanup", limit=None)
+    # Post-cleanup: legacy removed, bundle intact.
+    assert not (explore / "grade.json").exists()
+    assert not (explore / "judge").exists()
+    bundle = explore / "judges" / "claude__claude-haiku-4-5-20251001"
+    assert (bundle / "grade.json").exists()
+    assert (bundle / "input.md").exists()
+    assert (bundle / "output.md").exists()
+    assert (bundle / "result.json").exists()
+    assert (bundle / "config.json").exists()
+
+
+def test_cleanup_skips_explore_with_incomplete_bundle(tmp_path, capsys):
+    cache = tmp_path / "cache"
+    explore = cache / "qid1" / "explore_1"
+    _make_legacy_explore(explore)
+    mig.run(cache_root=cache, phase="copy", limit=None)
+    # Corrupt the bundle: delete config.json. Cleanup must refuse to delete legacy.
+    bundle = explore / "judges" / "claude__claude-haiku-4-5-20251001"
+    (bundle / "config.json").unlink()
+    mig.run(cache_root=cache, phase="cleanup", limit=None)
+    # Legacy preserved for manual inspection.
+    assert (explore / "grade.json").exists()
+    assert (explore / "judge").exists()
+    captured = capsys.readouterr()
+    assert "skipped" in captured.out.lower()
+
+
+def test_cleanup_no_op_if_copy_never_ran(tmp_path):
+    """Without phase copy, cleanup must not delete legacy files."""
+    cache = tmp_path / "cache"
+    explore = cache / "qid1" / "explore_1"
+    _make_legacy_explore(explore)
+    mig.run(cache_root=cache, phase="cleanup", limit=None)
+    assert (explore / "grade.json").exists()
+    assert (explore / "judge").exists()
+
+
+def test_cleanup_skips_when_config_model_mismatches(tmp_path, capsys):
+    """If somebody hand-edited config.json to point at a different model
+    after copy, cleanup must NOT delete the legacy under that model's
+    inferred label (validation must catch the drift)."""
+    cache = tmp_path / "cache"
+    explore = cache / "qid1" / "explore_1"
+    _make_legacy_explore(explore, judge_model="claude-haiku-4-5-20251001")
+    mig.run(cache_root=cache, phase="copy", limit=None)
+    bundle = explore / "judges" / "claude__claude-haiku-4-5-20251001"
+    # Drift the config.json to a different model.
+    (bundle / "config.json").write_text(json.dumps({
+        "name": "claude", "model": "claude-haiku-4-6-fake",
+    }))
+    mig.run(cache_root=cache, phase="cleanup", limit=None)
+    assert (explore / "grade.json").exists()  # legacy preserved
+
+
+def test_cleanup_idempotent(tmp_path):
+    cache = tmp_path / "cache"
+    explore = cache / "qid1" / "explore_1"
+    _make_legacy_explore(explore)
+    mig.run(cache_root=cache, phase="copy", limit=None)
+    mig.run(cache_root=cache, phase="cleanup", limit=None)
+    # Second cleanup should not raise; legacy already gone.
+    mig.run(cache_root=cache, phase="cleanup", limit=None)
+
+
+def test_full_lifecycle_dry_copy_smoke_cleanup(tmp_path):
+    """End-to-end: dry-run -> copy -> cleanup leaves only the bundle."""
+    cache = tmp_path / "cache"
+    for q in range(3):
+        _make_legacy_explore(cache / f"qid{q}" / "explore_1")
+    mig.run(cache_root=cache, phase="dry-run", limit=None)
+    mig.run(cache_root=cache, phase="copy", limit=None)
+    mig.run(cache_root=cache, phase="cleanup", limit=None)
+    for q in range(3):
+        explore = cache / f"qid{q}" / "explore_1"
+        assert not (explore / "grade.json").exists()
+        assert not (explore / "judge").exists()
+        bundle = explore / "judges" / "claude__claude-haiku-4-5-20251001"
+        assert (bundle / "grade.json").exists()

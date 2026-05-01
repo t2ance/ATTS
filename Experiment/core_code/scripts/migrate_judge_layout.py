@@ -196,11 +196,52 @@ def _phase_copy(cache_root: Path, limit: int | None) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phase 3: stub (implemented in next commit)
+# Phase 3: cleanup (only after copy + smoke eval verification pass)
 # ---------------------------------------------------------------------------
 
+_BUNDLE_REQUIRED_FILES = ("config.json", "grade.json", "input.md", "output.md", "result.json")
+
+
+def _bundle_complete_and_correct(bundle: Path, expected_model: str) -> bool:
+    """All 5 required files present AND config.json matches inferred spec."""
+    for fname in _BUNDLE_REQUIRED_FILES:
+        if not (bundle / fname).exists():
+            return False
+    cfg = json.loads((bundle / "config.json").read_text(encoding="utf-8"))
+    return cfg.get("name") == "claude" and cfg.get("model") == expected_model
+
+
 def _phase_cleanup(cache_root: Path, limit: int | None) -> None:
-    raise NotImplementedError("Implemented in the next commit.")
+    deleted = 0
+    skipped = 0
+
+    for explore_dir in _explore_dirs(cache_root):
+        if limit is not None and deleted >= limit:
+            break
+        legacy_grade = explore_dir / "grade.json"
+        if not legacy_grade.exists():
+            continue  # already cleaned (or never had grade.json)
+
+        data = json.loads(legacy_grade.read_text(encoding="utf-8"))
+        judge_model = data["judge_model"]
+        label = _label(judge_model)
+        bundle = explore_dir / "judges" / label
+
+        if not bundle.exists() or not _bundle_complete_and_correct(bundle, judge_model):
+            print(f"  skipped (incomplete or drifted bundle): {explore_dir}")
+            skipped += 1
+            continue
+
+        # Safe to delete legacy.
+        legacy_grade.unlink()
+        legacy_judge = explore_dir / "judge"
+        if legacy_judge.exists():
+            shutil.rmtree(legacy_judge)
+        deleted += 1
+        if deleted % 50 == 0:
+            print(f"  ... cleaned {deleted} explores")
+
+    print(f"Phase cleanup: {deleted} legacy entries removed, {skipped} skipped.")
 
 
 def run(cache_root: Path, phase: str, limit: int | None) -> None:
