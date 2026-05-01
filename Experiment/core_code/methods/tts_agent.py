@@ -214,6 +214,7 @@ async def _run_orchestrator(
     user_message_text: str,
     enable_integrate: bool = True,
     temperature: float | None = None,
+    sampling: dict | None = None,
 ) -> None:
     """Run the orchestrator loop via the backend's run_tool_conversation."""
     backend_mod = import_module(f"backends.{ctx.backend}")
@@ -260,7 +261,7 @@ async def _run_orchestrator(
         tools = [EXPLORE_TOOL]
         output_format = {"type": "json_schema", "schema": ctx.benchmark.get_explore_schema()}
 
-    cost, usage, output_exceeded = await backend_mod.run_tool_conversation(
+    cost, usage, exit_reason = await backend_mod.run_tool_conversation(
         system_prompt=system_prompt,
         user_message=user_message_text,
         image_data_url=ctx.image_data_url,
@@ -273,10 +274,11 @@ async def _run_orchestrator(
         writer=ctx.writer,
         quiet=ctx.quiet,
         on_structured_output=make_structured_output_handler(ctx),
-        max_output_chars=ctx.max_output_chars,
+        max_output_tokens=ctx.max_output_tokens,
         temperature=temperature,
+        sampling=sampling,
     )
-    ctx._output_exceeded = output_exceeded
+    ctx._exit_reason = exit_reason
     ctx.cost.add(cost, usage, component="orchestrator")
 
     ctx.writer.write_session_summary(ctx.cost.total_cost_usd, {
@@ -299,11 +301,17 @@ async def solve(
     integrate_model: str = "gpt-5.2",
     temperature: float | None = None,
     rollout_idx: int | None = None,
+    sampling: dict | None = None,
     **_extra,
 ) -> SolveResult:
     """Solve a problem using delegated test-time scaling.
 
     temperature: orchestrator sampling temperature. None = old default (0.0 greedy).
+        Kept for the rejection-sampling row path that pins per-row _temperature.
+        When `sampling` already carries a temperature, this kwarg is ignored.
+    sampling: full vLLM sampling block (top_p, top_k, min_p, presence_penalty,
+        repetition_penalty, enable_thinking, max_tokens, temperature). None
+        = backend defaults.
     rollout_idx: when set, trajectory goes to trajectories/<qid>/rollout_<k>/ for K>1 runs.
     """
     user_message_text = build_user_message(problem, infra.max_iterations)
@@ -335,6 +343,7 @@ async def solve(
         ctx, orchestrator_model, explore_model, integrate_model, user_message_text,
         enable_integrate=infra.enable_integrate,
         temperature=temperature,
+        sampling=sampling,
     )
 
     if ctx.state.final_answer is None:
@@ -345,5 +354,5 @@ async def solve(
               f" (input: {ctx.cost.total_input_tokens}, output: {ctx.cost.total_output_tokens})")
 
     result = ctx.result(ctx.state.final_answer)
-    result.output_exceeded = getattr(ctx, "_output_exceeded", False)
+    result.exit_reason = getattr(ctx, "_exit_reason", "incomplete")
     return result

@@ -43,6 +43,30 @@ METHODS = Literal[
 ]
 
 
+class SamplingConfig(BaseModel):
+    """Per-call sampling knobs for the orchestrator (vLLM backend only).
+
+    None for any field means "use the upstream library default" -- the
+    backend's _split_sampling_kwargs drops None entries before calling
+    client.chat.completions.create. OpenAI-native fields (temperature,
+    top_p, presence_penalty, max_tokens) are passed directly; vLLM
+    extensions (top_k, min_p, repetition_penalty, enable_thinking) are
+    routed through extra_body.
+
+    `max_tokens` is the per-turn output cap (NOT the cumulative cap across
+    turns -- that lives at EvalConfig.max_output_tokens).
+    """
+    model_config = {"extra": "forbid"}
+    temperature: float | None = None
+    top_p: float | None = None
+    top_k: int | None = None
+    min_p: float | None = None
+    presence_penalty: float | None = None
+    repetition_penalty: float | None = None
+    enable_thinking: bool | None = None
+    max_tokens: int | None = None
+
+
 class EvalConfig(BaseModel):
     model_config = {"extra": "forbid", "arbitrary_types_allowed": False}
 
@@ -78,7 +102,11 @@ class EvalConfig(BaseModel):
     num_explores: int = 8
     num_workers: int = 1
     explore_timeout: float = 1200.0
-    max_output_chars: int | None = None
+    max_output_tokens: int | None = None
+    # Backend-specific sampling overrides (vLLM only). None = backend defaults
+    # (greedy temperature=0, max_tokens=8192, chat_template's enable_thinking).
+    # See backends/vllm.py:_split_sampling_kwargs for the full mapping.
+    sampling: SamplingConfig | None = None
 
     # Run
     verbose: bool = False
@@ -102,7 +130,14 @@ class EvalConfig(BaseModel):
             assert self.effort_budgets, "tts-agent-effort requires effort_budgets"
         elif m == "tts-agent":
             assert self.orchestrator_model, "tts-agent requires orchestrator_model"
-            assert self.integrate_model, "tts-agent requires integrate_model"
+            # integrate_model is only consumed when no_integrate=false. With
+            # no_integrate=true the orchestrator synthesizes the final answer
+            # itself (paper main config), so requiring integrate_model would
+            # force a dead-weight string just to satisfy the validator.
+            if not self.no_integrate:
+                assert self.integrate_model, (
+                    "tts-agent requires integrate_model unless no_integrate=true"
+                )
         elif m == "rerank":
             assert self.reward_model, "rerank requires reward_model"
         elif m == "standalone-integrator":
@@ -231,7 +266,7 @@ async def _grade_with_cache(
         backend=backend, out_dir=grade_dir / "judge",
     )
     if not quiet:
-        print(f"  [sub-model] judge: correct={is_correct}, predicted={predicted[:60]}, gold={gold[:60]}, cost=${judge_cost}")
+        print(f"  [sub-model] judge: correct={is_correct}, predicted={str(predicted)[:60]}, gold={str(gold)[:60]}, cost=${judge_cost}")
     grade_dir.mkdir(parents=True, exist_ok=True)
     grade_path.write_text(json.dumps({
         "judge_model": judge_key,
@@ -364,6 +399,7 @@ async def evaluate(
     dataset_config: dict | None = None,
     cache_dirs_multi: dict[str, Path] | None = None,
     num_rollouts: int = 1,
+    sampling: dict | None = None,
 ) -> dict:
     """Run the TTS agent on dataset rows and record results."""
     # Resume uses composite key (qid, rollout_idx) so K>1 runs with duplicate
@@ -558,7 +594,7 @@ async def evaluate(
     results = await asyncio.gather(*(grade_done_record(i, rec) for i, rec in enumerate(done_records))) if done_records else []
 
     for rec, gr in zip(done_records, results):
-        if rec.get("predicted_answer", "").startswith("ERROR:"):
+        if str(rec.get("predicted_answer", "")).startswith("ERROR:"):
             errors += 1
         total_cost += rec.get("cost_usd", 0.0)
         explore_counts.append(rec.get("num_explores", 0))
@@ -610,8 +646,13 @@ async def evaluate(
                 integrate_model=integrate_model,
                 temperature=temperature,
                 rollout_idx=rollout_idx,
+                sampling=sampling,
             )
-            predicted = result.answer
+            # Normalize at source: gold_answer is always str, str-ops downstream
+            # (logger.startswith, normalize_answer, judge prompts) assume str. HLE
+            # has integer-typed answers (e.g. 56) that previously slipped int into
+            # the record and crashed logger.py:153 / eval.py:241/725 (2026-04-30).
+            predicted = str(result.answer) if result.answer is not None else ""
             question_cost = result.cost.total_cost_usd
             round_logs = [
                 {
@@ -636,7 +677,7 @@ async def evaluate(
             )
             if first_explore:
                 first_candidate_correct, judge_cost_2 = await _grade_with_cache(
-                    benchmark, first_explore.tool_input.get("answer", ""), gold_answer, question, row,
+                    benchmark, str(first_explore.tool_input.get("answer", "")), gold_answer, question, row,
                     backend=backend, grade_dir=traj_dir / "explore_1", quiet=quiet,
                 )
             else:
@@ -684,7 +725,7 @@ async def evaluate(
                     {"normalized_answer": na, "is_correct": ic, "cost_usd": c}
                     for na, ic, c in question_cands
                 ],
-                "output_exceeded": result.output_exceeded if result else False,
+                "exit_reason": result.exit_reason if result else "incomplete",
                 **image_meta,
             }
 
@@ -715,7 +756,7 @@ async def evaluate(
 
             done_so_far = len(all_records)
             status = "correct" if is_correct else "wrong"
-            predicted_short = predicted.replace("\n", " ")[:80]
+            predicted_short = str(predicted).replace("\n", " ")[:80]
             print(f"  [{done_so_far}/{total}] {qid_label}: {status} at {time.strftime('%Y-%m-%d %H:%M:%S')} ({elapsed:.0f}s), predicted={predicted_short}, cost=${question_cost}")
 
             # Running summary
@@ -873,6 +914,35 @@ async def async_main() -> None:
         filtered = [r for r in filtered if benchmark.get_id(r) in cached_ids]
         print(f"{cfg.method}: {len(filtered)} questions with cache (from {before})")
 
+    # Pre-flight cache completeness check (cache_only mode only). Without this,
+    # missing explore cache entries surface only when the orchestrator finally
+    # asks for that (qid, idx) -- which could be hours into a multi-benchmark
+    # run. Fail-fast here on a banner so the operator catches it in the launch
+    # banner, not the wall-time budget.
+    if (
+        not cfg.no_cache_only
+        and cache_dir is not None
+        and cfg.method in ("tts-agent", "self-refine", "socratic-self-refine", "budget-forcing")
+    ):
+        rows_to_check = filtered if cfg.num is None else filtered[:cfg.num]
+        qids = [benchmark.get_id(r) for r in rows_to_check]
+        missing: list[tuple[str, int]] = []
+        for qid in qids:
+            for idx in range(1, cfg.num_explores + 1):
+                if not (cache_dir / qid / f"explore_{idx}" / "result.json").exists():
+                    missing.append((qid, idx))
+        if missing:
+            sample = ", ".join(f"({q}, explore_{i})" for q, i in missing[:10])
+            raise AssertionError(
+                f"Cache pre-flight FAILED: {len(missing)} missing entries "
+                f"(of {len(qids) * cfg.num_explores} expected) under {cache_dir}. "
+                f"First 10: {sample}"
+            )
+        print(
+            f"Cache pre-flight OK: {len(qids)} qids x {cfg.num_explores} explores "
+            f"= {len(qids) * cfg.num_explores} cache files present at {cache_dir}"
+        )
+
     if cfg.num_rollouts > 1:
         question_rows = filtered if cfg.num is None else filtered[:cfg.num]
         expanded: list[dict] = []
@@ -901,7 +971,7 @@ async def async_main() -> None:
         quiet=not cfg.verbose,
         logger=None,
         enable_integrate=not cfg.no_integrate,
-        max_output_chars=cfg.max_output_chars,
+        max_output_tokens=cfg.max_output_tokens,
     )
 
     await evaluate(
@@ -925,6 +995,7 @@ async def async_main() -> None:
         },
         cache_dirs_multi=cache_dirs_multi,
         num_rollouts=cfg.num_rollouts,
+        sampling=cfg.sampling.model_dump() if cfg.sampling else None,
     )
 
 

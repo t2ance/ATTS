@@ -2,7 +2,8 @@
 
 Exposes the same transport primitives as claude.py:
   - call_sub_model(...)         -> (result, trajectory_text, cost_usd, usage)
-  - run_tool_conversation(...)  -> (cost_usd, usage, output_exceeded)
+  - run_tool_conversation(...)  -> (cost_usd, usage, exit_reason)
+    where exit_reason ∈ {"committed", "cap_exceeded", "incomplete"}
 
 Connects to a vLLM server (started separately via ``vllm serve``).
 Uses text-based <tool_call> parsing (no --enable-auto-tool-choice needed).
@@ -54,6 +55,31 @@ def _build_user_content(text: str, image_data_url: str | None) -> str | list:
     ]
 
 
+def _split_sampling_kwargs(s: dict | None) -> tuple[dict, dict]:
+    """Split a sampling dict into (OpenAI-direct kwargs, vLLM extra_body).
+
+    OpenAI-native (passed as kwargs to client.chat.completions.create):
+      temperature, top_p, presence_penalty, max_tokens.
+    vLLM extensions (must go via extra_body):
+      top_k, min_p, repetition_penalty, chat_template_kwargs.enable_thinking.
+
+    None-valued entries are dropped so the upstream library default applies.
+    """
+    if s is None:
+        return {}, {}
+    direct: dict = {}
+    extra: dict = {}
+    for k in ("temperature", "top_p", "presence_penalty", "max_tokens"):
+        if s.get(k) is not None:
+            direct[k] = s[k]
+    for k in ("top_k", "min_p", "repetition_penalty"):
+        if s.get(k) is not None:
+            extra[k] = s[k]
+    if s.get("enable_thinking") is not None:
+        extra["chat_template_kwargs"] = {"enable_thinking": s["enable_thinking"]}
+    return direct, extra
+
+
 # ---------------------------------------------------------------------------
 # <tool_call> parsing (text-mode tool calling)
 # ---------------------------------------------------------------------------
@@ -63,29 +89,75 @@ _TOOL_CALL_RE = re.compile(
     re.DOTALL,
 )
 
+# Qwen3.6+ chat_template emits XML body inside <tool_call>:
+#   <function=NAME>
+#     <parameter=KEY>VAL</parameter>
+#     ...
+#   </function>
+# (chat_template.jinja line 53; Qwen3-8B uses JSON body instead.)
+_TOOL_FUNCTION_RE = re.compile(
+    r"<function=([^>\s]+)\s*>(.*?)</function>",
+    re.DOTALL,
+)
+_TOOL_PARAMETER_RE = re.compile(
+    r"<parameter=([^>\s]+)\s*>(.*?)</parameter>",
+    re.DOTALL,
+)
+
 
 def parse_tool_calls(text: str) -> list[tuple[str, dict]]:
     """Parse all ``<tool_call>`` blocks from generated text.
 
     Returns list of (tool_name, arguments_dict).
+    Tries JSON body first (Qwen3-8B chat_template format), then XML body
+    (Qwen3.6+ chat_template format with ``<function=...><parameter=...>``).
     Handles double-escaped JSON from vLLM responses.
-    Skips blocks with malformed JSON.
+    Skips blocks with malformed bodies in both formats.
     """
     results = []
     for m in _TOOL_CALL_RE.finditer(text):
         raw = m.group(1).strip()
-        # Try parsing as-is first
+        # Path A: JSON body (Qwen3-8B style)
         call = _try_parse_tool_json(raw)
         if call is None:
             # vLLM sometimes double-escapes: \\" -> ", \\u -> \u
             unescaped = raw.replace('\\\\"', '\x00QUOTE\x00').replace('\\"', '"').replace('\x00QUOTE\x00', '\\"')
             call = _try_parse_tool_json(unescaped)
+        # Path B: XML body (Qwen3.6+ style)
+        if call is None:
+            call = _try_parse_tool_xml(raw)
         if call is None:
             continue
         name = call.get("name", "")
         args = call.get("arguments", {})
         results.append((name, args))
     return results
+
+
+def _try_parse_tool_xml(raw: str) -> dict | None:
+    """Try to parse a Qwen3.6-style XML tool-call body.
+
+    Body shape: ``<function=NAME>(<parameter=KEY>VAL</parameter>)*</function>``.
+    Each parameter value is JSON-decoded if possible (so ``0.85`` → float, ``"x"``
+    → ``x``); otherwise kept as the trimmed raw string. This matches what the
+    chat_template.jinja serializer does in reverse (jinja: ``v|tojson if v is not
+    string``), so a round-trip through JSON values + string passthrough recovers
+    the original Python types.
+    """
+    fn = _TOOL_FUNCTION_RE.search(raw)
+    if fn is None:
+        return None
+    name = fn.group(1).strip()
+    body = fn.group(2)
+    args: dict = {}
+    for pm in _TOOL_PARAMETER_RE.finditer(body):
+        key = pm.group(1).strip()
+        val_raw = pm.group(2).strip()
+        try:
+            args[key] = json.loads(val_raw)
+        except (json.JSONDecodeError, ValueError):
+            args[key] = val_raw
+    return {"name": name, "arguments": args}
 
 
 _INVALID_UNICODE_RE = re.compile(r"\\u([0-9a-fA-F]{0,3}[^0-9a-fA-F])")
@@ -161,6 +233,14 @@ async def call_sub_model(
         {"role": "user", "content": _build_user_content(user_message, image_data_url)},
     ]
 
+    # Qwen3.6 chat_template auto-injects `<think>\n` at the start of every
+    # assistant turn (chat_template.jinja final block). For structured-JSON
+    # explorer calls we disable thinking so the entire output budget is spent
+    # on schema-conforming JSON instead of being burned on free-form CoT that
+    # blows past max_tokens before the JSON closes. Qwen3-8B chat_template
+    # ignores this kwarg silently (no thinking branch), so it is safe to send
+    # unconditionally. Reference: chat_template.jinja final `add_generation_prompt`
+    # block — `enable_thinking=false` switches to `<think>\n\n</think>\n\n`.
     response = await client.chat.completions.create(
         model=model,
         messages=messages,
@@ -178,6 +258,7 @@ async def call_sub_model(
             if output_schema
             else None
         ),
+        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
     )
 
     text = response.choices[0].message.content or ""
@@ -227,15 +308,35 @@ async def run_tool_conversation(
     quiet: bool = True,
     on_structured_output: Callable[[dict], None] | None = None,
     temperature: float | None = None,
+    max_output_tokens: int | None = None,
+    sampling: dict | None = None,
     **kwargs,
 ) -> tuple[float, dict[str, Any], bool]:
     """Run a multi-turn tool-calling conversation via vLLM.
 
     Uses text-based <tool_call> tag parsing (no hermes parser needed).
-    When temperature is None, uses 0.0 (old greedy-decoding behavior).
+
+    Sampling-knob precedence (per call to client.chat.completions.create):
+      1. `sampling` dict (full Pydantic SamplingConfig from yaml).
+      2. legacy `temperature` keyword (kept for the rejection-sampling row path
+         in eval.py:923 which sets per-row `_temperature`).
+      3. defaults: temperature=0.0 (greedy), max_tokens=8192 (legacy hardcode),
+         no top_p/top_k/min_p/presence/repetition tuning, chat_template
+         decides enable_thinking (Qwen3.6 default = thinking ON; the old
+         hardcode at line 374 silently relied on this template default).
+    `max_output_tokens` is the cumulative output-token CAP across turns
+    (different concept from per-turn `max_tokens`).
     """
-    effective_temperature = 0.0 if temperature is None else temperature
-    assert 0.0 <= effective_temperature <= 2.0, f"temperature out of range: {effective_temperature}"
+    direct_kwargs, extra_body = _split_sampling_kwargs(sampling)
+    # Per-row temperature override (rejection sampling path); only honored when
+    # `sampling` did not already pin temperature.
+    if "temperature" not in direct_kwargs and temperature is not None:
+        direct_kwargs["temperature"] = temperature
+    direct_kwargs.setdefault("temperature", 0.0)
+    direct_kwargs.setdefault("max_tokens", 8192)
+    assert 0.0 <= direct_kwargs["temperature"] <= 2.0, (
+        f"temperature out of range: {direct_kwargs['temperature']}"
+    )
     client = _get_client()
 
     # Append StructuredOutput schema to system prompt
@@ -288,16 +389,27 @@ async def run_tool_conversation(
         response = await client.chat.completions.create(
             model=model,
             messages=messages,
-            temperature=effective_temperature,
-            max_tokens=8192,
             tools=openai_tools,
             tool_choice="none",
+            extra_body=extra_body or None,
+            **direct_kwargs,
         )
 
         choice = response.choices[0]
         if response.usage:
             total_usage["input_tokens"] += response.usage.prompt_tokens
             total_usage["output_tokens"] += response.usage.completion_tokens
+
+        # Cap check: cumulative output_tokens exceeded user-set ceiling. vLLM's
+        # natural unit is tokens (response.usage.completion_tokens), so we use
+        # tokens directly instead of mirroring claude.py's char-based check.
+        if max_output_tokens is not None and total_usage["output_tokens"] > max_output_tokens:
+            if not quiet:
+                print(
+                    f"[orchestrator] output token cap exceeded "
+                    f"({total_usage['output_tokens']} > {max_output_tokens}), terminating"
+                )
+            return _estimate_cost_usd(total_usage, model), total_usage, "cap_exceeded"
 
         # --- Parse <tool_call> from text content ---
         text_content = choice.message.content or ""
@@ -312,7 +424,8 @@ async def run_tool_conversation(
         if not text_calls:
             if not quiet:
                 print("[orchestrator] no tool call in response, ending")
-            break
+            # Orchestrator emitted text without tool_call; no commit signal.
+            return _estimate_cost_usd(total_usage, model), total_usage, "incomplete"
 
         # Append assistant message once
         messages.append({"role": "assistant", "content": text_content})
@@ -325,7 +438,7 @@ async def run_tool_conversation(
                     writer.write_tool_use("StructuredOutput", args)
                 if on_structured_output:
                     on_structured_output(args)
-                return _estimate_cost_usd(total_usage, model), total_usage, False
+                return _estimate_cost_usd(total_usage, model), total_usage, "committed"
 
             if not quiet:
                 print(f"[tool_use] {name}")
@@ -343,6 +456,9 @@ async def run_tool_conversation(
             })
 
             if should_stop:
-                return _estimate_cost_usd(total_usage, model), total_usage, False
+                # Tool signaled end (e.g. tts_agent budget exhausted after final
+                # explore). Treated as committed — orchestrator's flow ended cleanly.
+                return _estimate_cost_usd(total_usage, model), total_usage, "committed"
 
-    return _estimate_cost_usd(total_usage, model), total_usage, False
+    # for-loop walked all max_turns without commitment.
+    return _estimate_cost_usd(total_usage, model), total_usage, "incomplete"

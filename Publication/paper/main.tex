@@ -179,7 +179,7 @@ We evaluate on four benchmarks: HLE-Verified \citep{hle_verified_paper}, LiveCod
 
 The experiments below evaluate two configurations of our framework, treated as the two methods we report. \our{} is the single-model configuration: Claude Sonnet 4.6 (\texttt{claude-sonnet-4-6}) serves as both orchestrator and explorer, the orchestrator synthesizes the final answer directly (no separate integrator), extended thinking is enabled, and the exploration budget is $T{=}8$ \explore{} calls per question. \attsmm{} is the multi-model configuration: the orchestrator (still Sonnet 4.6) dispatches to a pool of three explorers \{Haiku, Sonnet, Opus\} at Medium exploration effort, with budget $T{=}16$ (per-model limits: Haiku~8, Sonnet~8, Opus~4). Unless otherwise noted, all baselines and ablation variants share the same backbone (Sonnet 4.6), default sampling parameters (no explicit temperature or top-$p$ override), extended thinking budget of 32{,}000 tokens, and the API's default reasoning effort. Claude Haiku, Sonnet, and Opus are three capability tiers in the Claude model family, ordered from smallest/cheapest to largest/most capable.
 
-We compare against six baselines, all sharing the same backbone model and answer interface so that only the inference-time strategy differs (full details in Appendix~\ref{app:implementation-details}): Pass@1 (single rollout), Majority Voting ($N{=}8$ independent candidates, most-frequent answer; reported only on benchmarks where direct answer aggregation is well-defined), Self-Refine~\citep{self_refine_paper} (iterative feedback-revision on a single draft), Budget Forcing~\citep{s1_budget_forcing_paper} ($N$ sequential rounds with forced continuation via ``Wait''), reward-model reranking using Skywork-Reward-V2~\citep{skywork_reward_v2_paper,skywork_reward_v2_hf} for text benchmarks or VisualPRM~\citep{visualprm_paper,visualprm_hf} for multimodal benchmarks, and LLM Selection ($N{=}8$), which feeds all pre-cached candidates to the backbone model in a single call and asks it to analyze, compare, and synthesize a final answer. LLM Selection isolates the contribution of LLM-based aggregation from adaptive sequential exploration.
+We compare against seven baselines, all sharing the same backbone model and answer interface so that only the inference-time strategy differs (full details in Appendix~\ref{app:implementation-details}): Pass@1 (single rollout), Majority Voting ($N{=}8$ independent candidates, most-frequent answer; reported only on benchmarks where direct answer aggregation is well-defined), Self-Refine~\citep{self_refine_paper} (iterative feedback-revision on a single draft), Socratic Self-Refine~\citep{socratic_self_refine_paper} (Self-Refine with the feedback step replaced by Socratic-style probing questions before revision), Budget Forcing~\citep{s1_budget_forcing_paper} ($N$ sequential rounds with forced continuation via ``Wait''), reward-model reranking using Skywork-Reward-V2~\citep{skywork_reward_v2_paper,skywork_reward_v2_hf} for text benchmarks or VisualPRM~\citep{visualprm_paper,visualprm_hf} for multimodal benchmarks, and LLM Selection ($N{=}8$), which feeds all pre-cached candidates to the backbone model in a single call and asks it to analyze, compare, and synthesize a final answer. LLM Selection isolates the contribution of LLM-based aggregation from adaptive sequential exploration.
 
 For \our{}, the controller issues up to the exploration budget of \explore{} calls before stopping and synthesizing the final answer directly, as described in Section~\ref{sec:methodology}. The comparison across all rows isolates differences in test-time inference strategy rather than differences in training data, parameter count, or post-training recipe.
 
@@ -243,6 +243,7 @@ DeepSeek-R1 & 73.1 & 98.7 & 85.2 & 50.7 & -- \\
 \groupheader{6}{Test-Time Scaling Methods}
 Pass@1 & 77.14 & 95.35 & 88.46 & 60.00 & \textbf{0.24} \\
 Self-Refine & 80.57 & \textbf{100.00} & 90.38 & 63.75 & 0.32 \\
+Socratic Self-Refine & 82.29 & \textbf{100.00} & 90.38 & 67.50 & 0.60 \\
 Budget Forcing & 80.00 & \textbf{100.00} & 88.46 & 63.75 & 0.50 \\
 Skywork-Reward-V2 & 78.86 & \textbf{100.00} & 90.38 & 60.00 & 1.41 \\
 LLM Selection ($N{=}8$) & 81.14 & \textbf{100.00} & 86.54 & 67.50 & 1.51 \\
@@ -272,6 +273,7 @@ GPT-5.2 (xhigh) & 90.3 & -- \\
 Pass@1 & 74.24 & \textbf{0.13} \\
 Majority Voting & 73.74 & 0.90 \\
 Self-Refine & 73.10 & 0.23 \\
+Socratic Self-Refine & 74.24 & 0.56 \\
 Budget Forcing & 77.16 & 0.42 \\
 Skywork-Reward-V2 & 76.14 & 0.90 \\
 LLM Selection ($N{=}8$) & 77.16 & 0.97 \\
@@ -300,6 +302,7 @@ Grok-4 & 16.2 & 11.0 & 24.1 & 13.2 & 24.8 & -- \\
 Pass@1 & 19.59 & 20.86 & 19.28 & 19.78 & 15.69 & \textbf{0.07} \\
 Majority Voting & \textbf{23.20} & \textbf{23.93} & 21.69 & 23.08 & \textbf{23.53} & 0.50 \\
 Self-Refine & 21.39 & 20.25 & 22.89 & 20.88 & \textbf{23.53} & 0.42 \\
+Socratic Self-Refine & 21.13 & 18.40 & 25.30 & 20.88 & \textbf{23.53} & 0.58 \\
 Budget Forcing & 21.91 & 20.86 & \textbf{28.92} & 21.98 & 13.73 & 0.52 \\
 VisualPRM & 20.88 & 20.86 & 21.69 & 21.98 & 17.65 & 0.50 \\
 LLM Selection ($N{=}8$) & \textbf{23.20} & 23.31 & 25.30 & 23.08 & 19.61 & 0.56 \\
@@ -318,7 +321,7 @@ Table~\ref{tab:main-results} presents the main results across all four benchmark
 % Corrected: HLE costs adjusted after zeroing 10 compaction-failed explores.
 % ATTS: $1.90 -> $1.59. LLM Selection: $4.53 -> $3.71. Multi-model Med: $1.63 -> $1.54.
 % Ratio: $3.71/$1.59 = 2.33 -> 2.3x (was $4.53/$1.90 = 2.38 -> 2.4x).
-On HLE-Verified, \our{} achieves 56.00\% accuracy at \$1.59/q, outperforming Self-Refine (53.00\%) and Budget Forcing (51.00\%). LLM Selection reaches 58.00\% but at \$3.71/q---a $2.3\times$ cost increase for a 2-point gain---illustrating that single-pass aggregation achieves higher accuracy when cost is unconstrained, but adaptive exploration provides a more efficient operating point. \attsmm{} improves to 57.00\% at \$1.54/q, narrowing the accuracy gap while maintaining cost efficiency.
+On HLE-Verified, \our{} achieves 56.00\% accuracy at \$1.59/q, outperforming Self-Refine (53.00\%) and Budget Forcing (51.00\%). LLM Selection reaches 58.00\% but at \$3.71/q---a $2.3\times$ cost increase for a 2-point gain---illustrating that single-pass aggregation achieves higher accuracy when cost is unconstrained, but adaptive exploration provides a more efficient operating point. \attsmm{} improves to 57.00\% at \$1.54/q, narrowing the accuracy gap while maintaining cost efficiency. Socratic Self-Refine underperforms Self-Refine on HLE-Verified (45.00\% vs.\ 53.00\%, at $2.2\times$ the cost): on this benchmark the Socratic probing step does not consistently improve revisions and occasionally drives the model away from a correct initial draft, indicating that more elaborate critique is not uniformly beneficial when the underlying answer interface is already free-form text.
 
 \paragraph{LiveCodeBench.}
 For LiveCodeBench, \our{} reaches 82.29\% Pass@1 at \$0.53/q, improving over Self-Refine (80.57\%) and Budget Forcing (80.00\%). The gains concentrate on Hard problems: 67.50\% vs.\ 63.75\% for both Self-Refine and Budget Forcing, while Easy (100\%) and Medium (90.38\%) accuracies are at or near ceiling. \attsmm{} further improves to 85.63\% overall and 73.42\% on Hard.
@@ -557,6 +560,8 @@ All baselines use the same backbone model and the same benchmark-specific answer
 
 \emph{Self-Refine}~\citep{self_refine_paper} generates an initial draft, then enters a feedback-revision loop: a separate feedback call critiques the current draft and returns a correctness judgment; if the draft is judged incorrect, a revision call produces an updated draft conditioned on all prior drafts and feedbacks. The loop terminates when feedback returns a positive judgment or the iteration budget is exhausted. In practice, the feedback model frequently accepts the initial draft, so Self-Refine terminates after a single feedback call on the majority of questions, which explains its relatively low cost on most benchmarks.
 
+\emph{Socratic Self-Refine}~\citep{socratic_self_refine_paper} replaces the Self-Refine feedback step with a Socratic-style probing pass: instead of producing a free-form critique, the feedback call generates a structured list of probing questions that target the current draft's reasoning, and the revision call must answer those questions while updating the draft. The same iteration budget and termination condition as Self-Refine are used. The probing-question step adds an extra model call per iteration relative to Self-Refine, so per-question cost is somewhat higher even though stopping behavior is similar. The intuition is that explicitly grounding the revision in answered probes should reduce the rate at which the model rubber-stamps the initial draft; in our results this shows up as a small accuracy improvement on LiveCodeBench (where reasoning depth helps most) and as a small accuracy regression on HLE-Verified (where the additional probes occasionally talk the model out of an originally correct answer).
+
 \emph{Budget Forcing}~\citep{s1_budget_forcing_paper} runs \(N\) sequential rounds on the same question. Round~1 generates an initial solution. Each subsequent round feeds the previous round's full reasoning trace back to the model with ``Wait'' appended, suppressing premature termination and forcing the model to continue deliberating before producing a new answer. All \(N\) rounds run unconditionally, and the final round's answer is returned. Because continuation rounds extend the existing reasoning rather than solving from scratch, they tend to produce shorter completions and lower per-round cost.
 
 \emph{Reward-model reranking} (Skywork-Reward-V2 for text benchmarks, VisualPRM for multimodal benchmarks) draws the same \(N=8\) independent candidates, then scores each with a separately trained reward model and returns the highest-scoring answer. Skywork-Reward-V2 is an outcome reward model that assigns a single scalar score per response; VisualPRM is a process reward model that aggregates per-step scores. The reward models run locally and incur no API cost, but the candidate generation cost is identical to that of Majority Voting.
@@ -774,12 +779,12 @@ The bottom group of Table~\ref{tab:lb-rbenchv} is currently a structural placeho
 \section{Explore-Count Distributions}
 \label{app:explore-distributions}
 
-Figure~\ref{fig:explore-distribution-all} reports how many model calls each per-question trajectory uses, on each of the four main benchmarks, for \our{} (top row), the Self-Refine baseline (middle row), and the Socratic Self-Refine baseline (bottom row). Each panel is a histogram whose $x$-axis is the number of calls used for a question and whose $y$-axis is the number of questions at that count; bar heights are annotated with the exact counts. Panel titles report the method, the benchmark name, the number of evaluated questions $n$, and the mean number of calls per question. Socratic Self-Refine has only finished on HLE-Verified at the time of writing; the other three Socratic Self-Refine panels are left as ``run not finished'' placeholders rather than partial-run histograms.
+Figure~\ref{fig:explore-distribution-all} reports how many model calls each per-question trajectory uses, on each of the four main benchmarks, for \our{} (top row), the Self-Refine baseline (middle row), and the Socratic Self-Refine baseline (bottom row). Each panel is a histogram whose $x$-axis is the number of calls used for a question and whose $y$-axis is the number of questions at that count; bar heights are annotated with the exact counts. Panel titles report the method, the benchmark name, the number of evaluated questions $n$, and the mean number of calls per question.
 
 \begin{figure}[H]
 \centering
 \includegraphics[width=\textwidth]{figures/explore_distribution_all.pdf}
-\caption{Per-benchmark distribution of the number of model calls used per question, comparing \our{} (top row, blue), the Self-Refine baseline (middle row, light green), and the Socratic Self-Refine baseline (bottom row, dark green). Columns from left to right: HLE-Verified (Gold subset), LiveCodeBench, GPQA-Diamond, BabyVision. All three rows share the same axes and budget cap $T{=}8$, so differences in the observed distributions reflect each method's stopping mechanism. Bar heights are annotated with exact counts; panel titles include the sample size $n$ and the per-question mean. Budget Forcing is omitted because it terminates only at the cap by construction, so its distribution is degenerate at $T{=}8$. The three Socratic Self-Refine panels other than HLE are still pending and rendered as blank placeholders.}
+\caption{Per-benchmark distribution of the number of model calls used per question, comparing \our{} (top row, blue), the Self-Refine baseline (middle row, light green), and the Socratic Self-Refine baseline (bottom row, dark green). Columns from left to right: HLE-Verified (Gold subset), LiveCodeBench, GPQA-Diamond, BabyVision. All three rows share the same axes and budget cap $T{=}8$, so differences in the observed distributions reflect each method's stopping mechanism. Bar heights are annotated with exact counts; panel titles include the sample size $n$ and the per-question mean. Budget Forcing is omitted because it terminates only at the cap by construction, so its distribution is degenerate at $T{=}8$.}
 \label{fig:explore-distribution-all}
 \end{figure}
 
@@ -799,6 +804,40 @@ LiveCodeBench is the only benchmark with a substantial mass at $n{=}1$ ($41\%$ o
 
 \paragraph{Observation 5: BabyVision is the inverse-pattern case.}
 BabyVision is the only benchmark on which the highest mean \explore{} count ($2.79$) co-occurs with the lowest accuracy among the four ($23.20\%$ in Table~\ref{tab:main-results}(c)). The orchestrator explores most aggressively on BabyVision---roughly half of all questions receive three or more \explore{} calls---yet the additional exploration does not translate into accuracy gains, and all test-time scaling methods on this benchmark cluster within a narrow $19$--$23\%$ band. The orchestrator detects that the first candidate is often insufficient and requests more evidence, but the backbone's visual reasoning ceiling bounds what additional exploration can recover. This exposes a boundary condition of test-time scaling in general: orchestrator-driven exploration helps only when the correct answer is reachable from the candidate pool, and on benchmarks where the backbone's capability ceiling is the binding constraint, the ``explore more'' signal has limited leverage.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Untrained Open-Weights Orchestrator Reference}
+\label{app:qwen36-baseline}
+
+The Section~\ref{app:training} fine-tuning recipe targets a small open-weights backbone as the trainable orchestrator. To establish what that backbone can already do \emph{without} any orchestrator-specific training, this appendix runs \our{} with Qwen3.6-35B-A3B-FP8~\citep{qwen3_paper} as the orchestrator while keeping the explorer fixed to the Claude Sonnet 4.6 cached candidates used in Table~\ref{tab:main-results}. Because the explorer cache is held constant, any deviation in Acc.\ from the Pass@1 column (the per-question accuracy of the first cached Sonnet candidate) isolates the contribution of the orchestrator: a positive Gain shows that the untrained Qwen backbone, conditioned only on prompt-level orchestration instructions, already aggregates Sonnet candidates better than taking the first one; a non-positive Gain marks a benchmark on which the same backbone fails to act as a useful orchestrator under prompting alone, and is therefore the natural target of the GRPO recipe in Section~\ref{app:training}.
+
+\begin{table}[H]
+\centering
+\caption{\our{} with an \emph{untrained} open-weights orchestrator (Qwen3.6-35B-A3B-FP8) reading the Sonnet-4.6 cached explores from Table~\ref{tab:main-results}. Pass@1 reports the accuracy of the first cached candidate (the Sonnet single-shot reference); Acc.\ reports the orchestrator's final answer; Gain = Acc.\ $-$ Pass@1. Orchestrator inference runs on local GPUs (TP=2, vLLM, FP8) and contributes \$0 to the cost column; \$/q therefore reflects only explorer (Sonnet) charges and is identical to the Table~\ref{tab:main-results} \our{} row baseline. The HLE-Verified row reports judge-bug-corrected Acc.: $10$ rows in which the LLM judge graded an \emph{empty} \texttt{predicted\_answer} as correct (by deriving the answer from the question text alone) are reclassified as wrong, dropping raw Acc.\ from $48.00$ to $38.00$; the post-2026-04-30 judge prompt fix prevents this on future runs. BabyVision is omitted; see ``Deferred evaluation'' below.}
+\label{tab:qwen36-baseline}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{l l r r r r r}
+\toprule
+Backbone (orchestrator) & Benchmark & N & Pass@1 & Acc. & Gain & \$/q \\
+\midrule
+Qwen3.6-35B-A3B-FP8 (untrained) & HLE-Verified  & 100 & 36.00 & 38.00 & \textbf{+2.00}  & 1.38 \\
+Qwen3.6-35B-A3B-FP8 (untrained) & GPQA-Diamond  & 198 & 65.66 & 71.21 & \textbf{+5.56}  & 0.29 \\
+Qwen3.6-35B-A3B-FP8 (untrained) & LiveCodeBench & 175 & 45.14 & 44.00 & $-1.14$         & 0.12 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Setup.} The orchestrator is served by vLLM (tensor-parallel size 2, FP8 quantization, \texttt{max\_model\_len}{=}65{,}536) on two A100 GPUs and queried through the OpenAI-compatible chat-completions interface. Sampling is greedy ($T{=}0$). The exploration budget is fixed at $T{=}8$ tool calls per question, identical to the main-paper \our{} configuration, and \texttt{no\_integrate} is on so the orchestrator synthesizes the final answer directly from its accumulated context. Explore tool calls resolve against the same \texttt{cache/<bench>/sonnet} cache used to produce the Table~\ref{tab:main-results} \our{} rows; cache-only mode is enforced, so no Anthropic API calls are made at evaluation time.
+
+\paragraph{Reading the table.} Pass@1 here is the accuracy of the \emph{first} cached Sonnet candidate per question, which equals the Sonnet single-shot reference for the same explorer model and is therefore comparable to the Sonnet \our{} Pass@1 baseline used in Table~\ref{tab:backbone-ablation}. On HLE-Verified the Pass@1 of 36.00 is below the 48.00 reported in Table~\ref{tab:backbone-ablation} because the latter draws Pass@1 from a different cache snapshot; both numbers are consistent with each other once first-candidate selection is fixed across runs. On GPQA-Diamond and LiveCodeBench the Pass@1 columns line up directly with Sonnet's per-explorer single-shot accuracy.
+
+\paragraph{Where the untrained backbone helps and where it does not.} On HLE-Verified and GPQA-Diamond the untrained Qwen orchestrator delivers a positive Gain of $+2.00$ and $+5.56$ percentage points respectively. The HLE row in Table~\ref{tab:qwen36-baseline} is the judge-bug-corrected number: of the $32$ HLE questions on which the orchestrator returned an empty \texttt{predicted\_answer}, the LLM judge erroneously graded $10$ as correct by independently deriving an answer from the question text alone. Reclassifying those $10$ rows as wrong drops raw Acc.\ from $48.00$ to $38.00$ and Gain from $+12.00$ to $+2.00$. The post-2026-04-30 judge-prompt patch (an explicit rule that empty predictions must be graded as incorrect) prevents this on future evaluations, so subsequent re-runs with the patched judge will not require this manual correction. GPQA uses option-letter regex matching with no LLM judge and is therefore unaffected.
+
+On LiveCodeBench the Gain is $-1.14$. Trajectory inspection shows that on $48\%$ of LiveCodeBench questions the Qwen orchestrator emits free-form chain-of-thought text without ever issuing the \texttt{explore} tool call, terminating before a single Sonnet candidate is consumed (we record this in the per-question \texttt{exit\_reason} field as \texttt{incomplete}; cf.\ Section~\ref{app:training} for the run-time mechanics). On those questions the final \texttt{predicted\_answer} is empty and the question is graded as wrong, regardless of how good the cached candidates are. This pattern matches the failure mode the GRPO recipe in Section~\ref{app:training} is designed to remove: with no exposure to the orchestration interface during pre-training, the backbone defaults to direct problem-solving on code-generation prompts and bypasses its tool affordances. On HLE-Verified and GPQA the same backbone reliably enters the tool loop because the prompt format is closer to the question-answering pattern it was trained on.
+
+\paragraph{Deferred evaluation: BabyVision.} BabyVision is omitted from Table~\ref{tab:qwen36-baseline}; the run was not started before the time at which this revision is being prepared. We choose to disclose the gap explicitly here rather than withhold the other three benchmark numbers, mirroring the structural-placeholder convention used in Appendix~\ref{app:rbenchv}. The BabyVision row will be added in a follow-up revision once the run completes; the \texttt{tab:qwen36-baseline} schema and the surrounding text already accommodate it without restructuring.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
