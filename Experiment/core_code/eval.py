@@ -22,6 +22,8 @@ os.environ.pop("CLAUDECODE", None)
 from benchmarks import get_benchmark
 from benchmarks.base import BenchmarkConfig, Candidate3
 from benchmarks.specs import BenchmarkSpec
+from methods import MethodSpec, get_method
+from methods.specs import SamplingConfig
 from methods.base import InfraConfig
 from multimodal_input import redact_image_for_logs
 from logger import RunLogger, now_str
@@ -31,138 +33,35 @@ from logger import RunLogger, now_str
 # Configuration schema (formerly eval_config.py)
 # ---------------------------------------------------------------------------
 
-METHODS = Literal[
-    "tts-agent",
-    "tts-agent-multi",
-    "tts-agent-effort",
-    "self-refine",
-    "socratic-self-refine",
-    "budget-forcing",
-    "rerank",
-    "standalone-integrator",
-]
-
-
-class SamplingConfig(BaseModel):
-    """Per-call sampling knobs for the orchestrator (vLLM backend only).
-
-    None for any field means "use the upstream library default" -- the
-    backend's _split_sampling_kwargs drops None entries before calling
-    client.chat.completions.create. OpenAI-native fields (temperature,
-    top_p, presence_penalty, max_tokens) are passed directly; vLLM
-    extensions (top_k, min_p, repetition_penalty, enable_thinking) are
-    routed through extra_body.
-
-    `max_tokens` is the per-turn output cap (NOT the cumulative cap across
-    turns -- that lives at EvalConfig.max_output_tokens).
-    """
-    model_config = {"extra": "forbid"}
-    temperature: float | None = None
-    top_p: float | None = None
-    top_k: int | None = None
-    min_p: float | None = None
-    presence_penalty: float | None = None
-    repetition_penalty: float | None = None
-    enable_thinking: bool | None = None
-    max_tokens: int | None = None
-
 
 class EvalConfig(BaseModel):
     model_config = {"extra": "forbid", "arbitrary_types_allowed": False}
 
-    # Benchmark + dataset selection (single discriminated block)
+    # Discriminated blocks: each carries its own validator
     benchmark: BenchmarkSpec
+    method: MethodSpec
+
+    # Backend selection
     backend: Literal["codex", "claude", "vllm"]
-    explore_model: str
 
-    # Method selection
-    method: METHODS = "tts-agent"
-    orchestrator_model: str | None = None
-    integrate_model: str | None = None
-    reward_model: str | None = None
-
-    # Cache: separated by method shape
-    cache_dir: Path | None = None
-    cache_dirs: dict[str, Path] = Field(default_factory=dict)
-
-    # Multi/effort budgets
-    model_budgets: dict[str, int] = Field(default_factory=dict)
-    effort_budgets: dict[str, int] = Field(default_factory=dict)
-    exploration_effort: Literal["low", "medium", "high"] | None = None
-
-    # Dataset slicing
+    # Dataset slicing (generic)
     num: int | None = None
     skip: int = 0
     seed: int = 42
     shuffle: bool = False
 
-    # Model knobs
+    # Backend-level knobs (apply to every method, do not vary per method)
     budget_tokens: int = 32000
     effort: Literal["low", "medium", "high", "max"] = "low"
-    num_explores: int = 8
     num_workers: int = 1
     explore_timeout: float = 1200.0
     max_output_tokens: int | None = None
-    # Backend-specific sampling overrides (vLLM only). None = backend defaults
-    # (greedy temperature=0, max_tokens=8192, chat_template's enable_thinking).
-    # See backends/vllm.py:_split_sampling_kwargs for the full mapping.
-    sampling: SamplingConfig | None = None
+    timeout: float = 1200.0
 
-    # Run
+    # Run state
     verbose: bool = False
     resume: str | None = None
     log_dir: str = "logs"
-    no_cache_only: bool = False
-    timeout: float = 1200.0
-    no_integrate: bool = False
-    num_rollouts: int = 1
-
-    @model_validator(mode="after")
-    def _validate_method_constraints(self):
-        m = self.method
-        if m == "tts-agent-multi":
-            assert self.orchestrator_model, "tts-agent-multi requires orchestrator_model"
-            assert self.cache_dirs, "tts-agent-multi requires cache_dirs (dict[model_alias, path])"
-            assert self.model_budgets, "tts-agent-multi requires model_budgets"
-        elif m == "tts-agent-effort":
-            assert self.orchestrator_model, "tts-agent-effort requires orchestrator_model"
-            assert self.cache_dirs, "tts-agent-effort requires cache_dirs (dict[level, path])"
-            assert self.effort_budgets, "tts-agent-effort requires effort_budgets"
-        elif m == "tts-agent":
-            assert self.orchestrator_model, "tts-agent requires orchestrator_model"
-            # integrate_model is only consumed when no_integrate=false. With
-            # no_integrate=true the orchestrator synthesizes the final answer
-            # itself (paper main config), so requiring integrate_model would
-            # force a dead-weight string just to satisfy the validator.
-            if not self.no_integrate:
-                assert self.integrate_model, (
-                    "tts-agent requires integrate_model unless no_integrate=true"
-                )
-        elif m == "rerank":
-            assert self.reward_model, "rerank requires reward_model"
-        elif m == "standalone-integrator":
-            assert self.integrate_model, "standalone-integrator requires integrate_model"
-
-        is_multi = m in ("tts-agent-multi", "tts-agent-effort")
-        if is_multi:
-            assert not self.cache_dir, (
-                f"{m} uses cache_dirs (dict), not cache_dir (single)"
-            )
-        else:
-            assert not self.cache_dirs, (
-                f"{m} uses cache_dir (single Path), not cache_dirs (dict). "
-                f"got cache_dirs={dict(self.cache_dirs)}"
-            )
-
-        if self.num_rollouts > 1:
-            assert self.method == "tts-agent", (
-                f"num_rollouts > 1 only supported for method=tts-agent, got {self.method}"
-            )
-            assert self.backend == "vllm", (
-                f"num_rollouts > 1 only supported for backend=vllm, got {self.backend}"
-            )
-        assert self.num_rollouts >= 1, f"num_rollouts must be >= 1, got {self.num_rollouts}"
-        return self
 
 
 def load_config(
