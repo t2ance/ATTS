@@ -20,4 +20,4 @@ sampling:
   presence_penalty: 1.5
   repetition_penalty: 1.0
   enable_thinking: true
-  max_tokens: 65536
+  max_tokens: 32768

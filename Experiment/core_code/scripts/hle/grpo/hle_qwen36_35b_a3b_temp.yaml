@@ -31,4 +31,8 @@ sampling:
   presence_penalty: 1.5     # vLLM default 0.0. Qwen3.6 recipe = 1.5 (anti-repeat under thinking).
   repetition_penalty: 1.0   # vLLM default 1.0; pinned for explicit self-doc.
   enable_thinking: true     # Qwen3.6 chat_template default = true; pinned so paper text matches code.
-  max_tokens: 65536         # Per-turn cap. Baseline silently used vllm.py:374 hardcode 8192.
+  # max_tokens=32768: vLLM serve has --max-model-len=65536 (total = input+output);
+  # setting max_tokens to that ceiling left 0 budget for input and 400ed all calls
+  # (verified 2026-05-01 00:47 HLE smoke). Halving leaves ∼32k for prompt + 8-turn
+  # accumulated context. Baseline path silently used vllm.py:374 hardcode 8192.
+  max_tokens: 32768
