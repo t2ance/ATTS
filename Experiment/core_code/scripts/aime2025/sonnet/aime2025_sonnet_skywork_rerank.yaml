@@ -1,6 +1,5 @@
 benchmark:
   name: aime2025
-backend: claude
 method:
   name: rerank
   reward_model: Skywork/Skywork-Reward-V2-Qwen3-8B

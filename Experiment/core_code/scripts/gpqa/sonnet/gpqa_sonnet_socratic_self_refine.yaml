@@ -1,8 +1,9 @@
 benchmark:
   name: gpqa
-backend: claude
 method:
   name: socratic-self-refine
+  backend:
+    name: claude
   explore_model: claude-sonnet-4-6
   cache_dir: ../analysis/cache/gpqa/sonnet_socratic_self_refine
   num_explores: 8

@@ -1,8 +1,9 @@
 benchmark:
   name: gpqa
-backend: claude
 method:
   name: standalone-integrator
+  backend:
+    name: claude
   integrate_model: claude-sonnet-4-6
   cache_dir: ../analysis/cache/gpqa/sonnet
 num_workers: 16

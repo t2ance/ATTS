@@ -2,9 +2,10 @@ benchmark:
   name: hle
   subset: gold
   text_only: true
-backend: vllm
 method:
   name: tts-agent
+  backend:
+    name: vllm
   explore_model: claude-sonnet-4-6
   orchestrator_model: qwen36-35b-a3b-fp8
   cache_dir: ../analysis/cache/hle/sonnet/gold

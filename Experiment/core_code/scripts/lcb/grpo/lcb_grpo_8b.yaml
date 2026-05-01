@@ -1,8 +1,9 @@
 benchmark:
   name: lcb
-backend: vllm
 method:
   name: tts-agent
+  backend:
+    name: vllm
   explore_model: grpo-8b
   orchestrator_model: grpo-8b
   integrate_model: grpo-8b

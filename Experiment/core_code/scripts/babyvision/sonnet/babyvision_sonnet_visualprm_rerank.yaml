@@ -1,6 +1,5 @@
 benchmark:
   name: babyvision
-backend: claude
 method:
   name: rerank
   reward_model: OpenGVLab/VisualPRM-8B

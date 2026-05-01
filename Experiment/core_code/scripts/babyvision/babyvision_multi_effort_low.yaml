@@ -1,8 +1,9 @@
 benchmark:
   name: babyvision
-backend: claude
 method:
   name: tts-agent-multi
+  backend:
+    name: claude
   orchestrator_model: claude-sonnet-4-6
   cache_dirs:
     haiku: ../analysis/cache/babyvision/haiku

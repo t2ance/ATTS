@@ -1,8 +1,9 @@
 benchmark:
   name: lcb
-backend: claude
 method:
   name: tts-agent
+  backend:
+    name: claude
   explore_model: claude-sonnet-4-6
   orchestrator_model: claude-sonnet-4-6
   integrate_model: claude-sonnet-4-6

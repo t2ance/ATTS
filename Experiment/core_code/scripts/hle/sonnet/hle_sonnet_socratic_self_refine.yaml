@@ -2,9 +2,10 @@ benchmark:
   name: hle
   subset: gold
   text_only: true
-backend: claude
 method:
   name: socratic-self-refine
+  backend:
+    name: claude
   explore_model: claude-sonnet-4-6
   cache_dir: ../analysis/cache/hle/sonnet_socratic_self_refine/gold
   num_explores: 8

@@ -2,9 +2,10 @@ benchmark:
   name: hle
   subset: gold
   text_only: true
-backend: claude
 method:
   name: tts-agent
+  backend:
+    name: claude
   explore_model: claude-haiku-4-5-20251001
   orchestrator_model: claude-haiku-4-5-20251001
   integrate_model: claude-haiku-4-5-20251001

@@ -2,9 +2,10 @@ benchmark:
   name: hle
   subset: gold
   text_only: true
-backend: codex
 method:
   name: tts-agent
+  backend:
+    name: codex
   explore_model: gpt-5.4
   orchestrator_model: gpt-5.4
   integrate_model: gpt-5.4

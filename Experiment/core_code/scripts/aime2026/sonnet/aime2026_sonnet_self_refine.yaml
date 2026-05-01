@@ -1,8 +1,9 @@
 benchmark:
   name: aime2026
-backend: claude
 method:
   name: self-refine
+  backend:
+    name: claude
   explore_model: claude-sonnet-4-6
   cache_dir: ../analysis/cache/aime2026/sonnet_self_refine
   num_explores: 8

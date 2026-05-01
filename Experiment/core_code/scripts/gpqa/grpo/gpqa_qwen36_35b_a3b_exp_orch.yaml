@@ -1,8 +1,9 @@
 benchmark:
   name: gpqa
-backend: vllm
 method:
   name: tts-agent
+  backend:
+    name: vllm
   explore_model: qwen36-35b-a3b-fp8
   orchestrator_model: qwen36-35b-a3b-fp8
   cache_dir: ../analysis/cache/gpqa/qwen36_35b_a3b_fp8

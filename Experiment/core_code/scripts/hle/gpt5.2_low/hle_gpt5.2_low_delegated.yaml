@@ -2,15 +2,16 @@ benchmark:
   name: hle
   subset: gold
   text_only: true
-backend: codex
 method:
   name: tts-agent
+  backend:
+    name: codex
+    effort: low
   explore_model: gpt-5.2
   orchestrator_model: gpt-5.2
   integrate_model: gpt-5.2
   cache_dir: ../analysis/cache/hle/gpt5.2_low/gold
   num_explores: 8
-effort: low
 num: 200
 num_workers: 8
 seed: 42

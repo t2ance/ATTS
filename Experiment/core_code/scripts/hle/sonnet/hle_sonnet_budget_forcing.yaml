@@ -2,9 +2,10 @@ benchmark:
   name: hle
   subset: gold
   text_only: true
-backend: claude
 method:
   name: budget-forcing
+  backend:
+    name: claude
   explore_model: claude-sonnet-4-6
   cache_dir: ../analysis/cache/hle/sonnet_budget_forcing/gold
   num_explores: 8

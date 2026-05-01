@@ -1,8 +1,9 @@
 benchmark:
   name: lcb
-backend: claude
 method:
   name: self-refine
+  backend:
+    name: claude
   explore_model: claude-sonnet-4-6
   cache_dir: ../analysis/cache/lcb/sonnet_self_refine
   num_explores: 8

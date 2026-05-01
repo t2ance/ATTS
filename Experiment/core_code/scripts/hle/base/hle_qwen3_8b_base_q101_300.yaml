@@ -2,9 +2,10 @@ benchmark:
   name: hle
   subset: gold
   text_only: true
-backend: vllm
 method:
   name: tts-agent
+  backend:
+    name: vllm
   explore_model: qwen3-8b-base
   orchestrator_model: qwen3-8b-base
   integrate_model: qwen3-8b-base
