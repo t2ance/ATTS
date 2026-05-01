@@ -31,8 +31,15 @@ _spec.loader.exec_module(mig)
 
 def _make_legacy_explore(explore_dir: Path,
                          judge_model: str = "claude-haiku-4-5-20251001",
-                         is_correct: bool = True):
-    """Create a single legacy-layout explore_N directory with all 7 files."""
+                         is_correct: bool = True,
+                         include_judge_input: bool = True):
+    """Create a single legacy-layout explore_N directory.
+
+    include_judge_input=True replicates the OLD opus cache layout (judge/ has
+    input.md + output.md + result.json). Set False to replicate the CURRENT
+    qwen36 cache layout where judge/ has only output.md + result.json
+    (current grader.py:judge_answer never writes input.md).
+    """
     explore_dir.mkdir(parents=True, exist_ok=True)
     (explore_dir / "result.json").write_text(json.dumps({"answer": "D", "cost_usd": 0.0}))
     (explore_dir / "input.md").write_text("question prompt")
@@ -46,7 +53,8 @@ def _make_legacy_explore(explore_dir: Path,
     }))
     judge_dir = explore_dir / "judge"
     judge_dir.mkdir()
-    (judge_dir / "input.md").write_text("judge prompt")
+    if include_judge_input:
+        (judge_dir / "input.md").write_text("judge prompt")
     (judge_dir / "output.md").write_text("judge output")
     (judge_dir / "result.json").write_text(json.dumps({"correct": is_correct}))
 
@@ -268,6 +276,39 @@ def test_cleanup_idempotent(tmp_path):
     mig.run(cache_root=cache, phase="cleanup", limit=None)
     # Second cleanup should not raise; legacy already gone.
     mig.run(cache_root=cache, phase="cleanup", limit=None)
+
+
+def test_copy_handles_legacy_without_judge_input_md(tmp_path):
+    """Current qwen36 cache writes only judge/output.md + judge/result.json
+    (no judge/input.md). Migration must succeed; bundle has 4 files not 5."""
+    cache = tmp_path / "cache"
+    explore = cache / "qid1" / "explore_1"
+    _make_legacy_explore(explore, include_judge_input=False)
+    mig.run(cache_root=cache, phase="copy", limit=None)
+    bundle = explore / "judges" / "claude__claude-haiku-4-5-20251001"
+    for fname in ("config.json", "grade.json", "output.md", "result.json"):
+        assert (bundle / fname).exists(), f"{fname} should exist"
+    assert not (bundle / "input.md").exists(), "input.md should not exist when source lacked it"
+
+
+def test_cleanup_accepts_bundle_without_judge_input_md(tmp_path):
+    """Cleanup must NOT block on missing input.md (it's optional)."""
+    cache = tmp_path / "cache"
+    explore = cache / "qid1" / "explore_1"
+    _make_legacy_explore(explore, include_judge_input=False)
+    mig.run(cache_root=cache, phase="copy", limit=None)
+    mig.run(cache_root=cache, phase="cleanup", limit=None)
+    assert not (explore / "grade.json").exists()  # legacy was deleted
+
+
+def test_copy_aborts_when_required_judge_file_missing(tmp_path):
+    """If judge/output.md is missing, that's a corrupted legacy entry; abort."""
+    cache = tmp_path / "cache"
+    explore = cache / "qid1" / "explore_1"
+    _make_legacy_explore(explore)
+    (explore / "judge" / "output.md").unlink()
+    with pytest.raises(SystemExit, match="Required legacy file missing"):
+        mig.run(cache_root=cache, phase="copy", limit=None)
 
 
 def test_full_lifecycle_dry_copy_smoke_cleanup(tmp_path):

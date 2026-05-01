@@ -166,16 +166,24 @@ def _phase_copy(cache_root: Path, limit: int | None) -> None:
         # 2) grade.json (verified copy from legacy explore_N/grade.json).
         _verified_copy(legacy_grade, bundle / "grade.json")
 
-        # 3) Three judge trace files. Original legacy layout always has all
-        #    three (inputs.md/output.md/result.json under explore_N/judge/);
-        #    a missing one is a corruption signal worth flagging.
+        # 3) Judge trace files. Two are required (output.md, result.json);
+        #    input.md is optional because current grader.py:judge_answer never
+        #    writes it (only TrajectoryWriter+output.md and save_sub_model_result
+        #    +result.json fire today). Older caches (e.g. 2026-03 opus run) DO
+        #    have input.md from a removed code path; copy it when present.
         legacy_judge = explore_dir / "judge"
-        for fname in ("input.md", "output.md", "result.json"):
+        for fname in ("output.md", "result.json"):
             src = legacy_judge / fname
-            if src.exists():
-                _verified_copy(src, bundle / fname)
-            else:
-                print(f"  WARN: {src} missing in legacy layout; bundle is incomplete.")
+            if not src.exists():
+                raise SystemExit(
+                    f"Required legacy file missing: {src}. Cannot migrate this "
+                    f"explore. Inspect manually before retrying."
+                )
+            _verified_copy(src, bundle / fname)
+        # Optional: input.md (only present in older caches).
+        opt_in = legacy_judge / "input.md"
+        if opt_in.exists():
+            _verified_copy(opt_in, bundle / "input.md")
 
         # 4) Sanity: re-read config.json and confirm content matches.
         stored = json.loads((bundle / "config.json").read_text(encoding="utf-8"))
@@ -199,11 +207,14 @@ def _phase_copy(cache_root: Path, limit: int | None) -> None:
 # Phase 3: cleanup (only after copy + smoke eval verification pass)
 # ---------------------------------------------------------------------------
 
-_BUNDLE_REQUIRED_FILES = ("config.json", "grade.json", "input.md", "output.md", "result.json")
+# config.json + grade.json + judge trace (output.md, result.json) are required.
+# input.md is optional (only present in older caches that wrote it; current
+# grader.py:judge_answer doesn't produce input.md).
+_BUNDLE_REQUIRED_FILES = ("config.json", "grade.json", "output.md", "result.json")
 
 
 def _bundle_complete_and_correct(bundle: Path, expected_model: str) -> bool:
-    """All 5 required files present AND config.json matches inferred spec."""
+    """Required files present AND config.json matches inferred spec."""
     for fname in _BUNDLE_REQUIRED_FILES:
         if not (bundle / fname).exists():
             return False
