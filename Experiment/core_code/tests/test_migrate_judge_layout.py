@@ -213,7 +213,7 @@ def test_cleanup_removes_legacy_after_copy(tmp_path):
     # Pre-cleanup: both legacy and bundle exist.
     assert (explore / "grade.json").exists()
     assert (explore / "judge").exists()
-    mig.run(cache_root=cache, phase="cleanup", limit=None)
+    mig.run(cache_root=cache, phase="cleanup", limit=None, archive_root=tmp_path / "archive")
     # Post-cleanup: legacy removed, bundle intact.
     assert not (explore / "grade.json").exists()
     assert not (explore / "judge").exists()
@@ -233,7 +233,7 @@ def test_cleanup_skips_explore_with_incomplete_bundle(tmp_path, capsys):
     # Corrupt the bundle: delete config.json. Cleanup must refuse to delete legacy.
     bundle = explore / "judges" / "claude__claude-haiku-4-5-20251001"
     (bundle / "config.json").unlink()
-    mig.run(cache_root=cache, phase="cleanup", limit=None)
+    mig.run(cache_root=cache, phase="cleanup", limit=None, archive_root=tmp_path / "archive")
     # Legacy preserved for manual inspection.
     assert (explore / "grade.json").exists()
     assert (explore / "judge").exists()
@@ -246,7 +246,7 @@ def test_cleanup_no_op_if_copy_never_ran(tmp_path):
     cache = tmp_path / "cache"
     explore = cache / "qid1" / "explore_1"
     _make_legacy_explore(explore)
-    mig.run(cache_root=cache, phase="cleanup", limit=None)
+    mig.run(cache_root=cache, phase="cleanup", limit=None, archive_root=tmp_path / "archive")
     assert (explore / "grade.json").exists()
     assert (explore / "judge").exists()
 
@@ -264,7 +264,7 @@ def test_cleanup_skips_when_config_model_mismatches(tmp_path, capsys):
     (bundle / "config.json").write_text(json.dumps({
         "name": "claude", "model": "claude-haiku-4-6-fake",
     }))
-    mig.run(cache_root=cache, phase="cleanup", limit=None)
+    mig.run(cache_root=cache, phase="cleanup", limit=None, archive_root=tmp_path / "archive")
     assert (explore / "grade.json").exists()  # legacy preserved
 
 
@@ -273,9 +273,9 @@ def test_cleanup_idempotent(tmp_path):
     explore = cache / "qid1" / "explore_1"
     _make_legacy_explore(explore)
     mig.run(cache_root=cache, phase="copy", limit=None)
-    mig.run(cache_root=cache, phase="cleanup", limit=None)
+    mig.run(cache_root=cache, phase="cleanup", limit=None, archive_root=tmp_path / "archive")
     # Second cleanup should not raise; legacy already gone.
-    mig.run(cache_root=cache, phase="cleanup", limit=None)
+    mig.run(cache_root=cache, phase="cleanup", limit=None, archive_root=tmp_path / "archive")
 
 
 def test_copy_handles_legacy_without_judge_input_md(tmp_path):
@@ -297,7 +297,7 @@ def test_cleanup_accepts_bundle_without_judge_input_md(tmp_path):
     explore = cache / "qid1" / "explore_1"
     _make_legacy_explore(explore, include_judge_input=False)
     mig.run(cache_root=cache, phase="copy", limit=None)
-    mig.run(cache_root=cache, phase="cleanup", limit=None)
+    mig.run(cache_root=cache, phase="cleanup", limit=None, archive_root=tmp_path / "archive")
     assert not (explore / "grade.json").exists()  # legacy was deleted
 
 
@@ -318,10 +318,72 @@ def test_full_lifecycle_dry_copy_smoke_cleanup(tmp_path):
         _make_legacy_explore(cache / f"qid{q}" / "explore_1")
     mig.run(cache_root=cache, phase="dry-run", limit=None)
     mig.run(cache_root=cache, phase="copy", limit=None)
-    mig.run(cache_root=cache, phase="cleanup", limit=None)
+    mig.run(cache_root=cache, phase="cleanup", limit=None, archive_root=tmp_path / "archive")
     for q in range(3):
         explore = cache / f"qid{q}" / "explore_1"
         assert not (explore / "grade.json").exists()
         assert not (explore / "judge").exists()
         bundle = explore / "judges" / "claude__claude-haiku-4-5-20251001"
         assert (bundle / "grade.json").exists()
+
+
+# ---------------------------------------------------------------------------
+# Archive behavior tests for cleanup phase
+# ---------------------------------------------------------------------------
+
+def test_cleanup_archives_legacy_grade_json_with_relative_path(tmp_path):
+    """grade.json must be moved to archive_root preserving cache_root-relative path."""
+    cache = tmp_path / "cache"
+    archive = tmp_path / "archive"
+    explore = cache / "qid_abc" / "explore_3"
+    _make_legacy_explore(explore)
+    legacy_grade_bytes = (explore / "grade.json").read_bytes()
+    mig.run(cache_root=cache, phase="copy", limit=None)
+    mig.run(cache_root=cache, phase="cleanup", limit=None, archive_root=archive)
+
+    archived_grade = archive / "qid_abc" / "explore_3" / "grade.json"
+    assert archived_grade.exists(), f"archive must contain grade.json at preserved path"
+    assert archived_grade.read_bytes() == legacy_grade_bytes, "archived bytes must match original"
+    assert not (explore / "grade.json").exists(), "original must be deleted after archive"
+
+
+def test_cleanup_archives_judge_directory_recursively(tmp_path):
+    """judge/ subdirectory must be archived as a tree with all files preserved."""
+    cache = tmp_path / "cache"
+    archive = tmp_path / "archive"
+    explore = cache / "qid1" / "explore_1"
+    _make_legacy_explore(explore)
+    legacy_judge_files = {p.relative_to(explore / "judge"): p.read_bytes()
+                          for p in (explore / "judge").rglob("*") if p.is_file()}
+    assert legacy_judge_files, "test setup: expected non-empty judge/"
+
+    mig.run(cache_root=cache, phase="copy", limit=None)
+    mig.run(cache_root=cache, phase="cleanup", limit=None, archive_root=archive)
+
+    archived_judge_dir = archive / "qid1" / "explore_1" / "judge"
+    assert archived_judge_dir.is_dir(), "archive must contain judge/ as directory"
+    for rel, content in legacy_judge_files.items():
+        archived_file = archived_judge_dir / rel
+        assert archived_file.exists(), f"archive missing judge/{rel}"
+        assert archived_file.read_bytes() == content, f"archive content mismatch for judge/{rel}"
+    assert not (explore / "judge").exists(), "original judge/ must be deleted after archive"
+
+
+def test_cleanup_rejects_archive_root_inside_cache_root(tmp_path):
+    """Archiving into cache_root would corrupt the cache. Must abort."""
+    cache = tmp_path / "cache"
+    explore = cache / "qid1" / "explore_1"
+    _make_legacy_explore(explore)
+    mig.run(cache_root=cache, phase="copy", limit=None)
+    with pytest.raises(SystemExit, match="archive-root must NOT be inside"):
+        mig.run(cache_root=cache, phase="cleanup", limit=None,
+                archive_root=cache / "archive")
+
+
+def test_cleanup_requires_archive_root(tmp_path):
+    """Forgetting --archive-root must abort, not silently delete."""
+    cache = tmp_path / "cache"
+    _make_legacy_explore(cache / "qid1" / "explore_1")
+    mig.run(cache_root=cache, phase="copy", limit=None)
+    with pytest.raises(SystemExit, match="archive-root is required"):
+        mig.run(cache_root=cache, phase="cleanup", limit=None)

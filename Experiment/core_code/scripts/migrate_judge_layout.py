@@ -6,8 +6,11 @@ Three phases (run in order, one per invocation, each safe to retry):
     --phase copy      Copy each explore's grade.json + judge/* into
                       judges/<label>/, write config.json. Verify sha256 of
                       every copied byte. Originals untouched (safe).
-    --phase cleanup   After verification + smoke eval pass, delete the legacy
-                      grade.json and judge/ from each fully-migrated explore.
+    --phase cleanup   After verification + smoke eval pass, ARCHIVE the legacy
+                      grade.json and judge/ to --archive-root (preserving the
+                      relative path under cache-root) via verified copy, then
+                      delete from cache. Originals are deleted only after sha256
+                      verification passes on the archive copy.
 
 Usage:
 
@@ -222,7 +225,53 @@ def _bundle_complete_and_correct(bundle: Path, expected_model: str) -> bool:
     return cfg.get("name") == "claude" and cfg.get("model") == expected_model
 
 
-def _phase_cleanup(cache_root: Path, limit: int | None) -> None:
+def _archive_then_delete(src: Path, archive_dst: Path) -> None:
+    """Verified archive of src to archive_dst, then unlink src.
+
+    File: copy2 + sha256 verify, then unlink.
+    Directory: copytree + per-file sha256 verify, then rmtree.
+    Cross-filesystem safe (archive may be on a different mount than cache).
+    """
+    archive_dst.parent.mkdir(parents=True, exist_ok=True)
+    if src.is_file():
+        shutil.copy2(src, archive_dst)
+        if hashlib.sha256(src.read_bytes()).hexdigest() != hashlib.sha256(archive_dst.read_bytes()).hexdigest():
+            raise SystemExit(f"sha256 mismatch archiving {src} -> {archive_dst}; src untouched.")
+        src.unlink()
+    elif src.is_dir():
+        # copytree fails if dst exists; if a prior cleanup-attempt was interrupted
+        # mid-judge-dir, the archive dir may already exist — drop it first.
+        if archive_dst.exists():
+            shutil.rmtree(archive_dst)
+        shutil.copytree(src, archive_dst)
+        # Verify every file copied correctly.
+        for src_file in src.rglob("*"):
+            if src_file.is_file():
+                rel = src_file.relative_to(src)
+                dst_file = archive_dst / rel
+                if hashlib.sha256(src_file.read_bytes()).hexdigest() != hashlib.sha256(dst_file.read_bytes()).hexdigest():
+                    raise SystemExit(f"sha256 mismatch archiving dir-file {src_file} -> {dst_file}; src untouched.")
+        shutil.rmtree(src)
+    else:
+        raise SystemExit(f"Cannot archive: {src} is neither file nor directory.")
+
+
+def _phase_cleanup(cache_root: Path, archive_root: Path, limit: int | None) -> None:
+    """Move legacy grade.json + judge/ to archive_root preserving relative path.
+
+    For each explore_dir at cache_root/<...>/<qid>/explore_N/, the legacy
+    grade.json is archived to archive_root/<...>/<qid>/explore_N/grade.json
+    (mirroring cache_root structure), then unlinked from cache_root. Same for
+    judge/ subdirectory. Originals are deleted ONLY after sha256-verified
+    archive copies exist.
+    """
+    if archive_root.resolve() == cache_root.resolve() or archive_root.resolve().is_relative_to(cache_root.resolve()):
+        raise SystemExit(
+            f"--archive-root must NOT be inside --cache-root.\n"
+            f"  cache-root:   {cache_root}\n"
+            f"  archive-root: {archive_root}"
+        )
+
     deleted = 0
     skipped = 0
 
@@ -243,25 +292,33 @@ def _phase_cleanup(cache_root: Path, limit: int | None) -> None:
             skipped += 1
             continue
 
-        # Safe to delete legacy.
-        legacy_grade.unlink()
+        rel = explore_dir.relative_to(cache_root)
+        archive_explore_dir = archive_root / rel
+
+        # Archive then delete legacy grade.json.
+        _archive_then_delete(legacy_grade, archive_explore_dir / "grade.json")
+
+        # Archive then delete legacy judge/ directory.
         legacy_judge = explore_dir / "judge"
         if legacy_judge.exists():
-            shutil.rmtree(legacy_judge)
+            _archive_then_delete(legacy_judge, archive_explore_dir / "judge")
+
         deleted += 1
         if deleted % 50 == 0:
-            print(f"  ... cleaned {deleted} explores")
+            print(f"  ... archived {deleted} explores")
 
-    print(f"Phase cleanup: {deleted} legacy entries removed, {skipped} skipped.")
+    print(f"Phase cleanup: {deleted} legacy entries archived to {archive_root}, {skipped} skipped.")
 
 
-def run(cache_root: Path, phase: str, limit: int | None) -> None:
+def run(cache_root: Path, phase: str, limit: int | None, archive_root: Path | None = None) -> None:
     if phase == "dry-run":
         return _phase_dry_run(cache_root, limit)
     if phase == "copy":
         return _phase_copy(cache_root, limit)
     if phase == "cleanup":
-        return _phase_cleanup(cache_root, limit)
+        if archive_root is None:
+            raise SystemExit("--archive-root is required for --phase cleanup")
+        return _phase_cleanup(cache_root, archive_root, limit)
     raise SystemExit(f"Unknown phase: {phase!r}")
 
 
@@ -270,10 +327,13 @@ def main() -> None:
     p.add_argument("--cache-root", type=Path, required=True,
                    help="Root of the cache tree to migrate (e.g. analysis/cache/hle/<model>/<filter>).")
     p.add_argument("--phase", choices=["dry-run", "copy", "cleanup"], required=True)
+    p.add_argument("--archive-root", type=Path, default=None,
+                   help="Required for --phase cleanup. Legacy grade.json + judge/ are moved here, "
+                        "preserving their relative path under cache-root. Must be outside cache-root.")
     p.add_argument("--limit", type=int, default=None,
                    help="Process at most N eligible explores (for piloting copy phase).")
     args = p.parse_args()
-    run(cache_root=args.cache_root, phase=args.phase, limit=args.limit)
+    run(cache_root=args.cache_root, phase=args.phase, limit=args.limit, archive_root=args.archive_root)
 
 
 if __name__ == "__main__":

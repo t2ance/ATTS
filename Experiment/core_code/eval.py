@@ -517,24 +517,24 @@ async def evaluate(
                 backend=backend, grade_dir=grade_dir, quiet=quiet,
             )
 
-            first_explore = next(
-                (r for r in (result.rounds if result else []) if r.action == "explore"), None
-            )
-            if first_explore:
-                first_candidate_correct, judge_cost_2 = await _grade_with_cache(
-                    benchmark, str(first_explore.tool_input.get("answer", "")), gold_answer, question, row,
-                    backend=backend, grade_dir=traj_dir / "explore_1", quiet=quiet,
-                )
-            else:
-                first_candidate_correct, judge_cost_2 = None, 0.0
-            question_judge_cost = judge_cost_1 + judge_cost_2
-
             question_cands, qbon_jc = await _grade_question_explores(
                 benchmark, qid, gold_answer, question, row,
                 round_logs, grade_cache_dir, backend, logger.run_dir,
                 quiet=quiet,
                 rollout_idx=rollout_idx,
             )
+            # best-of-1 = first cached explore's grade. orchestrator's run_explore
+            # uses cache_key=f"explore_{call_count+1}", so question_cands[0]
+            # corresponds to the orchestrator's first explore call. Reusing it
+            # avoids a duplicate Haiku judge call per question (~$0.03/q ×
+            # batch). Matches the RESUME-path equivalence at line 435.
+            first_explore = next(
+                (r for r in (result.rounds if result else []) if r.action == "explore"), None
+            )
+            first_candidate_correct = (
+                question_cands[0][1] if (first_explore and question_cands) else None
+            )
+            question_judge_cost = judge_cost_1
             pm_cands = None
             if cache_dirs_multi:
                 pm_cands, pm_jc = await _grade_question_explores_multi(
