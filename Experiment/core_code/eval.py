@@ -694,49 +694,14 @@ async def async_main() -> None:
     benchmark = get_benchmark(cfg.benchmark.name)
     bench_filters = cfg.benchmark.model_dump(exclude={"name"}, exclude_defaults=True)
 
-    if cfg.method == "self-refine":
-        from methods.self_refine import solve
-    elif cfg.method == "socratic-self-refine":
-        from methods.socratic_self_refine import solve
-    elif cfg.method == "budget-forcing":
-        from methods.budget_forcing import solve
-    elif cfg.method == "rerank":
-        import functools
-        from methods.reward_rerank import solve as _rerank_solve
-        solve = functools.partial(_rerank_solve, reward_model_name=cfg.reward_model)
-    elif cfg.method == "standalone-integrator":
-        import functools
-        from methods.standalone_integrator import solve as _si_solve
-        solve = functools.partial(_si_solve, integrate_model=cfg.integrate_model)
-    elif cfg.method == "tts-agent-multi":
-        import functools
-        from methods.tts_agent_multi import solve as _multi_solve
-        solve = functools.partial(
-            _multi_solve,
-            cache_dirs=cfg.cache_dirs,
-            model_budgets=cfg.model_budgets,
-            exploration_effort=cfg.exploration_effort,
-        )
-    elif cfg.method == "tts-agent-effort":
-        import functools
-        from methods.tts_agent_effort import solve as _effort_solve
-        solve = functools.partial(
-            _effort_solve,
-            cache_dirs=cfg.cache_dirs,
-            effort_budgets=cfg.effort_budgets,
-        )
-    else:
-        from methods.tts_agent import solve
-
-    # tts-agent-multi and tts-agent-effort reuse orchestrator_model as integrate_model
-    # downstream (mirrors the pre-migration in-place mutation of args.integrate_model
-    # in the tts-agent-multi and tts-agent-effort branches).
-    if cfg.method in ("tts-agent-multi", "tts-agent-effort"):
-        integrate_model = cfg.orchestrator_model
-        cache_dirs_multi = cfg.cache_dirs
-    else:
-        integrate_model = cfg.integrate_model
-        cache_dirs_multi = None
+    method = get_method(cfg.method.name)
+    solve = method.build_solve_fn(cfg.method)
+    runtime = method.derive_evaluate_args(cfg.method)
+    integrate_model = runtime["integrate_model"]
+    cache_dirs_multi = runtime["cache_dirs_multi"]
+    cache_dir = getattr(cfg.method, "cache_dir", None)
+    num_explores = getattr(cfg.method, "num_explores", 8)
+    num_rollouts = getattr(cfg.method, "num_rollouts", 1)
 
     print(f"Loading {benchmark.name.upper()} dataset...")
     all_rows = benchmark.load_dataset()
@@ -757,78 +722,45 @@ async def async_main() -> None:
         print(f"Skipping first {cfg.skip} questions")
         filtered = filtered[cfg.skip:]
 
-    # Replaces the legacy `":" in args.cache_dirs` format-detection block.
-    # cfg.cache_dir is None for multi/effort methods (validator enforces);
-    # single-cache methods set it via YAML or the legacy --cache-dirs CLI flag
-    # (the inlined CLI parse routes to cfg.cache_dir).
-    cache_dir = cfg.cache_dir
+    # Per-method launch-time hooks: rerank/standalone filter rows by what's
+    # cached; tts-agent / self-refine / socratic / budget-forcing fail-fast
+    # on missing explore cache entries so the operator catches it in the
+    # banner, not hours into a multi-benchmark run.
+    filtered = method.filter_rows(filtered, cache_dir, benchmark)
+    method.preflight(filtered, cache_dir, num_explores, cfg.num, benchmark)
 
-    if cfg.method in ("rerank", "standalone-integrator") and cache_dir:
-        cached_ids = {p.name for p in cache_dir.iterdir() if p.is_dir() and (p / "explore_1" / "result.json").exists()}
-        before = len(filtered)
-        filtered = [r for r in filtered if benchmark.get_id(r) in cached_ids]
-        print(f"{cfg.method}: {len(filtered)} questions with cache (from {before})")
-
-    # Pre-flight cache completeness check (cache_only mode only). Without this,
-    # missing explore cache entries surface only when the orchestrator finally
-    # asks for that (qid, idx) -- which could be hours into a multi-benchmark
-    # run. Fail-fast here on a banner so the operator catches it in the launch
-    # banner, not the wall-time budget.
-    if (
-        not cfg.no_cache_only
-        and cache_dir is not None
-        and cfg.method in ("tts-agent", "self-refine", "socratic-self-refine", "budget-forcing")
-    ):
-        rows_to_check = filtered if cfg.num is None else filtered[:cfg.num]
-        qids = [benchmark.get_id(r) for r in rows_to_check]
-        missing: list[tuple[str, int]] = []
-        for qid in qids:
-            for idx in range(1, cfg.num_explores + 1):
-                if not (cache_dir / qid / f"explore_{idx}" / "result.json").exists():
-                    missing.append((qid, idx))
-        if missing:
-            sample = ", ".join(f"({q}, explore_{i})" for q, i in missing[:10])
-            raise AssertionError(
-                f"Cache pre-flight FAILED: {len(missing)} missing entries "
-                f"(of {len(qids) * cfg.num_explores} expected) under {cache_dir}. "
-                f"First 10: {sample}"
-            )
-        print(
-            f"Cache pre-flight OK: {len(qids)} qids x {cfg.num_explores} explores "
-            f"= {len(qids) * cfg.num_explores} cache files present at {cache_dir}"
-        )
-
-    if cfg.num_rollouts > 1:
+    if num_rollouts > 1:
         question_rows = filtered if cfg.num is None else filtered[:cfg.num]
         expanded: list[dict] = []
         for row in question_rows:
-            for k in range(cfg.num_rollouts):
+            for k in range(num_rollouts):
                 vrow = dict(row)
                 vrow["_rollout_idx"] = k
                 vrow["_temperature"] = 0.0 if k == 0 else 0.7
                 expanded.append(vrow)
-        assert len(expanded) == len(question_rows) * cfg.num_rollouts
+        assert len(expanded) == len(question_rows) * num_rollouts
         filtered = expanded
         effective_num = len(expanded)
-        print(f"Rejection sampling: expanded {len(question_rows)} questions x {cfg.num_rollouts} rollouts = {effective_num} tasks")
+        print(f"Rejection sampling: expanded {len(question_rows)} questions x {num_rollouts} rollouts = {effective_num} tasks")
     else:
         effective_num = cfg.num
 
     infra = InfraConfig(
         backend=cfg.backend,
-        max_iterations=cfg.num_explores,
+        max_iterations=num_explores,
         cache_dir=cache_dir,
-        cache_only=not cfg.no_cache_only,
+        cache_only=method.cache_only,
         budget_tokens=cfg.budget_tokens,
         effort=cfg.effort,
         timeout=cfg.timeout,
         benchmark=benchmark,
         quiet=not cfg.verbose,
         logger=None,
-        enable_integrate=not cfg.no_integrate,
+        enable_integrate=not getattr(cfg.method, "no_integrate", False),
         max_output_tokens=cfg.max_output_tokens,
     )
 
+    sampling = getattr(cfg.method, "sampling", None)
     await evaluate(
         infra=infra,
         rows=filtered,
@@ -837,8 +769,8 @@ async def async_main() -> None:
         num_workers=cfg.num_workers,
         resume_run_dir=cfg.resume,
         log_dir=cfg.log_dir,
-        orchestrator_model=cfg.orchestrator_model,
-        explore_model=cfg.explore_model,
+        orchestrator_model=runtime["orchestrator_model"],
+        explore_model=runtime["explore_model"],
         integrate_model=integrate_model,
         dataset_config={
             "benchmark": benchmark.name,
@@ -846,10 +778,10 @@ async def async_main() -> None:
             "seed": cfg.seed,
             "shuffle": cfg.shuffle,
             "num": cfg.num,
-            "num_rollouts": cfg.num_rollouts,
+            "num_rollouts": num_rollouts,
         },
         cache_dirs_multi=cache_dirs_multi,
-        sampling=cfg.sampling.model_dump() if cfg.sampling else None,
+        sampling=sampling.model_dump() if sampling else None,
     )
 
 
