@@ -94,6 +94,7 @@ BENCHMARKS = {
         },
         "methods": {
             "Self-Refine": RUN_DIR / "gpqa/sonnet_self_refine/self_refine.log",
+            "Socratic Self-Refine": RUN_DIR / "gpqa/sonnet_socratic_self_refine/socratic_self_refine.log",
             "Budget Forcing": RUN_DIR / "gpqa/sonnet_budget_forcing/budget_forcing.log",
             "Skywork-Reward-V2": RUN_DIR / "gpqa/sonnet_skywork_rerank/rerank.log",
         },
@@ -113,6 +114,7 @@ BENCHMARKS = {
         },
         "methods": {
             "Self-Refine": RUN_DIR / "lcb/sonnet_self_refine/self_refine.log",
+            "Socratic Self-Refine": RUN_DIR / "lcb/sonnet_socratic_self_refine/socratic_self_refine.log",
             "Budget Forcing": RUN_DIR / "lcb/sonnet_budget_forcing/budget_forcing.log",
             "Skywork-Reward-V2": RUN_DIR / "lcb/sonnet_skywork_rerank/rerank2.log",
         },

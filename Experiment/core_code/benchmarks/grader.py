@@ -58,10 +58,11 @@ def check_answer(predicted: str, gold: str, answer_type: str) -> bool:
 
 _JUDGE_BASE = """\
 Judge whether the following [response] to [question] is correct based on the [correct_answer].
+CRITICAL RULE: DO NOT SOLVE THE PROBLEM BY YOURSELF. YOUR ONLY GOAL IS TO CHECK WHETHER THE ANSWER IS EQUIVALENT TO THE GOLD UNDER THE SPECIFIC QUESTION. YOU ARE LIKELY TO GIVE IT A FALSE IF THE ANSWER IS EMPTY.
 
 Your judgement must follow these criteria:
 - extracted_final_answer: The final exact answer extracted from the [response]. Put "None" if there is no exact final answer to extract.
-- reasoning: Explain why the extracted answer is correct or incorrect based on [correct_answer]. Focus only on whether there are meaningful differences. Do not comment on background, do not attempt to solve the problem, do not argue for any answer different than [correct_answer].
+- reasoning: Explain why the extracted answer is correct or incorrect based on [correct_answer]. Focus only on whether there are meaningful differences. Do not comment on background, do not argue for any answer different than [correct_answer].
 - correct: true if extracted_final_answer matches [correct_answer], or is within a small margin of error for numerical problems. Consider mathematical equivalence (1/2 = 0.5), notation differences (LaTeX vs Unicode), and formatting differences that don't change meaning. false otherwise."""
 
 JUDGE_SCHEMA: dict[str, Any] = {

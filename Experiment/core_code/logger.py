@@ -90,7 +90,7 @@ class RunLogger:
                     logger._question_count += 1
                     if rec.get("is_correct"):
                         logger._correct_count += 1
-                    if rec.get("predicted_answer", "").startswith("ERROR"):
+                    if str(rec.get("predicted_answer", "")).startswith("ERROR"):
                         logger._error_count += 1
                     logger._total_cost += rec.get("cost_usd", 0.0)
 
@@ -150,7 +150,7 @@ class RunLogger:
         self._question_count += 1
         if record.get("is_correct"):
             self._correct_count += 1
-        if record.get("predicted_answer", "").startswith("ERROR"):
+        if str(record.get("predicted_answer", "")).startswith("ERROR"):
             self._error_count += 1
         self._total_cost += record.get("cost_usd", 0.0)
 

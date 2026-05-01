@@ -2,7 +2,8 @@
 
 Exposes transport primitives only:
   - call_sub_model(...)         -> (result, trajectory_text, cost_usd, usage)
-  - run_tool_conversation(...)  -> (cost_usd, usage, output_exceeded)
+  - run_tool_conversation(...)  -> (cost_usd, usage, exit_reason)
+    where exit_reason ∈ {"committed", "cap_exceeded", "incomplete"}
 """
 
 from __future__ import annotations
@@ -223,7 +224,7 @@ async def run_tool_conversation(
     writer=None,
     quiet: bool = True,
     on_structured_output: Callable[[dict], None] | None = None,
-    max_output_chars: int | None = None,
+    max_output_tokens: int | None = None,
     temperature: float | None = None,
 ) -> tuple[float, dict[str, Any], bool]:
     """Run a multi-turn tool-calling conversation via Claude Agent SDK.
@@ -234,7 +235,8 @@ async def run_tool_conversation(
     output_format: if provided, the model can call the built-in StructuredOutput
         tool to emit structured data (using the same mechanism as call_sub_model).
     on_structured_output: callback for StructuredOutput business logic (state updates).
-    Returns (cost_usd, usage, output_exceeded).
+    Returns (cost_usd, usage, exit_reason) where exit_reason ∈
+    {"committed", "cap_exceeded", "incomplete"}.
     """
     # Append StructuredOutput schema to system prompt when output_format is provided
     if output_format and output_format.get("schema"):
@@ -267,8 +269,11 @@ async def run_tool_conversation(
 
     cost_usd = 0.0
     usage: dict[str, Any] = {}
-    _output_chars = 0
-    _output_exceeded = False
+    _output_tokens = 0
+    # Default 'incomplete'; promoted to 'committed' on StructuredOutput
+    # tool_use, or 'cap_exceeded' on token cap break.
+    _exit_reason = "incomplete"
+    _structured_output_emitted = False
 
     for attempt in range(_SDK_INIT_MAX_RETRIES):
         try:
@@ -277,19 +282,29 @@ async def run_tool_conversation(
                 async for msg in client.receive_response():
                     if isinstance(msg, StreamEvent):
                         event = msg.event
-                        if event.get("type") == "content_block_delta":
+                        event_type = event.get("type")
+                        if event_type == "content_block_delta":
                             delta = event.get("delta", {})
-                            if delta.get("type") == "thinking_delta":
-                                _output_chars += len(delta.get("thinking", ""))
-                                if writer:
-                                    writer.write_chunk(delta["thinking"])
-                            elif delta.get("type") == "text_delta":
-                                _output_chars += len(delta.get("text", ""))
-                            if max_output_chars and _output_chars > max_output_chars:
-                                if not quiet:
-                                    print(f"  [orchestrator] output limit exceeded ({_output_chars} chars > {max_output_chars}), terminating")
-                                _output_exceeded = True
-                                break
+                            if delta.get("type") == "thinking_delta" and writer:
+                                writer.write_chunk(delta["thinking"])
+                            # Note: char counting removed (2026-04-30). Token-based
+                            # cap is checked on message_delta events below — that's
+                            # Anthropic's natural unit (cumulative usage.output_tokens).
+                        elif event_type == "message_delta":
+                            # Anthropic streaming protocol: message_delta events
+                            # carry cumulative usage in their `usage` field. We use
+                            # this to gate orchestrator output by token budget.
+                            evt_usage = event.get("usage", {})
+                            if "output_tokens" in evt_usage:
+                                _output_tokens = evt_usage["output_tokens"]
+                                if max_output_tokens is not None and _output_tokens > max_output_tokens:
+                                    if not quiet:
+                                        print(
+                                            f"  [orchestrator] output token cap exceeded "
+                                            f"({_output_tokens} > {max_output_tokens}), terminating"
+                                        )
+                                    _exit_reason = "cap_exceeded"
+                                    break
 
                     elif isinstance(msg, AssistantMessage):
                         if msg.error:
@@ -315,6 +330,7 @@ async def run_tool_conversation(
                                         writer.write_tool_use("StructuredOutput", block.input)
                                     if on_structured_output:
                                         on_structured_output(block.input)
+                                    _structured_output_emitted = True
                                 elif block.name.startswith(_MCP_PREFIX):
                                     tool_name = block.name.removeprefix(_MCP_PREFIX)
                                     if not quiet:
@@ -351,4 +367,11 @@ async def run_tool_conversation(
                 continue
             raise
 
-    return cost_usd, usage, _output_exceeded
+    # Final exit_reason: cap_exceeded (set above on break) wins; otherwise,
+    # if StructuredOutput emitted then committed; else fall through to default
+    # 'incomplete' (loop ended without commit signal).
+    if _exit_reason == "cap_exceeded":
+        return cost_usd, usage, _exit_reason
+    if _structured_output_emitted:
+        return cost_usd, usage, "committed"
+    return cost_usd, usage, "incomplete"

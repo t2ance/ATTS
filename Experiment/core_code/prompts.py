@@ -231,18 +231,15 @@ Example 5 (two weak models agree, but verify with stronger model):
 # Helpers
 # ---------------------------------------------------------------------------
 
-_CLAUDE_STRUCTURED_OUTPUT_SUFFIX = """
+def format_claude_structured_suffix(schema: dict[str, Any]) -> str:
+    """Format the Claude structured output suffix with the given schema."""
+    return f"""
 Call the StructuredOutput tool with each top-level field as a separate parameter.
 Schema:
 ```json
-{schema}
+{json.dumps(schema, indent=2)}
 ```
 """
-
-
-def format_claude_structured_suffix(schema: dict[str, Any]) -> str:
-    """Format the Claude structured output suffix with the given schema."""
-    return _CLAUDE_STRUCTURED_OUTPUT_SUFFIX.format(schema=json.dumps(schema, indent=2))
 
 
 _EXPLORATION_EFFORT = {

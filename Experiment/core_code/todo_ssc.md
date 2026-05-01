@@ -5,10 +5,10 @@
 | Benchmark | Done / Total | Status | Log path |
 |---|---|---|---|
 | hle | 100 / 100 | done (gold+text_only, integrated=45.0%, $0.90/q) | /data3/peijia/dr-claw/Explain/Experiment/analysis/run/hle/sonnet_socratic_self_refine/socratic_self_refine.log |
-| gpqa | 130 / 198 | done (PID 2961474, num_workers=1, restarted 2026-04-29 21:50 UTC after prior PID 3519154 died on base env). env transition mid-run: rows 1-127 produced under base/Py 3.13, rows 128- under explain/Py 3.11. | /data3/peijia/dr-claw/Explain/Experiment/analysis/run/gpqa/sonnet_socratic_self_refine/socratic_self_refine.log |
-| lcb | 111 / 175 | **done** 2026-04-29 22:34 UTC by user (was PID 3519945, base env). Run dir kept at `run_20260428_163748` for resume. Relaunch via `bash scripts/lcb/sonnet/run_socratic_self_refine.sh` (now explain env). | /data3/peijia/dr-claw/Explain/Experiment/analysis/run/lcb/sonnet_socratic_self_refine/socratic_self_refine.log |
-| babyvision | 177 / 388 | **stopped** 2026-04-29 22:34 UTC by user (was PID 3520725, base env). Run dir kept at `run_20260428_075116` for resume. Relaunch via `bash scripts/babyvision/sonnet/run_socratic_self_refine.sh` (now explain env). | /data3/peijia/dr-claw/Explain/Experiment/analysis/run/babyvision/sonnet_socratic_self_refine/socratic_self_refine.log |
-| rbenchv | 2 / 157 | stopped 2026-04-29 16:30 UTC by user (was PID 3521500, base env). Run dir kept at run_20260429_161247 for resume. Script now uses explain env — next launch via `bash scripts/rbenchv/sonnet/run_socratic_self_refine.sh` will run on explain. | /data3/peijia/dr-claw/Explain/Experiment/analysis/run/rbenchv/sonnet_socratic_self_refine/socratic_self_refine.log |
+| gpqa | 198 / 198 | done 2026-04-30 04:24 UTC (Integrated 147/198 = 74.24%, $0.56/q). env transition mid-run: rows 1-127 base/Py 3.13, rows 128- explain/Py 3.11. Run dir `run_20260428_163751`. | /data3/peijia/dr-claw/Explain/Experiment/analysis/run/gpqa/sonnet_socratic_self_refine/socratic_self_refine.log |
+| lcb | 175 / 175 | done 2026-04-30 05:25 UTC (Integrated 144/175 = 82.29%, $0.60/q). Run dir `run_20260428_163748`. | /data3/peijia/dr-claw/Explain/Experiment/analysis/run/lcb/sonnet_socratic_self_refine/socratic_self_refine.log |
+| babyvision | 388 / 388 | done 2026-04-30 19:29 UTC (Integrated 82/388 = 21.13%, $0.58/q). Run dir `run_20260428_075116`. Resume from 2026-04-29 22:34 UTC stop completed cleanly under explain env. | /data3/peijia/dr-claw/Explain/Experiment/analysis/run/babyvision/sonnet_socratic_self_refine/socratic_self_refine.log |
+| rbenchv | 2 / 157 | **deferred** to follow-up revision; main.tex Appendix~\ref{app:rbenchv} already discloses RBenchV bottom-group rows as TBD. Run dir kept at run_20260429_161247 for future resume. Script uses explain env — next launch via `bash scripts/rbenchv/sonnet/run_socratic_self_refine.sh`. | /data3/peijia/dr-claw/Explain/Experiment/analysis/run/rbenchv/sonnet_socratic_self_refine/socratic_self_refine.log |
 
 ## Add-a-row checklist (when a benchmark finishes)
 
@@ -23,10 +23,10 @@
 
 ## Cross-doc gaps still open
 
-- [ ] Section 5.1 baselines paragraph: list still says "six baselines"; add Socratic Self-Refine + bump count.
-- [ ] Appendix implementation-details: add a Socratic Self-Refine description paragraph alongside Self-Refine / Budget Forcing.
-- [ ] Figure `explore_distribution_all`: histogram has ATTS vs Self-Refine only; add a Socratic row once at least 2 benches finish.
-- [ ] HLE narrative paragraph: state that Socratic Self-Refine underperforms Self-Refine on HLE.
+- [x] Section 5.1 baselines paragraph: now says "seven baselines" with Socratic Self-Refine listed (2026-05-01).
+- [x] Appendix implementation-details: Socratic Self-Refine description paragraph added between Self-Refine and Budget Forcing (2026-05-01).
+- [x] Figure `explore_distribution_all`: BabyVision SSR panel filled; `INCOMPLETE_PANELS` set emptied; figure caption updated (2026-05-01).
+- [x] HLE narrative paragraph: states that Socratic Self-Refine underperforms Self-Refine on HLE (45.00% vs 53.00% at 2.2x cost) (2026-05-01).
 
 ## Env discipline (2026-04-29)
 

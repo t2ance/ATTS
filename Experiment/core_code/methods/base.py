@@ -36,7 +36,7 @@ class InfraConfig:
     quiet: bool
     logger: RunLogger | None
     enable_integrate: bool = True
-    max_output_chars: int | None = None
+    max_output_tokens: int | None = None
 
 
 @dataclass
@@ -80,7 +80,7 @@ class SolveContext:
     # Logging
     logger: RunLogger | None
     question_id: str | None
-    max_output_chars: int | None = None
+    max_output_tokens: int | None = None
     rollout_idx: int | None = None
 
     async def call_sub_model(
@@ -385,6 +385,6 @@ def create_solve_context(
         benchmark=infra.benchmark,
         logger=infra.logger,
         question_id=question_id,
-        max_output_chars=infra.max_output_chars,
+        max_output_tokens=infra.max_output_tokens,
         rollout_idx=rollout_idx,
     )

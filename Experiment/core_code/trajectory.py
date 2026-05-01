@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, IO
+from typing import Any, IO, Literal
 
 
 @dataclass
@@ -166,4 +166,9 @@ class SolveResult:
     cost: CostTracker
     rounds: list[RoundLog] = field(default_factory=list)
     writer: TrajectoryWriter = field(default_factory=TrajectoryWriter.noop)
-    output_exceeded: bool = False
+    # Exit state from backend's run_tool_conversation main loop:
+    #   - "committed": orchestrator emitted StructuredOutput, OR a tool returned should_stop=True
+    #   - "cap_exceeded": cumulative output_tokens exceeded user-set max_output_tokens cap
+    #   - "incomplete": orchestrator gave up emitting tool_call (text-only response), OR
+    #     for-loop walked all max_turns without commitment
+    exit_reason: Literal["committed", "cap_exceeded", "incomplete"] = "incomplete"

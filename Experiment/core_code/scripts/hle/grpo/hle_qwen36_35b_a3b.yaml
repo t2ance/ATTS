@@ -1,0 +1,29 @@
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+backend: vllm
+# explore_model is a label for cache-key matching only: cache_only=True (default)
+# enforces explore cache hits, so the Anthropic SDK is never invoked at runtime.
+# Pointing at claude-sonnet-4-6 means we read the paper main-result Sonnet
+# explore candidates verbatim — controlled-variable experiment: hold candidate
+# quality constant, swap only the orchestrator (Sonnet -> Qwen3.6-FP8-base).
+explore_model: claude-sonnet-4-6
+method: tts-agent
+orchestrator_model: qwen36-35b-a3b-fp8
+# integrate_model intentionally omitted: no_integrate=true makes orchestrator
+# synthesize the final answer directly (paper main config), so integrate_model
+# is dead weight. Validator at eval.py:103-110 was relaxed (2026-04-30) to
+# accept None when no_integrate=true.
+cache_dir: ../analysis/cache/hle/sonnet/gold
+no_integrate: true
+num: 100
+num_explores: 8
+# num_workers=8: serve is TP=2 single-replica with ~100 GB aggregate KV pool
+# (FP8 17.5 GB shard/card + 50 GB KV/card, vLLM continuous-batches inside).
+# With 8 ATTS workers issuing 8 concurrent multi-turn rollouts, vLLM's
+# internal batcher saturates the big KV pool. Going much higher (16+) risks
+# orchestrator dispatch overhead without throughput win.
+num_workers: 8
+seed: 42
+log_dir: ../analysis/run/hle/qwen36_35b_a3b_fp8_baseline

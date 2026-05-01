@@ -83,11 +83,7 @@ NAMESPACE_FOR_METHOD = {
 # Per-(method, benchmark) panels that should NOT be plotted because the
 # run is incomplete. Listed explicitly so a partial-run histogram is never
 # silently passed off as a finished distribution.
-INCOMPLETE_PANELS: set[tuple[str, str]] = {
-    ("Socratic Self-Refine", "lcb"),
-    ("Socratic Self-Refine", "gpqa"),
-    ("Socratic Self-Refine", "babyvision"),
-}
+INCOMPLETE_PANELS: set[tuple[str, str]] = set()
 
 BENCHMARKS = [
     ("HLE-Verified",  "hle"),
@@ -195,9 +191,9 @@ def plot_atts_sr_stacked(out_stem: Path) -> None:
 def plot_atts_sr_ssc_stacked(out_stem: Path) -> None:
     """3 rows x 4 benchmarks: ATTS / Self-Refine / Socratic Self-Refine.
 
-    Socratic Self-Refine row only has the HLE panel filled today; the other
-    three benchmarks are still running and are rendered as blank placeholders
-    so the row is structurally present but does not falsely report data.
+    All four Socratic Self-Refine panels are now finished as of 2026-04-30
+    (BabyVision SSR completed at 2026-04-30 19:29 UTC, run dir
+    `run_20260428_075116`).
     """
     fig, axes = plt.subplots(3, 4, figsize=(22, 15.6))
     _fill_method_row(axes[0], "ATTS")

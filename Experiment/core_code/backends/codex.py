@@ -2,7 +2,8 @@
 
 Exposes transport primitives only:
   - call_sub_model(...)          -> (result, trajectory_text, cost_usd, usage)
-  - run_tool_conversation(...)   -> (cost_usd, usage, output_exceeded)
+  - run_tool_conversation(...)   -> (cost_usd, usage, exit_reason)
+    where exit_reason ∈ {"committed", "cap_exceeded", "incomplete"}
 """
 
 from __future__ import annotations
@@ -214,7 +215,7 @@ async def run_tool_conversation(
     writer=None,
     quiet: bool = True,
     on_structured_output: Callable[[dict], None] | None = None,
-) -> tuple[float, dict[str, Any], bool]:
+) -> tuple[float, dict[str, Any], str]:
     """Run a multi-turn tool-calling conversation via Codex Responses API.
 
     tool_handler(name, args) -> (result_text, should_stop)
@@ -333,4 +334,7 @@ async def run_tool_conversation(
             writer.write_tool_use("StructuredOutput", parsed)
         on_structured_output(parsed)
 
-    return total_cost, total_usage, False
+    # Codex always either emits structured_output (line 282 or 319-334 force-final)
+    # or asserts. The "incomplete" / "cap_exceeded" exit_reasons used by other backends
+    # do not have analogues here today.
+    return total_cost, total_usage, "committed"

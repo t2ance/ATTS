@@ -44,7 +44,7 @@ effort: low                 # low / medium / high / max
 num_explores: 8
 num_workers: 1
 explore_timeout: 1200
-max_output_chars: null
+max_output_tokens: null
 
 # === Run ===
 verbose: false

@@ -56,6 +56,7 @@ wandb/
 
 # Downloaded paper sources
 Survey/arxiv_sources/
+Experiment/analysis/_archive_*
 
 # Misc
 tmp/
