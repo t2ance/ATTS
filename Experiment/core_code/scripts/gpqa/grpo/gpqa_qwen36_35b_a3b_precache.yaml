@@ -1,0 +1,26 @@
+benchmark:
+  name: gpqa
+backend: vllm
+# Explorer = orchestrator: same Qwen3.6-35B-A3B-FP8 alias served on :8000-:8002.
+# `_exp_orch` arm: explorer model swapped from Sonnet to the same Qwen used
+# by the orchestrator. See hle_qwen36_35b_a3b_precache.yaml for full rationale.
+explore_model: qwen36-35b-a3b-fp8
+# Distinct from sonnet (../analysis/cache/gpqa/sonnet); fresh cache for the
+# new (model, sampling) tuple per cache_discipline memory.
+cache_dir: ../analysis/cache/gpqa/qwen36_35b_a3b_fp8
+num_explores: 8
+# 128 across 3 replicas (~43 in-flight each); see hle precache for derivation.
+num_workers: 128
+seed: 42
+# MUST match gpqa_qwen36_35b_a3b_exp_orch.yaml.sampling exactly.
+sampling:
+  temperature: 1.0
+  top_p: 0.95
+  top_k: 20
+  min_p: 0.0
+  presence_penalty: 1.5
+  repetition_penalty: 1.0
+  enable_thinking: true
+  # max_tokens=32768 mirrors the GPQA orchestrator yaml; GPQA prompts are short
+  # multiple-choice (<3K), thinking decode tail fits comfortably under 32K.
+  max_tokens: 32768

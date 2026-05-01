@@ -9,3 +9,4 @@ num_explores: 8
 num_workers: 16
 seed: 42
 log_dir: ../analysis/run/babyvision/sonnet_visualprm_rerank
+resume: ../analysis/run/babyvision/sonnet_visualprm_rerank/run_20260315_153901

@@ -11,14 +11,20 @@ Counting 195, Games 275, Overall 803, w/o Math 627. Judge: Claude Haiku 4.5
 
 ## Gating milestone: sonnet explore precache
 
+**STATUS 2026-05-01 03:10**: precache **DEAD**. Last process (Physics) crashed
+2026-04-30 01:28 UTC with `Claude API error (authentication_failed): 403
+permission_error — Account is no longer a member of the organization`. Re-tested
+SDK auth at 2026-05-01 03:10 — still broken (`claude_agent_sdk._errors.ProcessError: Command failed with exit code 1`). **Cannot resume any precache until org/token is restored**; no precache process has run since 2026-04-30 01:28.
+
 | Step | Done / Total | Status | Log path |
 |---|---|---|---|
-| precache (Counting + Games) | 72 qids × 8 = 576 explores cached | partial; last log halted on rate-limit at qid 72 explore_4 (UTC 2026-04-29). 70 of 72 qids fully cached (8/8), 2 partial (4/8 and 5/8). | /data3/peijia/dr-claw/Explain/Experiment/analysis/run/rbenchv/sonnet/precache.log |
-| precache (Physics) | 213 / 1256 explores cached (≈27 qids fully + physics_26 mid-run) | **active** PID 3249630 on explain env (Py 3.11), restarted 2026-04-29 22:15 UTC after rate-limit reset. 1043 explores remain. Currently running physics_26 explore_7. | /data3/peijia/dr-claw/Explain/Experiment/analysis/run/rbenchv/sonnet/precache_physics.log |
-| precache (Math) | 0 / 176 qids | not started. Launcher: `scripts/rbenchv/sonnet/run_precache_math.sh` (added 2026-04-29; mirrors physics with `category: Math`, `num_workers=1`). |  |
-| precache (Counting) | 0 / 195 qids | not started. Launcher: `scripts/rbenchv/sonnet/run_precache_counting.sh` (added 2026-04-29; `category: Counting`). Note: 72 numeric-prefix qids in cache predate the qid-prefix change and may overlap with this family. |  |
-| precache (Game) | 0 / 275 qids | not started. Launcher: `scripts/rbenchv/sonnet/run_precache_game.sh` (added 2026-04-29; `category: Game` — singular per dataset's `catagory` field, not "Games"). |  |
-| **Total cache coverage** | **99 / 803 qids fully cached + 2 partial** | unique qids: 72 numeric + 27 `physics_*`. Method-row evaluation cannot start until at least one full family is cached. | `find analysis/cache/rbenchv/sonnet -name result.json \| wc -l` (currently 785 of 6424) |
+| precache (Counting + Games numeric qids) | 71 qids × 8 = 568 + 1 partial (qid 69: 4/8) = 572 result.json | halted 2026-04-29; pre-dates Physics crash. | /data3/peijia/dr-claw/Explain/Experiment/analysis/run/rbenchv/sonnet/precache.log |
+| precache (Physics) | 30 qids × 8 = 240 + 1 partial (physics_30: 4/8) = 244 result.json | **dead** (auth_failed). 1012 of 1256 physics explores remain. | /data3/peijia/dr-claw/Explain/Experiment/analysis/run/rbenchv/sonnet/precache_physics.log |
+| precache (Math) | 0 / 1408 explores | not started. Launcher: `scripts/rbenchv/sonnet/run_precache_math.sh`. |  |
+| precache (Counting) | 0 / 1560 explores (separately from numeric-qid early run — qid namespace diverged) | not started. Launcher: `scripts/rbenchv/sonnet/run_precache_counting.sh`. |  |
+| precache (Game) | 0 / 2200 explores | not started. Launcher: `scripts/rbenchv/sonnet/run_precache_game.sh` (`category: Game` singular). |  |
+| **Total sonnet cache coverage** | **101 / 803 qids fully cached + 2 partial** | 71 numeric + 30 `physics_*`. 816 of 6424 result.json present (12.7%). | `find analysis/cache/rbenchv/sonnet -name result.json \| wc -l` |
+| haiku side-cache | 9 qids × 8 = 72 result.json | unchanged since pre-2026-04-29; not the gating cache for the bottom-group rows. | `analysis/cache/rbenchv/haiku/` |
 
 ## Per-method progress (paper Table tab:lb-rbenchv bottom group)
 
@@ -66,6 +72,17 @@ Socratic Self-Refine 2/157 on Physics subset, run dir
 
 ## Risks worth calling out
 
-- **Precache cost gradient**: 6424 - 785 = 5639 remaining explores at sonnet rates. Before resuming Math/Physics precache, get a per-explore cost estimate (`grep '\$' precache.log | tail -50 | awk` or read 10 cached `result.json` cost fields) to avoid surprise burn.
-- **Family-by-family vs full**: running a method on the partial cache (Counting+Games only) gives a 470-question partial result usable for early signal, but the paper table requires per-family numbers including Math+Physics. Decide explicitly whether to publish partial-row numbers as an interim, or wait for full cache.
-- **ATTS-MM path uncertainty**: cited in main.tex but no launcher and no haiku/opus cache. Either build the path or remove the row from the table.
+- **BLOCKER: Claude API auth (2026-04-30 → still broken 2026-05-01 03:10)**.
+  Org membership lost; all rbenchv precache plus any new Sonnet/Haiku call
+  fails with 403. The 4-benchmark Qwen3.6-FP8 sweep (HLE/GPQA/LCB/BabyVision)
+  is unaffected because it runs `cache_only=True` against pre-existing caches —
+  cost numbers there are billed from cached `cost_usd`, not new API calls.
+  Restoring auth is the only way to fill the remaining 5608 sonnet explores.
+- **Precache cost gradient**: 6424 - 816 = 5608 remaining explores at sonnet
+  rates. Before resuming, sample `result.json` cost fields to project burn.
+- **Family-by-family vs full**: 71 Counting+Games numeric qids are usable for
+  early signal but qid namespace diverged when launchers switched to
+  `category:`-prefixed qids — the new precache will likely re-cache under a
+  different qid string and not collide with the old 71. Verify before relaunch.
+- **ATTS-MM path uncertainty**: cited in main.tex but no launcher and no
+  haiku/opus cache. Either build the path or remove the row from the table.

@@ -145,6 +145,15 @@ def make_structured_output_handler(ctx: SolveContext):
 
 async def run_explore(ctx: SolveContext, explore_model: str) -> str:
     """Run an explore sub-model call. Returns tool result text."""
+    # Quota guard: prevent cache_only AssertionError when orchestrator calls
+    # explore beyond precache size (cache holds explore_1..explore_max_explores).
+    # Returning a quota-exhausted signal lets the orchestrator submit_answer
+    # instead of crashing the entire run on a single hard question.
+    if ctx.state.explore.is_exhausted:
+        return (
+            f"Explore quota exhausted ({ctx.state.explore.max_explores} explores already used). "
+            f"You must call submit_answer with the best candidate from prior explores now."
+        )
     explore_idx = ctx.state.explore.call_count + 1
     user_msg = ctx.benchmark.build_explorer_message(ctx.state.problem)
     explorer_system_prompt = ctx.benchmark.get_explorer_system_prompt(ctx.backend)

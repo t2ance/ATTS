@@ -7,8 +7,7 @@ set -euo pipefail
 # standalone_integrator) which read these explores cache-only.
 #
 # num_workers=1 is set in the YAML — see rationale in run_precache_physics.sh.
-# When running standalone, override via:
-#   conda run ... python precache_explores.py --config <yaml> -o num_workers=8
+# To override, edit the YAML directly (num_workers: 8).
 
 unset CLAUDECODE 2>/dev/null || true
 

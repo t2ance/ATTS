@@ -189,6 +189,82 @@ will let us absorb whatever LoRA inefficiencies remain.
 
 ---
 
+## Handoff Notes (2026-05-01 07:55 UTC, by inference-track agent)
+
+The inference track is finishing the BV/LCB `_temp` resume on the same local box.
+Whoever picks up training must wait for that to drain BEFORE Phase 1.3, because the
+3-replica vLLM serve currently holds GPU 0+1+2 hostage. Concrete state:
+
+### What is currently running on the local box (blocks training start)
+
+| Process | PID | GPU | Why it blocks training |
+|---|---|---|---|
+| `vllm serve qwen36-35b-a3b-fp8 :8000` | 992777 | 0 | TP=1 inference replica (eval orchestrator) |
+| `vllm serve qwen36-35b-a3b-fp8 :8001` | 992783 | 1 | TP=1 inference replica |
+| `vllm serve qwen36-35b-a3b-fp8 :8002` | 992804 | 2 | TP=1 inference replica |
+| `eval.py … lcb_qwen36_35b_a3b_temp` | 1033023 | (uses 0/1/2 via 3-replica) | LCB resume @ [163/175], ~12 questions left |
+| `eval.py … babyvision_qwen36_35b_a3b_temp` | (terminated) | — | DONE — 388/388, results.jsonl complete |
+| `namdo train_esm.py` (other user) | 3563730 | **3** | persistent occupation; GPU 3 unusable for us |
+
+To start training: (1) wait for LCB resume to emit `EVALUATION COMPLETE`,
+(2) kill the three vLLM replica PIDs (992777/992783/992804), (3) free
+~70 GB on each of GPU 0/1/2, (4) launch judge serve on GPU 0
+(`serve_judge_1gpu.sh`), (5) launch `m6_grpo_smoke_qwen36_27b.sh` on GPU 1+2.
+
+### What the m6 27B launcher is and is not
+
+- File EXISTS: `training/scripts/m6_grpo_smoke_qwen36_27b.sh` (per Phase 1.1).
+- Phase 1.3 has NEVER been executed — `tmp/m6_grpo_smoke_verl.log` is absent
+  (`ls: cannot access … : No such file or directory`).
+- The legacy 35B launcher `m6_grpo_smoke_qwen36_35b_a3b.sh` still has its v20
+  knobs hardcoded for the abandoned 35B-A3B path; do NOT run it.
+- The archive `…35b_a3b.sh.archive_v20` is the frozen v20 record per Phase 0.4.
+- `m5_sft_smoke_qwen36_35b_a3b.sh` was the SFT fallback after LLaMA-Factory
+  pinning conflict (`tmp/m5_install_llamafactory.log`). Not part of the 27B
+  GRPO path; ignore unless we revisit SFT-init for 27B.
+
+### Verified preconditions (do not re-verify, already burned hours on these)
+
+- BF16 weights: `/data1/peijia/hf_cache/hub/models--Qwen--Qwen3.6-27B` present.
+- Phase 0.3 dummy load PASS at `enforce_eager=True` — keep that knob.
+- `Available KV cache memory: 21.2 GiB` measured at TP=2 27B; max_num_seqs=20
+  is the validated upper bound.
+- explain-verl env LD_LIBRARY_PATH cu13 patch is required (already in launcher).
+
+### Cross-track coupling: inference results inform training necessity
+
+The BV resume just completed and proves the orchestrator's negative Gain on
+BabyVision is NOT a tooling artifact:
+
+- pre-fix:  53/388 correct, 152 empty (SO-skip with `\boxed`), 183 wrong-with-SO
+- post-fix: 53/388 correct,   3 empty (real truncation),     332 wrong-with-SO
+
+The strict-SO instruction added 149 forced submissions; all 149 were wrong
+candidates from the cache. So the orchestrator is genuinely poor at picking
+the right BabyVision candidate from Sonnet's 8 explores. This is the failure
+mode GRPO is supposed to fix (orchestrator selection skill), and validates
+investing in the 27B training run rather than further inference-side patches.
+LCB final stats land once monitor `bglfj3fus` reports COMPLETE.
+
+### What to validate first when picking up Phase 1.3
+
+Per `feedback_stress_test_first` rule, do not just kick off the smoke and wait.
+The validated 27B operating point at TP=2 has these failure modes to watch:
+
+1. `update_weights` step 0 — must complete in < 2 s. If it hangs / OOMs,
+   `layered_summon=True` regressed; verify `verl/utils/fsdp_utils.py:591`
+   path is being taken.
+2. Sustained GPU power on rank 0 + rank 1 — must hit ≥ 150 W. If stuck at
+   ~80 W, that means kernel-launch-bound (enforce_eager penalty) is dominating;
+   we don't have a fix for this on 27B yet (was the 35B-A3B abandonment
+   trigger). Escalate before kicking off full training.
+3. PEFT trainable param count — log via `model.print_trainable_parameters()`.
+   Phase 2.4 is currently ungated; please add it to the actual launcher's
+   bootstrap. If linear_attention layers are silently skipped, all-linear
+   target_modules is not actually all-linear.
+
+---
+
 ## Files / paths reference
 
 - Old launcher (archived): `training/scripts/m6_grpo_smoke_qwen36_35b_a3b.sh.archive_v20`

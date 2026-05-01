@@ -11,3 +11,4 @@ num_explores: 8
 num_workers: 3
 seed: 42
 log_dir: ../analysis/run/lcb/grpo_8b_step78
+resume: ../analysis/run/lcb/grpo_8b_step78/run_20260410_210724

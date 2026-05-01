@@ -166,11 +166,19 @@ async def call_sub_model(
     writer: "TrajectoryWriter",
     budget_tokens: int = 32000,
     effort: str | None = None,
+    sampling: dict | None = None,
 ) -> tuple[dict[str, Any], str, float, dict[str, Any]]:
     """Call a sub-model via Codex Responses API.
 
     Returns (structured_output, trajectory_text, cost_usd, usage).
+
+    `sampling` is accepted for dispatch uniformity with backends/vllm.py but
+    has no effect here; Codex controls decoding via `effort`, not OpenAI-style
+    sampling knobs.
     """
+    assert sampling is None or all(v is None for v in sampling.values()), (
+        f"codex backend ignores sampling; got non-None entries: {sampling}"
+    )
     messages = [{"role": "user", "content": _build_user_content(user_message, image_data_url)}]
 
     response_format = {

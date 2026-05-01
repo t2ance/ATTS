@@ -11,3 +11,4 @@ num_explores: 8
 num_workers: 1
 seed: 42
 log_dir: ../analysis/run/lcb/sonnet_socratic_self_refine
+resume: ../analysis/run/lcb/sonnet_socratic_self_refine/run_20260428_163748

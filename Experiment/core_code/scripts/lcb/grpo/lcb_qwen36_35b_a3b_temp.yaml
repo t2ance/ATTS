@@ -7,7 +7,10 @@ orchestrator_model: qwen36-35b-a3b-fp8
 cache_dir: ../analysis/cache/lcb/sonnet
 no_integrate: true
 num_explores: 8
-num_workers: 8
+# 2026-05-01: 8 → 32 → 64 progression. Topology now is 3 independent TP=1
+# vllm replicas (port 8000/8001/8002), each max_num_seqs default 256.
+# 64 client workers / 3 replicas ≈ 21 in-flight per replica, well below server cap.
+num_workers: 64
 seed: 42
 # Distinct from `_baseline`: same explore cache, only orchestrator decoding changes.
 log_dir: ../analysis/run/lcb/qwen36_35b_a3b_fp8_temp
@@ -20,4 +23,10 @@ sampling:
   presence_penalty: 1.5
   repetition_penalty: 1.0
   enable_thinking: true
-  max_tokens: 32768
+  # 2026-05-01: bumped 32768 -> 65536. In run_20260501_042951, 14/175 LCB
+  # questions hit the 32K per-turn cap on long-code problems (output_tokens
+  # > 30K, predicted_answer empty). 64K per turn absorbs these long-tail
+  # decodes. Couples with serve --max-model-len=131072 (128K) so input+output
+  # can both reach this cap when accumulated multi-turn context is large.
+  max_tokens: 65536
+resume: /data3/peijia/dr-claw/Explain/Experiment/analysis/run/lcb/qwen36_35b_a3b_fp8_temp/run_20260501_042951

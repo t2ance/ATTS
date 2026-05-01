@@ -11,3 +11,4 @@ num_explores: 8
 num_workers: 4
 seed: 42
 log_dir: ../analysis/run/lcb/sonnet_budget_forcing
+resume: ../analysis/run/lcb/sonnet_budget_forcing/run_20260314_181955

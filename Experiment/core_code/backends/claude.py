@@ -95,11 +95,19 @@ async def call_sub_model(
     writer,
     budget_tokens: int = 32000,
     effort: str | None = None,
+    sampling: dict | None = None,
 ) -> tuple[dict[str, Any], str, float, dict[str, Any]]:
     """Call a sub-model via Claude Agent SDK.
 
     Returns (structured_output, trajectory_text, cost_usd, usage).
+
+    `sampling` is accepted for dispatch uniformity with backends/vllm.py but
+    has no effect here; Claude controls decoding via `thinking.budget_tokens`
+    and `effort`, not OpenAI-style sampling knobs.
     """
+    assert sampling is None or all(v is None for v in sampling.values()), (
+        f"claude backend ignores sampling; got non-None entries: {sampling}"
+    )
     options = ClaudeAgentOptions(
         system_prompt=system_prompt,
         max_turns=10,

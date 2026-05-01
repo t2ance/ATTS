@@ -6,9 +6,10 @@ import base64
 import json
 import re
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import Any, IO, Literal
+
+from logger import now_str
 
 
 @dataclass
@@ -65,7 +66,7 @@ class TrajectoryWriter:
         suffix = f" {title_suffix}" if title_suffix else ""
         header = (
             f"# Trajectory: {question_id}{suffix}\n\n"
-            f"- **Started**: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+            f"- **Started**: {now_str()}\n"
         )
         for line in header_lines:
             header += f"- {line}\n"

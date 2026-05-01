@@ -17,3 +17,4 @@ seed: 42
 num_explores: 8
 num_workers: 4
 log_dir: ../analysis/run/lcb/multi_model
+resume: ../analysis/run/lcb/multi_model/run_20260320_220841

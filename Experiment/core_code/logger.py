@@ -22,6 +22,15 @@ def _json_dump(obj: Any, fp: Any) -> None:
     json.dump(obj, fp, indent=2, ensure_ascii=False, default=str)
 
 
+def now_str() -> str:
+    """Wall-clock timestamp string for stdout heartbeat lines.
+
+    Single source of truth for the human-readable timestamp format used
+    across eval.py and precache_explores.py worker progress prints.
+    """
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
 @dataclass
 class RunLogger:
     """Manages a single evaluation run's log directory."""

@@ -1,7 +1,7 @@
 """Unified evaluation: CLI entry point + EvalConfig schema + evaluation loop.
 
 Usage:
-    python eval.py --config scripts/<bench>/<model>/<name>.yaml [-o key.subkey=value ...]
+    python eval.py --config scripts/<bench>/<model>/<name>.yaml
 """
 
 from __future__ import annotations
@@ -12,7 +12,7 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Any, Literal
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel, Field, model_validator
@@ -24,7 +24,7 @@ from benchmarks.base import BenchmarkConfig, Candidate3
 from benchmarks.specs import BenchmarkSpec
 from methods.base import InfraConfig
 from multimodal_input import redact_image_for_logs
-from logger import RunLogger
+from logger import RunLogger, now_str
 
 
 # ---------------------------------------------------------------------------
@@ -165,67 +165,18 @@ class EvalConfig(BaseModel):
         return self
 
 
-def _coerce_scalar(s: str) -> Any:
-    """Best-effort coerce a CLI-string scalar to int/float/bool/str."""
-    if s.lower() in ("true", "false"):
-        return s.lower() == "true"
-    try:
-        return int(s)
-    except ValueError:
-        pass
-    try:
-        return float(s)
-    except ValueError:
-        pass
-    return s
-
-
-def _set_dotpath(d: dict, path: str, value: str) -> None:
-    """Set d[a][b][c] = value for path 'a.b.c'. Creates nested dicts as needed."""
-    parts = path.split(".")
-    assert parts and all(parts), f"empty segment in path {path!r}"
-    target = d
-    for p in parts[:-1]:
-        nxt = target.get(p)
-        if nxt is None:
-            nxt = {}
-            target[p] = nxt
-        else:
-            assert isinstance(nxt, dict), (
-                f"cannot descend into non-dict at {p!r} while resolving override {path!r} "
-                f"(found {type(nxt).__name__}: {nxt!r})"
-            )
-        target = nxt
-    target[parts[-1]] = _coerce_scalar(value)
-
-
 def load_config(
     *,
-    config_path: Path | str | None,
-    dot_overrides: list[str],
+    config_path: Path | str,
     schema: type[BaseModel] = EvalConfig,
 ) -> BaseModel:
-    """Merge YAML + dot-path overrides and validate via the given pydantic schema.
-
-    Order of precedence (later wins):
-      1. YAML file (if config_path is given)
-      2. Dot-path overrides (e.g. "model_budgets.haiku=2")
-    """
-    merged: dict[str, Any] = {}
-    if config_path is not None:
-        with open(config_path, "r") as f:
-            yaml_data = yaml.safe_load(f) or {}
-        assert isinstance(yaml_data, dict), (
-            f"top level of {config_path} must be a mapping, got {type(yaml_data).__name__}"
-        )
-        merged.update(yaml_data)
-
-    for ov in dot_overrides:
-        k, sep, v = ov.partition("=")
-        assert sep == "=", f"override must be key=value, got {ov!r}"
-        _set_dotpath(merged, k.strip(), v.strip())
-
-    return schema.model_validate(merged)
+    """Load YAML and validate via the given pydantic schema."""
+    with open(config_path, "r") as f:
+        yaml_data = yaml.safe_load(f) or {}
+    assert isinstance(yaml_data, dict), (
+        f"top level of {config_path} must be a mapping, got {type(yaml_data).__name__}"
+    )
+    return schema.model_validate(yaml_data)
 
 
 # ---------------------------------------------------------------------------
@@ -311,9 +262,18 @@ async def _grade_cached_explores(
             is_correct_exp = cached_grade["is_correct"]
             jc = 0.0
         else:
+            # Write grade BACK to the shared cache (cache_base/qid/explore_N/grade.json),
+            # not the per-run grading dir, so the next eval against this same cache
+            # hits the cache_grade_path read-path above with jc=0 instead of re-paying
+            # the judge cost. Prior to this 2026-05-01 fix, _grade_with_cache wrote
+            # to grade_qid_dir/explore_N (per-run only); the read-path added in
+            # commit 995d9ab (2026-04-12) was only useful for caches that already
+            # had legacy grade.json from pre-Initial-commit code (e.g. Sonnet HLE
+            # cache, mtime 2026-03-07). Any newly-built explorer cache (qwen36_*)
+            # got re-graded on every eval. Writing to cache_base closes that loop.
             is_correct_exp, jc = await _grade_with_cache(
                 benchmark, ans, gold_answer, question, row,
-                backend=backend, grade_dir=grade_qid_dir / f"explore_{idx}", quiet=quiet,
+                backend=backend, grade_dir=cache_base / qid / f"explore_{idx}", quiet=quiet,
             )
         candidates.append((benchmark.normalize_answer(ans), is_correct_exp, d.get("cost_usd", 0.0)))
         total_jc += jc
@@ -398,7 +358,6 @@ async def evaluate(
     integrate_model: str = "gpt-5.2",
     dataset_config: dict | None = None,
     cache_dirs_multi: dict[str, Path] | None = None,
-    num_rollouts: int = 1,
     sampling: dict | None = None,
 ) -> dict:
     """Run the TTS agent on dataset rows and record results."""
@@ -631,7 +590,7 @@ async def evaluate(
         qid_label = qid if rollout_idx is None else f"{qid}/rollout_{rollout_idx}"
 
         async with sem:
-            print(f"  [{qid_label}] started at {time.strftime('%Y-%m-%d %H:%M:%S')}")
+            print(f"  [{qid_label}] started at {now_str()}")
 
             t0 = time.time()
             image_data_url = benchmark.get_image(row)
@@ -757,7 +716,7 @@ async def evaluate(
             done_so_far = len(all_records)
             status = "correct" if is_correct else "wrong"
             predicted_short = str(predicted).replace("\n", " ")[:80]
-            print(f"  [{done_so_far}/{total}] {qid_label}: {status} at {time.strftime('%Y-%m-%d %H:%M:%S')} ({elapsed:.0f}s), predicted={predicted_short}, cost=${question_cost}")
+            print(f"  [{done_so_far}/{total}] {qid_label}: {status} at {now_str()} ({elapsed:.0f}s), predicted={predicted_short}, cost=${question_cost}")
 
             # Running summary
             metrics = benchmark.compute_metrics(all_candidates, all_integrated, all_subset_labels,
@@ -828,12 +787,9 @@ async def async_main() -> None:
     parser = argparse.ArgumentParser(description="Evaluate TTS agent")
     parser.add_argument("--config", type=str, required=True,
                         help="Path to YAML config")
-    parser.add_argument("-o", "--override", action="append", default=[],
-                        help="Dot-path override, e.g. -o benchmark.subset=gold")
     args = parser.parse_args()
     cfg = load_config(
         config_path=args.config,
-        dot_overrides=list(args.override),
         schema=EvalConfig,
     )
     benchmark = get_benchmark(cfg.benchmark.name)
@@ -994,7 +950,6 @@ async def async_main() -> None:
             "num_rollouts": cfg.num_rollouts,
         },
         cache_dirs_multi=cache_dirs_multi,
-        num_rollouts=cfg.num_rollouts,
         sampling=cfg.sampling.model_dump() if cfg.sampling else None,
     )
 

@@ -20,3 +20,4 @@ seed: 42
 num_explores: 8
 num_workers: 4
 log_dir: ../analysis/run/hle/multi_model
+resume: ../analysis/run/hle/multi_model/run_20260320_183005

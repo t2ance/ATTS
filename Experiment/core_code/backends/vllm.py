@@ -11,6 +11,7 @@ Uses text-based <tool_call> parsing (no --enable-auto-tool-choice needed).
 
 from __future__ import annotations
 
+import itertools
 import json
 import re
 from typing import Any, Awaitable, Callable
@@ -21,15 +22,30 @@ from openai import AsyncOpenAI
 # Configuration
 # ---------------------------------------------------------------------------
 
-VLLM_BASE_URL = "http://localhost:8000/v1"
-_client: AsyncOpenAI | None = None
+# Multi-replica vLLM serve (2026-05-01): 3 independent TP=1 servers on
+# GPU 0/1/2 ports 8000/8001/8002. TP=3/DP=3 are blocked because
+# intermediate_size=8192 is not divisible by 3 (verified by pydantic
+# ValidationError when launching TP=3). Each call to _get_client() returns
+# the next client in a round-robin cycle so concurrent ATTS workers
+# (num_workers=32) distribute uniformly across all 3 replicas. The cycle is
+# safe under asyncio because the event loop is single-threaded -- next() on
+# itertools.cycle is atomic w.r.t. coroutine scheduling. If only one replica
+# is up, set VLLM_BASE_URLS to a single-entry list.
+VLLM_BASE_URLS = [
+    "http://localhost:8000/v1",
+    "http://localhost:8001/v1",
+    "http://localhost:8002/v1",
+]
+_clients: list[AsyncOpenAI] | None = None
+_client_cycle = None
 
 
 def _get_client() -> AsyncOpenAI:
-    global _client
-    if _client is None:
-        _client = AsyncOpenAI(base_url=VLLM_BASE_URL, api_key="not-needed")
-    return _client
+    global _clients, _client_cycle
+    if _clients is None:
+        _clients = [AsyncOpenAI(base_url=u, api_key="not-needed") for u in VLLM_BASE_URLS]
+        _client_cycle = itertools.cycle(_clients)
+    return next(_client_cycle)
 
 
 # Cost estimation ($/1M tokens) -- configurable for reporting
@@ -89,16 +105,18 @@ _TOOL_CALL_RE = re.compile(
     re.DOTALL,
 )
 
-# Strips the Qwen3.5+ thinking prefix `<reasoning>...</think>\n\n` from an
-# assistant message before it is appended to the multi-turn history. Without
-# this, every prior turn's reasoning blob (1.5k tok mean, 14k tok p99 measured
-# on HLE _temp 2026-05-01) is re-serialized into the next turn's prompt by the
-# chat template, growing input linearly with turn count and hitting
-# max_model_len=65536 well before 8 turns on long-prompt benchmarks (LCB code
-# prompts 3-8k tok). The match is anchored at start with a non-greedy ``.*?``
-# so only the FIRST </think> closes the prefix; if no </think> is present
-# (e.g. enable_thinking=false), the regex no-ops and text is left intact.
-_THINK_PREFIX_RE = re.compile(r"\A.*?</think>\s*", re.DOTALL)
+# History reconstruction policy (additive extraction, 2026-05-01):
+# After an assistant turn, only the <tool_call>...</tool_call> blocks are
+# kept in the multi-turn history; all surrounding text (reasoning / chatter /
+# free-form CoT) is dropped before the next request. Rationale: the prior
+# subtractive design (strip text before </think>) silently no-oped on outputs
+# without a </think> boundary -- LCB orchestrator emitted free-form CoT with
+# zero </think> tags, so prior reasoning leaked back into messages and input
+# crossed max_model_len=65536 at run_20260501_022727 q90 (input=32769 vs
+# cap=32768). The fix below defines what to KEEP, not what to REMOVE; missing
+# boundaries can no longer cause leaks. Trajectory file keeps the full
+# unstripped text for offline analysis.
+_TOOL_CALL_BLOCK_RE = re.compile(r"<tool_call>.*?</tool_call>", re.DOTALL)
 
 # Qwen3.6+ chat_template emits XML body inside <tool_call>:
 #   <function=NAME>
@@ -235,8 +253,31 @@ async def call_sub_model(
     writer,
     budget_tokens: int = 32000,
     effort: str | None = None,
+    sampling: dict | None = None,
 ) -> tuple[dict[str, Any], str, float, dict[str, Any]]:
-    """Single structured query. Returns (result_dict, trajectory, cost, usage)."""
+    """Single structured query. Returns (result_dict, trajectory, cost, usage).
+
+    Sampling-knob precedence (mirrors run_tool_conversation):
+      1. `sampling` dict -- full SamplingConfig pulled from yaml. When present,
+         this is the authoritative source for temperature / top_p / top_k /
+         min_p / presence_penalty / repetition_penalty / enable_thinking /
+         max_tokens. The explorer (precache_explores.py) and the orchestrator
+         (eval.py) MUST share the same sampling block so cache distribution
+         matches what the orchestrator would produce on a cache miss; this is
+         enforced at the yaml level by reusing the same `sampling:` snippet.
+      2. defaults (sampling=None): temperature=0.0 (greedy), max_tokens=
+         budget_tokens, no top_p/top_k/min_p/presence/repetition tuning,
+         enable_thinking falls back to the chat_template default (Qwen3.6:
+         True; Qwen3-8B has no thinking branch so the kwarg no-ops).
+
+    The legacy "explorer must run thinking-off to keep strict-JSON closing
+    inside max_tokens" assumption was retired 2026-05-01: the right knob to
+    grow when thinking-mode long tails truncate is `max_tokens`, not the
+    `enable_thinking` flag. Forcing thinking-off here would silently diverge
+    explorer-cache distribution from on-the-fly orchestrator-generated explores
+    whenever a cache miss occurs, breaking the like-for-like guarantee that
+    the cache-only assertion in make_sub_model_caller exists to enforce.
+    """
     client = _get_client()
 
     messages = [
@@ -244,19 +285,16 @@ async def call_sub_model(
         {"role": "user", "content": _build_user_content(user_message, image_data_url)},
     ]
 
-    # Qwen3.6 chat_template auto-injects `<think>\n` at the start of every
-    # assistant turn (chat_template.jinja final block). For structured-JSON
-    # explorer calls we disable thinking so the entire output budget is spent
-    # on schema-conforming JSON instead of being burned on free-form CoT that
-    # blows past max_tokens before the JSON closes. Qwen3-8B chat_template
-    # ignores this kwarg silently (no thinking branch), so it is safe to send
-    # unconditionally. Reference: chat_template.jinja final `add_generation_prompt`
-    # block — `enable_thinking=false` switches to `<think>\n\n</think>\n\n`.
+    direct_kwargs, extra_body = _split_sampling_kwargs(sampling)
+    direct_kwargs.setdefault("temperature", 0.0)
+    direct_kwargs.setdefault("max_tokens", budget_tokens)
+    assert 0.0 <= direct_kwargs["temperature"] <= 2.0, (
+        f"temperature out of range: {direct_kwargs['temperature']}"
+    )
+
     response = await client.chat.completions.create(
         model=model,
         messages=messages,
-        temperature=0.0,
-        max_tokens=budget_tokens,
         response_format=(
             {
                 "type": "json_schema",
@@ -269,7 +307,8 @@ async def call_sub_model(
             if output_schema
             else None
         ),
-        extra_body={"chat_template_kwargs": {"enable_thinking": False}},
+        extra_body=extra_body or None,
+        **direct_kwargs,
     )
 
     text = response.choices[0].message.content or ""
@@ -290,7 +329,34 @@ async def call_sub_model(
                 result = args
                 break
 
-    assert result, f"Sub-model returned unparseable output: {text[:200]}"
+    # Soft-fail on unparseable output. Prior to 2026-05-01 this branch raised
+    # AssertionError, which propagated through `await asyncio.gather(...)` in
+    # precache_explores.py:precache and killed the entire 800/1584/1400/3104
+    # task batch on a single bad row (one HLE question's truncated thinking-
+    # mode JSON wiped 138/800 cached + halted the run at 17% throughput).
+    # Returning `{"timed_out": True, "parse_failed": True}` lets the precache
+    # worker's existing `if result.get("timed_out")` branch (line 120-122 in
+    # precache_explores.py) record the failure as a timeout-equivalent, mark
+    # the row as cached-but-skipped, and continue. The eval-time orchestrator
+    # treats a `timed_out` cache entry as a missing candidate (load_cached_
+    # candidates in methods/base.py:131 filters them out), so the question
+    # downgrades from 8 explores to 7 (or fewer) without crashing the eval.
+    # The full `text` is returned as the trajectory so post-mortem inspection
+    # of why parsing failed (truncation vs malformed escape vs missing keys)
+    # remains possible from the cached result.json.
+    if not result:
+        finish = response.choices[0].finish_reason if response.choices else "?"
+        print(
+            f"[vllm.call_sub_model] PARSE FAILED finish={finish} "
+            f"completion_tokens={usage['output_tokens']} model={model} "
+            f"text[:200]={text[:200]!r}"
+        )
+        return (
+            {"timed_out": True, "parse_failed": True, "finish_reason": finish},
+            text,
+            cost,
+            usage,
+        )
 
     trajectory = text
     if writer:
@@ -350,13 +416,35 @@ async def run_tool_conversation(
     )
     client = _get_client()
 
-    # Append StructuredOutput schema to system prompt
+    # Append StructuredOutput schema to system prompt; also expose the
+    # benchmark's `required` keys to the StructuredOutput-arg validator below
+    # so it does not hardcode a single field name. LCB schema requires
+    # ["approach", "reasoning", "code", "confidence"] (no "answer"); HLE/GPQA
+    # schemas include "answer". Hardcoding "answer" silently rejected every
+    # well-formed LCB submission (run_20260501_022727: 142/146 trajectories
+    # carried "StructuredOutput rejected" before this fix).
+    required: list[str] = []
     if output_format and output_format.get("schema"):
         schema_json = json.dumps(output_format["schema"], indent=2)
         required = output_format["schema"].get("required", [])
+        # 2026-05-01: strengthened SO instruction with all-caps + EXTREMELY
+        # IMPORTANT framing. Empirical motivation: in run_20260501_064415,
+        # 142/388 BabyVision questions (36.6%) had the orchestrator complete
+        # its reasoning, write `\boxed{X}` in free-form text, and stop without
+        # calling StructuredOutput -> predicted_answer empty -> graded wrong.
+        # This is BabyVision-specific (HLE/GPQA/LCB had 0 SO-skip) and was
+        # triggered by the benchmark question's trailing `\boxed{Answer}`
+        # instruction conflicting with the system-level SO requirement. Even
+        # after removing the `\boxed{}` instruction from babyvision.py, the
+        # cache contains Sonnet outputs that use `\boxed{}` format, which the
+        # orchestrator may pattern-match. The EXTREMELY IMPORTANT block below
+        # is defense-in-depth at the system-prompt layer.
         system_prompt = (
             system_prompt
-            + "\n\nWhen you are ready to submit your final answer, call the StructuredOutput tool. "
+            + "\n\n=== EXTREMELY IMPORTANT --- FINAL ANSWER SUBMISSION PROTOCOL ===\n"
+            "WHEN YOUR REASONING IS COMPLETE, YOU MUST SUBMIT YOUR FINAL ANSWER BY CALLING THE `StructuredOutput` TOOL.\n"
+            "WRITING THE ANSWER IN FREE-FORM TEXT (e.g. `\\boxed{X}`, `Answer: X`, `The answer is X`) IS NOT A VALID SUBMISSION; IT WILL BE GRADED AS INCORRECT.\n"
+            "THE `StructuredOutput` TOOL CALL IS THE ONLY ACCEPTED SUBMISSION PATH. NO TEXT-ONLY FINAL ANSWER WILL EVER BE READ.\n"
             "Use strict JSON format for all parameters. "
             f"All of these fields are required and must each be a separate JSON key: {', '.join(required)}.\n"
             f"Schema:\n```json\n{schema_json}\n```\n"
@@ -438,45 +526,43 @@ async def run_tool_conversation(
             # Orchestrator emitted text without tool_call; no commit signal.
             return _estimate_cost_usd(total_usage, model), total_usage, "incomplete"
 
-        # Append assistant message once. Strip the </think> reasoning prefix
-        # so prior-turn CoT does not bloat next-turn prompt (multi-turn input
-        # accumulation; see _THINK_PREFIX_RE comment). Trajectory file at
-        # writer.write_text(text_content) above keeps the FULL unstripped
-        # text for offline analysis -- only the in-flight messages list is
-        # trimmed.
-        history_content = _THINK_PREFIX_RE.sub("", text_content, count=1)
+        # Append assistant message once. Reconstruct history additively:
+        # extract just the <tool_call>...</tool_call> blocks and drop all
+        # surrounding text. See _TOOL_CALL_BLOCK_RE comment for rationale.
+        # Reaching this line guarantees text_calls is non-empty (the early
+        # return at "no tool call in response" handles the empty case), so
+        # at least one block is always retained.
+        history_content = "\n".join(_TOOL_CALL_BLOCK_RE.findall(text_content))
         messages.append({"role": "assistant", "content": history_content})
 
         for name, args in text_calls:
             if name == "StructuredOutput":
-                # Schema-required-field check: in thinking-on mode the model
-                # occasionally emits a StructuredOutput tool_call missing the
-                # required `answer` field (the system prompt at vllm.py:348
-                # already lists the required keys, but long reasoning chains
-                # can still drop one). Without this check, the downstream
-                # benchmarks/base.py:416 `result["answer"]` raises KeyError
-                # which propagates through asyncio.gather and kills the whole
-                # eval mid-run. Verified GPQA _temp 2026-05-01 q116/198.
-                # Treat the malformed call as a noisy emission, inject a
-                # corrective user message, and let the outer turn loop retry
-                # (inner break + outer for-turn naturally advances).
-                if "answer" not in args:
+                # Schema-aware required-field check: derived from
+                # output_format.schema.required (set above). Each benchmark
+                # passes its own schema -- LCB requires
+                # ["approach","reasoning","code","confidence"], HLE/GPQA
+                # require "answer". Pre-fix this validator hardcoded "answer"
+                # and so always rejected LCB even when the model produced the
+                # right `code` field; see run_20260501_022727 incident note.
+                # If `required` is empty (no schema declared), skip validation.
+                missing = [k for k in required if k not in args]
+                if missing:
                     if not quiet:
                         print(
-                            f"[structured_output_invalid] missing 'answer'; "
+                            f"[structured_output_invalid] missing {missing}; "
                             f"got keys={list(args.keys())}"
                         )
                     if writer:
                         writer.write_text(
                             f"[StructuredOutput rejected: missing required "
-                            f"'answer' field; got keys={list(args.keys())}]"
+                            f"fields {missing}; got keys={list(args.keys())}]"
                         )
                     messages.append({
                         "role": "user",
                         "content": (
-                            "Your last StructuredOutput call was missing the "
-                            "required 'answer' field. Call StructuredOutput "
-                            "again with ALL required fields filled per the schema."
+                            f"Your last StructuredOutput call was missing required "
+                            f"fields: {missing}. Call StructuredOutput again with "
+                            f"ALL required fields filled per the schema."
                         ),
                     })
                     break

@@ -14,3 +14,4 @@ num_explores: 8
 num_workers: 4
 seed: 42
 log_dir: ../analysis/run/hle/sonnet_budget_forcing
+resume: ../analysis/run/hle/sonnet_budget_forcing/run_20260315_154148

@@ -10,3 +10,4 @@ num_explores: 8
 num_workers: 16
 seed: 42
 log_dir: ../analysis/run/aime2026/sonnet
+resume: ../analysis/run/aime2026/sonnet/run_20260308_161605

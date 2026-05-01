@@ -120,18 +120,16 @@ No command-line arguments. Every path, model name, worker count, and seed is wri
 
 ## eval.py configuration
 
-`eval.py` and `precache_explores.py` accept exactly two CLI flags:
+`eval.py` and `precache_explores.py` accept exactly one CLI flag:
 
 1. `--config <path>.yaml` — required. YAML is the single source of truth.
    Each benchmark/model/method has its own YAML next to the launcher script:
    `scripts/<benchmark>/<model>/<benchmark>_<model>_<method>.yaml`. The full
    schema lives in `eval.py` (`EvalConfig`) and `precache_explores.py`
    (`PrecacheConfig`). Reference template: `_template.yaml` (repo root).
-2. `-o key.subkey=value` — repeatable dot-path overrides applied on top of YAML.
-   Use this for one-off tweaks: `-o model_budgets.haiku=2 -o seed=99`.
 
-There are no other flags. `--benchmark`, `--num`, `--subset`, `--cache-dirs`, etc.
-are gone — set them in the YAML or via `-o`.
+There are no other flags. To change a value (including `resume`, `num`,
+`num_workers`, etc.), edit the YAML directly. One YAML = one launch.
 
 ### `benchmark:` is a discriminated union, not a string
 
@@ -154,10 +152,10 @@ Per benchmark, the valid filter fields are:
 - `rbenchv`: `category`
 - `aime2025` / `aime2026`: `year`
 
-### Dict-typed fields are YAML or `-o` only
+### Dict-typed fields live in YAML
 
-`cache_dirs` (multi-model), `model_budgets`, `effort_budgets` are dictionaries.
-Set them via YAML or dot-path:
+`cache_dirs` (multi-model), `model_budgets`, `effort_budgets` are dictionaries
+written directly in the YAML:
 
 ```yaml
 cache_dirs:
@@ -166,13 +164,6 @@ cache_dirs:
 model_budgets:
   haiku: 8
   sonnet: 8
-```
-
-Or:
-
-```bash
-python eval.py --config scripts/hle/multi_model/hle_multi_delegated.yaml \
-  -o model_budgets.haiku=4 -o cache_dirs.haiku=/new/path
 ```
 
 ### Single-cache vs multi-cache

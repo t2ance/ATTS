@@ -13,3 +13,4 @@ num: 100
 num_explores: 8
 num_workers: 1
 seed: 42
+resume: ../analysis/run/hle/sonnet_socratic_self_refine/run_20260427_071039

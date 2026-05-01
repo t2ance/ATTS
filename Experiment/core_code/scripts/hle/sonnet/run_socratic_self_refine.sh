@@ -17,10 +17,8 @@ unset CLAUDECODE 2>/dev/null || true
 
 cd /data3/peijia/dr-claw/Explain/Experiment/core_code
 
-# --resume <RUN_DIR> stays as a CLI override (per-launch, not per-config) via -o.
 PYTHONUNBUFFERED=1 nohup conda run -n explain --no-capture-output python eval.py \
 	--config scripts/hle/sonnet/hle_sonnet_socratic_self_refine.yaml \
-	-o resume=../analysis/run/hle/sonnet_socratic_self_refine/run_20260427_071039 \
 	>> ../analysis/run/hle/sonnet_socratic_self_refine/socratic_self_refine.log 2>&1 &
 
 echo "Launched. PID=$!"

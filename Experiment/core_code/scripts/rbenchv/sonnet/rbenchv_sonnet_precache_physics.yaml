@@ -5,5 +5,5 @@ backend: claude
 explore_model: claude-sonnet-4-6
 cache_dir: ../analysis/cache/rbenchv/sonnet
 num_explores: 8
-num_workers: 1
+num_workers: 4
 seed: 42

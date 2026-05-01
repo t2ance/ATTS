@@ -11,3 +11,4 @@ num_explores: 8
 num_workers: 16
 seed: 42
 log_dir: ../analysis/run/gpqa/sonnet_self_refine
+resume: ../analysis/run/gpqa/sonnet_self_refine/run_20260313_230052

@@ -5,8 +5,7 @@ saving structured results + trajectories to disk. These can then be replayed
 by the orchestrator via --cache-dir.
 
 Usage:
-    python precache_explores.py --config scripts/hle/sonnet/hle_sonnet_precache.yaml \
-        -o num_explores=4 -o num=10
+    python precache_explores.py --config scripts/hle/sonnet/hle_sonnet_precache.yaml
 """
 
 from __future__ import annotations
@@ -29,7 +28,9 @@ if str(ROOT_DIR) not in sys.path:
 from benchmarks import get_benchmark
 from benchmarks.base import BenchmarkConfig
 from benchmarks.specs import BenchmarkSpec
+from eval import SamplingConfig
 from methods.base import make_sub_model_caller
+from logger import now_str
 
 
 class PrecacheConfig(BaseModel):
@@ -49,6 +50,12 @@ class PrecacheConfig(BaseModel):
     budget_tokens: int = 32000
     effort: Literal["low", "medium", "high", "max"] = "low"
     explore_timeout: float = 1200.0
+    # vLLM-only sampling block. MUST match the orchestrator's sampling block in
+    # the eval yaml that consumes this cache -- explorer cache distribution and
+    # on-the-fly orchestrator-explore distribution must be identical, otherwise
+    # cache_only assertion in make_sub_model_caller would mask a behavior gap.
+    # See backends/vllm.py:call_sub_model for the per-key default fallback.
+    sampling: SamplingConfig | None = None
 
 
 async def precache(
@@ -63,6 +70,7 @@ async def precache(
     budget_tokens: int = 32000,
     effort: str | None = None,
     explore_timeout: float = 600,
+    sampling: dict | None = None,
 ) -> None:
     """Pre-cache explore results for the given rows."""
     explorer_prompt = benchmark.get_explorer_system_prompt(backend)
@@ -92,7 +100,7 @@ async def precache(
     async def worker(qid: str, row: dict, explore_idx: int) -> None:
         nonlocal completed
         async with sem:
-            print(f"  [{qid} explore_{explore_idx}] started")
+            print(f"  [{qid} explore_{explore_idx}] started at {now_str()}")
             question_cache_dir = cache_dir / qid
             sub_model_fn = make_sub_model_caller(
                 backend, cache_dir=question_cache_dir, cache_only=False,
@@ -111,6 +119,7 @@ async def precache(
                 cache_key=f"explore_{explore_idx}",
                 budget_tokens=budget_tokens,
                 effort=effort,
+                sampling=sampling,
             )
 
             import shutil
@@ -118,7 +127,7 @@ async def precache(
 
             if result.get("timed_out"):
                 completed += 1
-                print(f"  [{completed}/{total}] {qid} explore_{explore_idx}: TIMED OUT after {duration:.0f}s")
+                print(f"  [{completed}/{total}] {qid} explore_{explore_idx}: TIMED OUT at {now_str()} after {duration:.0f}s")
                 return
 
             # Validate structured output; retry if malformed
@@ -126,7 +135,7 @@ async def precache(
                 answer = benchmark.get_answer_from_explore(result)
             except KeyError as e:
                 shutil.rmtree(result_dir, ignore_errors=True)
-                print(f"  [{qid} explore_{explore_idx}] MALFORMED (missing {e}), retrying...")
+                print(f"  [{qid} explore_{explore_idx}] MALFORMED at {now_str()} (missing {e}), retrying...")
                 result, traj, cost_usd, usage, duration = await sub_model_fn(
                     system_prompt=explorer_prompt,
                     user_message=input_text,
@@ -139,13 +148,13 @@ async def precache(
                 )
                 if result.get("timed_out"):
                     completed += 1
-                    print(f"  [{completed}/{total}] {qid} explore_{explore_idx}: TIMED OUT on retry")
+                    print(f"  [{completed}/{total}] {qid} explore_{explore_idx}: TIMED OUT at {now_str()} on retry")
                     return
                 answer = benchmark.get_answer_from_explore(result)
 
             completed += 1
             answer_short = answer.replace("\n", " ")[:80]
-            print(f"  [{completed}/{total}] {qid} explore_{explore_idx}: answer={answer_short}, confidence={result.get('confidence', 'N/A')}")
+            print(f"  [{completed}/{total}] {qid} explore_{explore_idx}: answer={answer_short} at {now_str()}, confidence={result.get('confidence', 'N/A')}")
 
     await asyncio.gather(*(worker(qid, row, idx) for qid, row, idx in tasks))
 
@@ -157,12 +166,9 @@ def main() -> None:
 
     parser = argparse.ArgumentParser(description="Pre-cache explore results")
     parser.add_argument("--config", type=str, required=True, help="Path to YAML config")
-    parser.add_argument("-o", "--override", action="append", default=[],
-                        help="Dot-path override, e.g. -o num_explores=4")
     args = parser.parse_args()
     cfg = load_config(
         config_path=args.config,
-        dot_overrides=list(args.override),
         schema=PrecacheConfig,
     )
     benchmark = get_benchmark(cfg.benchmark.name)
@@ -193,6 +199,7 @@ def main() -> None:
         budget_tokens=cfg.budget_tokens,
         effort=cfg.effort,
         explore_timeout=cfg.explore_timeout,
+        sampling=cfg.sampling.model_dump() if cfg.sampling else None,
     ))
 
 

@@ -69,7 +69,15 @@ If you cannot solve it exactly, give your best estimate and set confidence accor
         q = row["question"]
         if row.get("ansType") == "choice":
             q += "\n" + _format_choices(row)
-        q += '\n\nThink about the question and give your final answer in \\boxed{Answer} format.'
+        # 2026-05-01: dropped the "\\boxed{Answer}" instruction that previously
+        # appeared here. It collided with the orchestrator's StructuredOutput
+        # tool requirement: in run_20260501_064415, 142/388 BabyVision questions
+        # (36.6%) had the orchestrator write a \\boxed{X} answer in the trajectory
+        # but skip the StructuredOutput tool call, leaving predicted_answer empty
+        # and the question graded wrong. The 4-benchmark control confirms this is
+        # BabyVision-specific (HLE/GPQA/LCB had 0 SO-skip, 0% \\boxed in
+        # benchmark prompt). Replacing with an explicit SO instruction.
+        q += '\n\nThink about the question, then submit your final answer by calling the StructuredOutput tool. Do not write the answer as \\boxed{...} in free-form text; the tool call is the only accepted submission path.'
         return q
 
     def get_answer(self, row: dict) -> str:

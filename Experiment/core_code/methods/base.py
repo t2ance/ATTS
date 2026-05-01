@@ -204,6 +204,7 @@ async def call_sub_model(
     writer: TrajectoryWriter = TrajectoryWriter.noop(),
     budget_tokens: int = 32000,
     effort: str | None = None,
+    sampling: dict | None = None,
 ) -> tuple[dict[str, Any], str, float, dict[str, Any]]:
     """Spawn a fresh sub-model call (no caching). Used by grader etc.
 
@@ -212,7 +213,7 @@ async def call_sub_model(
     backend_mod = import_module(f"backends.{backend}")
     return await backend_mod.call_sub_model(
         system_prompt, user_message, image_data_url, model, output_schema,
-        writer, budget_tokens=budget_tokens, effort=effort,
+        writer, budget_tokens=budget_tokens, effort=effort, sampling=sampling,
     )
 
 
@@ -253,6 +254,7 @@ def make_sub_model_caller(
         writer: TrajectoryWriter = TrajectoryWriter.noop(),
         budget_tokens: int = 32000,
         effort: str | None = None,
+        sampling: dict | None = None,
     ) -> tuple[dict[str, Any], str, float, dict[str, Any], float]:
         # Cache read
         if cache_dir and cache_key:
@@ -280,7 +282,7 @@ def make_sub_model_caller(
         t0 = time.time()
         api_coro = backend_mod.call_sub_model(
             system_prompt, user_message, image_data_url, model, output_schema,
-            writer, budget_tokens=budget_tokens, effort=effort,
+            writer, budget_tokens=budget_tokens, effort=effort, sampling=sampling,
         )
         if timeout is not None:
             try:
