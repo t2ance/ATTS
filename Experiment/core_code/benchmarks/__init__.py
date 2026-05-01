@@ -32,6 +32,6 @@ BENCHMARKS: dict[str, type[BenchmarkConfig]] = {
 }
 
 
-def get_benchmark(name: str) -> BenchmarkConfig:
+def get_benchmark(name: str, judge_spec: dict | None = None) -> BenchmarkConfig:
     assert name in BENCHMARKS, f"Unknown benchmark: {name!r}. Available: {list(BENCHMARKS)}"
-    return BENCHMARKS[name]()
+    return BENCHMARKS[name](judge_spec=judge_spec)

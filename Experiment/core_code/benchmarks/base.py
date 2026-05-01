@@ -324,18 +324,27 @@ def _save_multi_model_plot(plt, summary: dict, run_dir: Path, per_model: dict, t
 class BenchmarkConfig(ABC):
     """Base class for benchmark configurations.
 
-    Subclasses must set class attributes: name, judge_model.
+    Subclasses must set class attribute `name`. Judge configuration now lives
+    in YAML and is passed at construction time as `judge_spec` (a dict matching
+    the JudgeSpec discriminated union in benchmarks/specs.py). Benchmarks that
+    grade without an LLM judge (LCB, GPQA, AIME) receive judge_spec=None.
+
     Override explore_schema / integrate_schema / explorer_base_prompt /
     integrator_base_prompt only when they differ from the defaults.
     """
 
     name: str
-    judge_model: str | None
     majority_vote_compatible: bool = True
     explore_schema: dict[str, Any] = EXPLORE_SCHEMA
     integrate_schema: dict[str, Any] = INTEGRATION_SCHEMA
     explorer_base_prompt: str = EXPLORER_BASE_PROMPT
     integrator_base_prompt: str = INTEGRATOR_BASE_PROMPT
+
+    def __init__(self, judge_spec: dict | None = None):
+        # judge_spec example: {"name": "claude", "model": "claude-haiku-4-5-20251001"}
+        # or {"name": "vllm", "model": "...", "sampling": {...}}.
+        # None for benchmarks that grade without an LLM judge.
+        self.judge_spec = judge_spec
 
     # -- Dataset --
 

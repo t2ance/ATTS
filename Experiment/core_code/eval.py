@@ -680,8 +680,13 @@ async def async_main() -> None:
         config_path=args.config,
         schema=EvalConfig,
     )
-    benchmark = get_benchmark(cfg.benchmark.name)
-    bench_filters = cfg.benchmark.model_dump(exclude={"name"}, exclude_defaults=True)
+    # Pull `judge` (if present) out of the benchmark spec dump and pass it
+    # separately. Spec validation guarantees only HLE/BabyVision/RBenchV carry
+    # `judge:`; the remaining benchmarks return judge_spec=None.
+    bench_dump = cfg.benchmark.model_dump()
+    judge_spec = bench_dump.pop("judge", None)
+    benchmark = get_benchmark(cfg.benchmark.name, judge_spec=judge_spec)
+    bench_filters = cfg.benchmark.model_dump(exclude={"name", "judge"}, exclude_defaults=True)
 
     method = get_method(cfg.method.name)
     solve = method.build_solve_fn(cfg.method)

@@ -19,9 +19,13 @@ def _write(tmp_path, name, body):
     return p
 
 
+# HLE/BabyVision/RBenchV require a `judge:` block per JudgeSpec design (2026-05-01).
+_JUDGE = {"name": "claude", "model": "claude-haiku-4-5-20251001"}
+
+
 def _minimal_kwargs(**overrides):
     base = {
-        "benchmark": {"name": "hle"},
+        "benchmark": {"name": "hle", "judge": _JUDGE},
         "backend": "claude",
         "explore_model": "claude-sonnet-4-6",
         "cache_dir": "/cache/x",
@@ -49,6 +53,9 @@ def test_precache_loader_yaml(tmp_path):
         benchmark:
           name: hle
           subset: gold
+          judge:
+            name: claude
+            model: claude-haiku-4-5-20251001
         backend: claude
         explore_model: claude-sonnet-4-6
         cache_dir: /cache/h

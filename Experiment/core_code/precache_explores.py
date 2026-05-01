@@ -171,8 +171,13 @@ def main() -> None:
         config_path=args.config,
         schema=PrecacheConfig,
     )
-    benchmark = get_benchmark(cfg.benchmark.name)
-    bench_filters = cfg.benchmark.model_dump(exclude={"name"}, exclude_defaults=True)
+    # Same pattern as eval.py: pull `judge` out of the benchmark spec dump.
+    # Precache itself does not grade, but we pass judge_spec through so the
+    # constructed benchmark stays a faithful representation of the YAML.
+    bench_dump = cfg.benchmark.model_dump()
+    judge_spec = bench_dump.pop("judge", None)
+    benchmark = get_benchmark(cfg.benchmark.name, judge_spec=judge_spec)
+    bench_filters = cfg.benchmark.model_dump(exclude={"name", "judge"}, exclude_defaults=True)
 
     print(f"Loading {benchmark.name.upper()} dataset...")
     all_rows = benchmark.load_dataset()

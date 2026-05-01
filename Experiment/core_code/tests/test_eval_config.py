@@ -12,6 +12,10 @@ from pydantic import ValidationError
 from eval import EvalConfig, load_config
 
 
+# HLE/BabyVision/RBenchV require a `judge:` block per JudgeSpec design (2026-05-01).
+_JUDGE = {"name": "claude", "model": "claude-haiku-4-5-20251001"}
+
+
 def _minimal_kwargs(method_block=None, **overrides):
     """Build a minimum valid EvalConfig dict.
 
@@ -19,7 +23,7 @@ def _minimal_kwargs(method_block=None, **overrides):
     that requires only backend + explore_model + cache_dir).
     """
     base = {
-        "benchmark": {"name": "hle"},
+        "benchmark": {"name": "hle", "judge": _JUDGE},
         "method": method_block or {
             "name": "self-refine",
             "backend": {"name": "claude"},
@@ -197,6 +201,9 @@ def test_load_config_yaml(tmp_path):
     yml = _write(tmp_path, "x.yaml", """
         benchmark:
           name: hle
+          judge:
+            name: claude
+            model: claude-haiku-4-5-20251001
         method:
           name: self-refine
           backend:
@@ -215,6 +222,9 @@ def test_load_config_multi_method_yaml(tmp_path):
     yml = _write(tmp_path, "x.yaml", """
         benchmark:
           name: hle
+          judge:
+            name: claude
+            model: claude-haiku-4-5-20251001
         method:
           name: tts-agent-multi
           backend:
@@ -242,6 +252,9 @@ def test_hle_filters_validate(tmp_path):
           name: hle
           subset: gold
           text_only: true
+          judge:
+            name: claude
+            model: claude-haiku-4-5-20251001
         method:
           name: self-refine
           backend:
@@ -287,10 +300,18 @@ def test_gpqa_filters_validate(tmp_path):
 
 
 def test_filters_empty_validates_for_all_benchmarks():
-    """Every concrete benchmark must accept a name-only spec."""
+    """Every concrete benchmark must accept its minimal spec.
+
+    HLE/BabyVision/RBenchV require `judge:` per JudgeSpec design (2026-05-01);
+    LCB/GPQA/AIME do not carry `judge:` (string-match or code-execution graded).
+    """
+    judge_required = {"hle", "babyvision", "rbenchv"}
     for name in ("hle", "lcb", "gpqa", "babyvision", "aime2025", "aime2026", "rbenchv"):
+        bench: dict = {"name": name}
+        if name in judge_required:
+            bench["judge"] = _JUDGE
         cfg = EvalConfig(
-            benchmark={"name": name},
+            benchmark=bench,
             method={
                 "name": "self-refine",
                 "backend": {"name": "claude"},
