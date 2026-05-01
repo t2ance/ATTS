@@ -2,75 +2,60 @@
 # Annotated template for eval.py. Every field shown here is OPTIONAL unless flagged required.
 
 # === Benchmark block (discriminated by name) ===
-# See benchmarks/specs.py. Each benchmark has its own Pydantic spec with
-# extra:forbid -- unknown filter fields fail validation.
+# See benchmarks/specs.py.
 benchmark:
   name: hle                 # required: hle / gpqa / lcb / babyvision / rbenchv / aime2025 / aime2026
   subset: gold              # HLE-only filter; remove for other benchmarks
   text_only: true           # HLE-only filter
 
-# === Backend ===
-backend: claude             # one of: codex, claude, vllm
-
 # === Method block (discriminated by name) ===
-# See methods/specs.py. Each method has its own Pydantic spec with extra:forbid
-# -- writing a field that this method does not consume (e.g. orchestrator_model
-# in a self-refine config) fails validation. The fields shown below cover all
-# methods; pick the subset for your method (consult methods/specs.py).
+# See methods/specs.py. Method-specific fields live inside this block.
+# Methods that call an LLM include a backend: sub-block grouping the
+# backend name with its per-call knobs. RerankSpec OMITS backend entirely
+# (it scores cached candidates with a local reward model, no LLM call).
 method:
   name: tts-agent           # one of: tts-agent / tts-agent-multi / tts-agent-effort /
                             # self-refine / socratic-self-refine / budget-forcing /
                             # rerank / standalone-integrator
 
-  # Model fields (per method):
-  #   tts-agent: orchestrator_model, explore_model; integrate_model unless no_integrate=true
-  #   tts-agent-multi: orchestrator_model only (explore via cache_dirs aliases)
-  #   tts-agent-effort: orchestrator_model, explore_model
-  #   self-refine / socratic-self-refine / budget-forcing: explore_model only
-  #   rerank: reward_model only
-  #   standalone-integrator: integrate_model only
+  # Backend block (REMOVE this block entirely if method.name == rerank):
+  backend:
+    name: claude            # one of: codex, claude, vllm
+    budget_tokens: 32000
+    effort: low             # low / medium / high / max
+    timeout: 1200
+    max_output_tokens: null
+
+  # Model fields (per method) -- see methods/specs.py for which spec accepts which:
   orchestrator_model: claude-sonnet-4-6
   explore_model: claude-sonnet-4-6
   integrate_model: claude-sonnet-4-6
   # reward_model: ...        # required only for rerank
+  # exploration_effort: low  # tts-agent-multi only
 
-  # Cache (single-cache methods use cache_dir, multi/effort use cache_dirs):
+  # Cache:
   cache_dir: ../analysis/cache/hle/sonnet/gold
-  # cache_dirs:              # required for tts-agent-multi / tts-agent-effort
+  # cache_dirs:              # tts-agent-multi / tts-agent-effort
   #   haiku: /cache/haiku
-  #   sonnet: /cache/sonnet
 
-  # Method-specific budgets (only one of these per method):
-  # model_budgets:           # required for tts-agent-multi
-  #   haiku: 8
-  #   sonnet: 8
-  # effort_budgets:          # required for tts-agent-effort
-  #   low: 8
-  #   medium: 6
-  #   high: 4
-  # exploration_effort: low  # tts-agent-multi only: low / medium / high
+  # Method-specific budgets:
+  # model_budgets: { haiku: 8 }      # tts-agent-multi
+  # effort_budgets: { low: 8 }       # tts-agent-effort
 
   # Per-method behavior knobs:
-  no_integrate: false        # tts-agent only: orchestrator finalizes itself, integrate_model unused
-  num_explores: 8            # explore budget; semantics vary per method (see methods/registry.py)
-  num_rollouts: 1            # tts-agent only; > 1 requires backend=vllm (rejection sampling)
-  # sampling: ...            # tts-agent only; vLLM sampling block (see methods/specs.py:SamplingConfig)
+  no_integrate: false        # tts-agent only
+  num_explores: 8
+  num_rollouts: 1            # tts-agent only; > 1 requires backend.name=vllm
+  # sampling: ...            # tts-agent only; vLLM SamplingConfig
 
 # === Dataset ===
-num: null                   # process first N rows (null = all)
+num: null
 skip: 0
 seed: 42
 shuffle: false
 
-# === Backend-level knobs (apply to every method) ===
-budget_tokens: 32000
-effort: low                 # low / medium / high / max
+# === Truly generic top-level (apply to every method) ===
 num_workers: 1
-explore_timeout: 1200
-max_output_tokens: null
-timeout: 1200
-
-# === Run state ===
 verbose: false
-resume: null                # path to a prior run dir to resume (results.jsonl gets re-used)
+resume: null
 log_dir: logs

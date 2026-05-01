@@ -161,20 +161,32 @@ field that the spec does not allow (e.g. `orchestrator_model` in a
 
 | Method | Required fields inside `method:` block |
 |---|---|
-| `tts-agent` | `orchestrator_model`, `explore_model`, `cache_dir`; `integrate_model` unless `no_integrate=true` |
-| `tts-agent-multi` | `orchestrator_model`, `cache_dirs`, `model_budgets` |
-| `tts-agent-effort` | `orchestrator_model`, `explore_model`, `cache_dirs`, `effort_budgets` |
-| `self-refine` | `explore_model`, `cache_dir` |
-| `socratic-self-refine` | `explore_model`, `cache_dir` |
-| `budget-forcing` | `explore_model`, `cache_dir` |
-| `rerank` | `reward_model`, `cache_dir` |
-| `standalone-integrator` | `integrate_model`, `cache_dir` |
+| `tts-agent` | `backend`, `orchestrator_model`, `explore_model`, `cache_dir`; `integrate_model` unless `no_integrate=true` |
+| `tts-agent-multi` | `backend`, `orchestrator_model`, `cache_dirs`, `model_budgets` |
+| `tts-agent-effort` | `backend`, `orchestrator_model`, `explore_model`, `cache_dirs`, `effort_budgets` |
+| `self-refine` | `backend`, `explore_model`, `cache_dir` |
+| `socratic-self-refine` | `backend`, `explore_model`, `cache_dir` |
+| `budget-forcing` | `backend`, `explore_model`, `cache_dir` |
+| `rerank` | `reward_model`, `cache_dir` (no backend — uses local reward model) |
+| `standalone-integrator` | `backend`, `integrate_model`, `cache_dir` |
+
+Where `backend` is a sub-block:
+```yaml
+backend:
+  name: claude            # one of: codex, claude, vllm
+  budget_tokens: 32000    # default 32000
+  effort: low             # default low
+  timeout: 1200           # default 1200
+  max_output_tokens: null # default null
+```
 
 ### Top-level generic fields (do not vary per method)
 
-`backend`, `budget_tokens`, `effort`, `timeout`, `max_output_tokens`,
-`explore_timeout`, `num`, `num_workers`, `seed`, `shuffle`, `skip`,
-`log_dir`, `resume`, `verbose`.
+`num`, `skip`, `seed`, `shuffle`, `num_workers`, `log_dir`, `resume`, `verbose`.
+
+Backend-related fields (`backend`, `budget_tokens`, `effort`, `timeout`,
+`max_output_tokens`) live inside `method.backend` for the 7 LLM-using methods,
+and don't exist at all in rerank YAMLs (rerank uses a local reward model).
 
 ### Single-cache vs multi-cache
 
@@ -189,9 +201,10 @@ tts-agent-effort). The spec layer rejects mixing them.
 benchmark:
   name: hle
   subset: gold
-backend: claude
 method:
   name: tts-agent
+  backend:
+    name: claude
   orchestrator_model: claude-sonnet-4-6
   explore_model: claude-sonnet-4-6
   cache_dir: /cache/hle/sonnet/gold
@@ -208,9 +221,10 @@ log_dir: /run/hle/sonnet
 benchmark:
   name: hle
   subset: gold
-backend: claude
 method:
   name: tts-agent-multi
+  backend:
+    name: claude
   orchestrator_model: claude-sonnet-4-6
   cache_dirs:
     haiku:  /cache/h
@@ -229,7 +243,6 @@ num: 100
 ```yaml
 benchmark:
   name: babyvision
-backend: claude
 method:
   name: rerank
   reward_model: OpenGVLab/VisualPRM-8B
