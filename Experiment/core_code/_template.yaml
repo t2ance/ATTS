@@ -1,56 +1,76 @@
 # _template.yaml
 # Annotated template for eval.py. Every field shown here is OPTIONAL unless flagged required.
 
-# === Required ===
-# Benchmark is a single discriminated block: pick one of hle / gpqa / lcb /
-# babyvision / rbenchv / aime2025 / aime2026 and set name + that benchmark's
-# filter fields (subset, category, domain, difficulty, year, ...). Unknown
-# fields are rejected at validate time. See benchmarks/specs.py for the schema.
+# === Benchmark block (discriminated by name) ===
+# See benchmarks/specs.py. Each benchmark has its own Pydantic spec with
+# extra:forbid -- unknown filter fields fail validation.
 benchmark:
-  name: hle                 # required
+  name: hle                 # required: hle / gpqa / lcb / babyvision / rbenchv / aime2025 / aime2026
   subset: gold              # HLE-only filter; remove for other benchmarks
   text_only: true           # HLE-only filter
+
+# === Backend ===
 backend: claude             # one of: codex, claude, vllm
-explore_model: claude-sonnet-4-6   # required: model for explore sub-calls
 
-# === Method ===
-method: tts-agent           # one of: tts-agent, tts-agent-multi, tts-agent-effort,
-                            # self-refine, socratic-self-refine, budget-forcing,
-                            # rerank, standalone-integrator
-orchestrator_model: null    # required for tts-agent / tts-agent-multi / tts-agent-effort
-integrate_model: null       # required for tts-agent / standalone-integrator
-reward_model: null          # required for rerank
+# === Method block (discriminated by name) ===
+# See methods/specs.py. Each method has its own Pydantic spec with extra:forbid
+# -- writing a field that this method does not consume (e.g. orchestrator_model
+# in a self-refine config) fails validation. The fields shown below cover all
+# methods; pick the subset for your method (consult methods/specs.py).
+method:
+  name: tts-agent           # one of: tts-agent / tts-agent-multi / tts-agent-effort /
+                            # self-refine / socratic-self-refine / budget-forcing /
+                            # rerank / standalone-integrator
 
-# === Cache (mutually exclusive by method shape) ===
-# Single-cache methods (tts-agent, self-refine, ...): set cache_dir, leave cache_dirs empty.
-# Multi/effort methods: set cache_dirs (dict), leave cache_dir null.
-cache_dir: null
-cache_dirs: {}              # e.g. {haiku: /cache/haiku, sonnet: /cache/sonnet}
+  # Model fields (per method):
+  #   tts-agent: orchestrator_model, explore_model; integrate_model unless no_integrate=true
+  #   tts-agent-multi: orchestrator_model only (explore via cache_dirs aliases)
+  #   tts-agent-effort: orchestrator_model, explore_model
+  #   self-refine / socratic-self-refine / budget-forcing: explore_model only
+  #   rerank: reward_model only
+  #   standalone-integrator: integrate_model only
+  orchestrator_model: claude-sonnet-4-6
+  explore_model: claude-sonnet-4-6
+  integrate_model: claude-sonnet-4-6
+  # reward_model: ...        # required only for rerank
 
-# === Multi/effort budgets ===
-model_budgets: {}           # required for tts-agent-multi
-effort_budgets: {}          # required for tts-agent-effort
-exploration_effort: null    # one of: low, medium, high
+  # Cache (single-cache methods use cache_dir, multi/effort use cache_dirs):
+  cache_dir: ../analysis/cache/hle/sonnet/gold
+  # cache_dirs:              # required for tts-agent-multi / tts-agent-effort
+  #   haiku: /cache/haiku
+  #   sonnet: /cache/sonnet
+
+  # Method-specific budgets (only one of these per method):
+  # model_budgets:           # required for tts-agent-multi
+  #   haiku: 8
+  #   sonnet: 8
+  # effort_budgets:          # required for tts-agent-effort
+  #   low: 8
+  #   medium: 6
+  #   high: 4
+  # exploration_effort: low  # tts-agent-multi only: low / medium / high
+
+  # Per-method behavior knobs:
+  no_integrate: false        # tts-agent only: orchestrator finalizes itself, integrate_model unused
+  num_explores: 8            # explore budget; semantics vary per method (see methods/registry.py)
+  num_rollouts: 1            # tts-agent only; > 1 requires backend=vllm (rejection sampling)
+  # sampling: ...            # tts-agent only; vLLM sampling block (see methods/specs.py:SamplingConfig)
 
 # === Dataset ===
-num: null
+num: null                   # process first N rows (null = all)
 skip: 0
 seed: 42
 shuffle: false
 
-# === Model knobs ===
+# === Backend-level knobs (apply to every method) ===
 budget_tokens: 32000
 effort: low                 # low / medium / high / max
-num_explores: 8
 num_workers: 1
 explore_timeout: 1200
 max_output_tokens: null
-
-# === Run ===
-verbose: false
-resume: null
-log_dir: logs
-no_cache_only: false
 timeout: 1200
-no_integrate: false
-num_rollouts: 1             # > 1 only valid with method=tts-agent + backend=vllm
+
+# === Run state ===
+verbose: false
+resume: null                # path to a prior run dir to resume (results.jsonl gets re-used)
+log_dir: logs
