@@ -89,6 +89,17 @@ _TOOL_CALL_RE = re.compile(
     re.DOTALL,
 )
 
+# Strips the Qwen3.5+ thinking prefix `<reasoning>...</think>\n\n` from an
+# assistant message before it is appended to the multi-turn history. Without
+# this, every prior turn's reasoning blob (1.5k tok mean, 14k tok p99 measured
+# on HLE _temp 2026-05-01) is re-serialized into the next turn's prompt by the
+# chat template, growing input linearly with turn count and hitting
+# max_model_len=65536 well before 8 turns on long-prompt benchmarks (LCB code
+# prompts 3-8k tok). The match is anchored at start with a non-greedy ``.*?``
+# so only the FIRST </think> closes the prefix; if no </think> is present
+# (e.g. enable_thinking=false), the regex no-ops and text is left intact.
+_THINK_PREFIX_RE = re.compile(r"\A.*?</think>\s*", re.DOTALL)
+
 # Qwen3.6+ chat_template emits XML body inside <tool_call>:
 #   <function=NAME>
 #     <parameter=KEY>VAL</parameter>
@@ -427,8 +438,14 @@ async def run_tool_conversation(
             # Orchestrator emitted text without tool_call; no commit signal.
             return _estimate_cost_usd(total_usage, model), total_usage, "incomplete"
 
-        # Append assistant message once
-        messages.append({"role": "assistant", "content": text_content})
+        # Append assistant message once. Strip the </think> reasoning prefix
+        # so prior-turn CoT does not bloat next-turn prompt (multi-turn input
+        # accumulation; see _THINK_PREFIX_RE comment). Trajectory file at
+        # writer.write_text(text_content) above keeps the FULL unstripped
+        # text for offline analysis -- only the in-flight messages list is
+        # trimmed.
+        history_content = _THINK_PREFIX_RE.sub("", text_content, count=1)
+        messages.append({"role": "assistant", "content": history_content})
 
         for name, args in text_calls:
             if name == "StructuredOutput":
