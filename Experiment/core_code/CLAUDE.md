@@ -120,22 +120,19 @@ No command-line arguments. Every path, model name, worker count, and seed is wri
 
 ## eval.py configuration
 
-`eval.py` and `precache_explores.py` accept exactly one CLI flag:
+`eval.py` accepts exactly one CLI flag:
 
 1. `--config <path>.yaml` — required. YAML is the single source of truth.
-   Each benchmark/model/method has its own YAML next to the launcher script:
-   `scripts/<benchmark>/<model>/<benchmark>_<model>_<method>.yaml`. The full
-   schema lives in `eval.py` (`EvalConfig`) and `precache_explores.py`
-   (`PrecacheConfig`). Reference template: `_template.yaml` (repo root).
 
-There are no other flags. To change a value (including `resume`, `num`,
-`num_workers`, etc.), edit the YAML directly. One YAML = one launch.
+The YAML has two discriminated-union blocks (`benchmark:` and `method:`) plus
+generic top-level fields. To change any value (including `resume`, `num`,
+`num_workers`, the model fields inside `method:`, etc.), edit the YAML
+directly. One YAML = one launch.
 
-### `benchmark:` is a discriminated union, not a string
+### `benchmark:` block (discriminated by `name:`)
 
-`benchmark` in YAML is a mapping with a `name:` field and the benchmark's filter
-fields. Each benchmark has its own Pydantic spec (`benchmarks/specs.py`), so
-unknown filter keys fail validation:
+See `benchmarks/specs.py`. Each benchmark has its own Pydantic spec with
+`extra: forbid`, so unknown filter keys fail validation.
 
 ```yaml
 benchmark:
@@ -152,56 +149,105 @@ Per benchmark, the valid filter fields are:
 - `rbenchv`: `category`
 - `aime2025` / `aime2026`: `year`
 
-### Dict-typed fields live in YAML
+### `method:` block (discriminated by `name:`)
 
-`cache_dirs` (multi-model), `model_budgets`, `effort_budgets` are dictionaries
-written directly in the YAML:
+See `methods/specs.py`. Each method has its own Spec class. Method-specific
+fields (`orchestrator_model`, `explore_model`, `integrate_model`,
+`reward_model`, `cache_dir`, `cache_dirs`, `model_budgets`, `effort_budgets`,
+`exploration_effort`, `no_integrate`, `num_explores`, `num_rollouts`,
+`sampling`) live INSIDE the method block. `extra: forbid` means writing a
+field that the spec does not allow (e.g. `orchestrator_model` in a
+`self-refine` YAML) fails validation instead of being silently ignored.
 
-```yaml
-cache_dirs:
-  haiku: ../analysis/cache/hle/haiku/gold
-  sonnet: ../analysis/cache/hle/sonnet/gold
-model_budgets:
-  haiku: 8
-  sonnet: 8
-```
+| Method | Required fields inside `method:` block |
+|---|---|
+| `tts-agent` | `orchestrator_model`, `explore_model`, `cache_dir`; `integrate_model` unless `no_integrate=true` |
+| `tts-agent-multi` | `orchestrator_model`, `cache_dirs`, `model_budgets` |
+| `tts-agent-effort` | `orchestrator_model`, `explore_model`, `cache_dirs`, `effort_budgets` |
+| `self-refine` | `explore_model`, `cache_dir` |
+| `socratic-self-refine` | `explore_model`, `cache_dir` |
+| `budget-forcing` | `explore_model`, `cache_dir` |
+| `rerank` | `reward_model`, `cache_dir` |
+| `standalone-integrator` | `integrate_model`, `cache_dir` |
+
+### Top-level generic fields (do not vary per method)
+
+`backend`, `budget_tokens`, `effort`, `timeout`, `max_output_tokens`,
+`explore_timeout`, `num`, `num_workers`, `seed`, `shuffle`, `skip`,
+`log_dir`, `resume`, `verbose`.
 
 ### Single-cache vs multi-cache
 
-The schema has two separate fields, mutually exclusive by method:
+`cache_dir: Path` — single-cache methods (tts-agent, self-refine,
+socratic-self-refine, budget-forcing, rerank, standalone-integrator).
+`cache_dirs: dict[str, Path]` — multi-cache methods (tts-agent-multi,
+tts-agent-effort). The spec layer rejects mixing them.
 
-- `cache_dir: Path | None` — for single-cache methods (`tts-agent`, `self-refine`,
-  `socratic-self-refine`, `budget-forcing`, `rerank`, `standalone-integrator`).
-- `cache_dirs: dict[str, Path]` — for multi/effort methods (`tts-agent-multi`,
-  `tts-agent-effort`).
+### Example: tts-agent (paper main config)
 
-A pydantic validator rejects mixing them.
-
-### Example config
-
-`scripts/hle/multi_model/hle_multi_delegated.yaml`:
 ```yaml
 benchmark:
   name: hle
   subset: gold
 backend: claude
-explore_model: claude-sonnet-4-6
-method: tts-agent-multi
-orchestrator_model: claude-sonnet-4-6
-cache_dirs:
-  haiku:  /cache/h
-  sonnet: /cache/s
-  opus:   /cache/o
-model_budgets:
-  haiku: 8
-  sonnet: 8
-  opus: 4
-exploration_effort: low
-no_integrate: true
+method:
+  name: tts-agent
+  orchestrator_model: claude-sonnet-4-6
+  explore_model: claude-sonnet-4-6
+  cache_dir: /cache/hle/sonnet/gold
+  no_integrate: true
+  num_explores: 8
+num: 100
+seed: 42
+log_dir: /run/hle/sonnet
+```
+
+### Example: tts-agent-multi
+
+```yaml
+benchmark:
+  name: hle
+  subset: gold
+backend: claude
+method:
+  name: tts-agent-multi
+  orchestrator_model: claude-sonnet-4-6
+  cache_dirs:
+    haiku:  /cache/h
+    sonnet: /cache/s
+    opus:   /cache/o
+  model_budgets:
+    haiku: 8
+    sonnet: 8
+    opus: 4
+  exploration_effort: low
 num: 100
 ```
 
-Shell script:
+### Example: rerank
+
+```yaml
+benchmark:
+  name: babyvision
+backend: claude
+method:
+  name: rerank
+  reward_model: OpenGVLab/VisualPRM-8B
+  cache_dir: /cache/babyvision/sonnet
+num_workers: 16
+log_dir: /run/babyvision/sonnet_visualprm_rerank
+```
+
+Shell script (any method):
 ```bash
 python eval.py --config scripts/hle/multi_model/hle_multi_delegated.yaml
 ```
+
+### Adding a new method
+
+Three files only:
+1. `methods/<new_method>.py` — implement `async def solve(infra, problem, ...)`.
+2. `methods/specs.py` — add `<NewMethod>Spec(_MethodSpec)` and add it to the `MethodSpec` Union.
+3. `methods/registry.py` — add `<NewMethod>Method(MethodConfig)` and register it in `METHODS`.
+
+`eval.py` needs zero changes.
