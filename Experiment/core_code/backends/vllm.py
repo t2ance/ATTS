@@ -449,6 +449,37 @@ async def run_tool_conversation(
 
         for name, args in text_calls:
             if name == "StructuredOutput":
+                # Schema-required-field check: in thinking-on mode the model
+                # occasionally emits a StructuredOutput tool_call missing the
+                # required `answer` field (the system prompt at vllm.py:348
+                # already lists the required keys, but long reasoning chains
+                # can still drop one). Without this check, the downstream
+                # benchmarks/base.py:416 `result["answer"]` raises KeyError
+                # which propagates through asyncio.gather and kills the whole
+                # eval mid-run. Verified GPQA _temp 2026-05-01 q116/198.
+                # Treat the malformed call as a noisy emission, inject a
+                # corrective user message, and let the outer turn loop retry
+                # (inner break + outer for-turn naturally advances).
+                if "answer" not in args:
+                    if not quiet:
+                        print(
+                            f"[structured_output_invalid] missing 'answer'; "
+                            f"got keys={list(args.keys())}"
+                        )
+                    if writer:
+                        writer.write_text(
+                            f"[StructuredOutput rejected: missing required "
+                            f"'answer' field; got keys={list(args.keys())}]"
+                        )
+                    messages.append({
+                        "role": "user",
+                        "content": (
+                            "Your last StructuredOutput call was missing the "
+                            "required 'answer' field. Call StructuredOutput "
+                            "again with ALL required fields filled per the schema."
+                        ),
+                    })
+                    break
                 if not quiet:
                     print(f"[structured_output] {args}")
                 if writer:
