@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
@@ -11,6 +12,49 @@ from typing import Any
 from pydantic import BaseModel
 
 from prompts import format_claude_structured_suffix
+
+
+# ---------------------------------------------------------------------------
+# Judge bundle lookup helpers
+# ---------------------------------------------------------------------------
+# Used by eval.py to locate (or report-missing) the cached judge bundle for a
+# given (explore_dir, judge_spec). Layout:
+#   explore_dir/judges/<label>/{config.json, grade.json, input.md, output.md, result.json}
+# where <label> = f"{judge_spec['name']}__{judge_spec['model']}".
+# `config.json` carries the full JudgeSpec dump; the source of truth for judge
+# identity is the dict-equality of config.json against the requested spec.
+
+def judge_label(judge_spec: dict) -> str:
+    """Stable, human-readable label for a judge bundle directory."""
+    return f"{judge_spec['name']}__{judge_spec['model']}"
+
+
+def find_cached_judge(judges_dir: Path, judge_spec: dict) -> Path | None:
+    """Locate the cached bundle matching judge_spec, or None on miss.
+
+    Raises RuntimeError if the labelled directory exists but its config.json
+    differs from judge_spec (label collision; user must rename one bundle).
+    Treats partial bundles (missing config.json) as misses so callers can
+    re-grade and overwrite.
+    """
+    label = judge_label(judge_spec)
+    candidate = judges_dir / label
+    if not candidate.exists():
+        return None
+    config_path = candidate / "config.json"
+    if not config_path.exists():
+        return None
+    stored = json.loads(config_path.read_text(encoding="utf-8"))
+    if stored == judge_spec:
+        return candidate
+    raise RuntimeError(
+        f"Judge label collision at {candidate}.\n"
+        f"  Stored config:    {stored}\n"
+        f"  Requested config: {judge_spec}\n"
+        f"Two judges share the same backend+model label but differ on other "
+        f"fields (e.g. sampling). Manually rename one of the conflicting "
+        f"bundles before re-running."
+    )
 
 
 # ---------------------------------------------------------------------------
