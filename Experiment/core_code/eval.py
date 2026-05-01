@@ -12,8 +12,6 @@ import json
 import os
 import time
 from pathlib import Path
-from typing import Literal
-
 import yaml
 from pydantic import BaseModel, Field, model_validator
 
@@ -41,22 +39,13 @@ class EvalConfig(BaseModel):
     benchmark: BenchmarkSpec
     method: MethodSpec
 
-    # Backend selection
-    backend: Literal["codex", "claude", "vllm"]
-
     # Dataset slicing (generic)
     num: int | None = None
     skip: int = 0
     seed: int = 42
     shuffle: bool = False
 
-    # Backend-level knobs (apply to every method, do not vary per method)
-    budget_tokens: int = 32000
-    effort: Literal["low", "medium", "high", "max"] = "low"
     num_workers: int = 1
-    explore_timeout: float = 1200.0
-    max_output_tokens: int | None = None
-    timeout: float = 1200.0
 
     # Run state
     verbose: bool = False
@@ -745,19 +734,23 @@ async def async_main() -> None:
     else:
         effective_num = cfg.num
 
+    # Rerank has no backend (scores cached candidates with a local reward model);
+    # for it we fall through to a sentinel backend="" and default knobs --
+    # rerank.solve never invokes ctx.call_sub_model so the backend module is unused.
+    backend_block = getattr(cfg.method, "backend", None)
     infra = InfraConfig(
-        backend=cfg.backend,
+        backend=backend_block.name if backend_block else "",
         max_iterations=num_explores,
         cache_dir=cache_dir,
         cache_only=method.cache_only,
-        budget_tokens=cfg.budget_tokens,
-        effort=cfg.effort,
-        timeout=cfg.timeout,
+        budget_tokens=backend_block.budget_tokens if backend_block else 32000,
+        effort=backend_block.effort if backend_block else "low",
+        timeout=backend_block.timeout if backend_block else 1200.0,
         benchmark=benchmark,
         quiet=not cfg.verbose,
         logger=None,
         enable_integrate=not getattr(cfg.method, "no_integrate", False),
-        max_output_tokens=cfg.max_output_tokens,
+        max_output_tokens=backend_block.max_output_tokens if backend_block else None,
     )
 
     sampling = getattr(cfg.method, "sampling", None)
