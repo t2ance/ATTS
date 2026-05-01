@@ -331,9 +331,6 @@ def create_solve_context(
     trajectories/<qid>/ (flat, old behavior). When rollout_idx is set (K>1
     path), trajectory is written to trajectories/<qid>/rollout_<k>/ (nested).
     """
-    if infra.cache_only:
-        assert infra.cache_dir is not None, "cache_only=True requires cache_dir"
-
     state = SolvingState(
         problem=problem,
         explore=ExploreStepState(max_explores=infra.max_iterations),
