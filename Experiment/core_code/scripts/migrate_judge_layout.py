@@ -114,12 +114,90 @@ def _phase_dry_run(cache_root: Path, limit: int | None) -> None:
 
 
 # ---------------------------------------------------------------------------
-# Phase 2 / 3: stubs (implemented in subsequent commits)
+# Phase 2: copy (verified, never moves; safe to retry; safe to abort)
 # ---------------------------------------------------------------------------
 
-def _phase_copy(cache_root: Path, limit: int | None) -> None:
-    raise NotImplementedError("Implemented in the next commit.")
+def _atomic_write_text(path: Path, content: str) -> None:
+    """Write content to path via tempfile + rename (atomic on same fs)."""
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    tmp.write_text(content, encoding="utf-8")
+    tmp.replace(path)
 
+
+def _verified_copy(src: Path, dst: Path) -> None:
+    """Copy src -> dst and assert byte-for-byte equality via sha256."""
+    shutil.copy2(src, dst)
+    src_h = hashlib.sha256(src.read_bytes()).hexdigest()
+    dst_h = hashlib.sha256(dst.read_bytes()).hexdigest()
+    if src_h != dst_h:
+        raise SystemExit(
+            f"Hash mismatch after copy: {src} -> {dst}\n"
+            f"  src sha256: {src_h}\n  dst sha256: {dst_h}\n"
+            f"Migration aborted. Original {src} intact; partial bundle at {dst.parent}."
+        )
+
+
+def _phase_copy(cache_root: Path, limit: int | None) -> None:
+    processed = 0
+    skipped_already = 0
+
+    for explore_dir in _explore_dirs(cache_root):
+        if limit is not None and processed >= limit:
+            break
+        if _is_already_migrated(explore_dir):
+            skipped_already += 1
+            continue
+
+        legacy_grade = explore_dir / "grade.json"
+        data = json.loads(legacy_grade.read_text(encoding="utf-8"))
+        judge_model = data["judge_model"]
+        label = _label(judge_model)
+
+        bundle = explore_dir / "judges" / label
+        bundle.mkdir(parents=True, exist_ok=True)
+
+        # 1) config.json -- atomic, deterministic-key bytes for find_cached_judge.
+        config = {"name": "claude", "model": judge_model}
+        _atomic_write_text(
+            bundle / "config.json",
+            json.dumps(config, indent=2, sort_keys=True),
+        )
+
+        # 2) grade.json (verified copy from legacy explore_N/grade.json).
+        _verified_copy(legacy_grade, bundle / "grade.json")
+
+        # 3) Three judge trace files. Original legacy layout always has all
+        #    three (inputs.md/output.md/result.json under explore_N/judge/);
+        #    a missing one is a corruption signal worth flagging.
+        legacy_judge = explore_dir / "judge"
+        for fname in ("input.md", "output.md", "result.json"):
+            src = legacy_judge / fname
+            if src.exists():
+                _verified_copy(src, bundle / fname)
+            else:
+                print(f"  WARN: {src} missing in legacy layout; bundle is incomplete.")
+
+        # 4) Sanity: re-read config.json and confirm content matches.
+        stored = json.loads((bundle / "config.json").read_text(encoding="utf-8"))
+        if stored != config:
+            raise SystemExit(f"config.json content drift at {bundle}")
+
+        processed += 1
+        if processed % 50 == 0:
+            print(f"  ... copied {processed} explores")
+
+    print(
+        f"Phase copy: {processed} explores migrated, "
+        f"{skipped_already} already-migrated skipped."
+    )
+    if processed > 0:
+        print("Originals untouched. Run a smoke eval next; only after that passes "
+              "should you run --phase cleanup.")
+
+
+# ---------------------------------------------------------------------------
+# Phase 3: stub (implemented in next commit)
+# ---------------------------------------------------------------------------
 
 def _phase_cleanup(cache_root: Path, limit: int | None) -> None:
     raise NotImplementedError("Implemented in the next commit.")
