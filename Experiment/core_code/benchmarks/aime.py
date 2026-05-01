@@ -67,7 +67,6 @@ def _normalize_aime_answer(text: str) -> str:
 
 class AIMEBenchmark(BenchmarkConfig):
     name = "aime"
-    judge_model = None
     grading_summary = "string match (integer normalize, modulo 1000)"
     _year: int | None = None
     explorer_base_prompt = f"""\

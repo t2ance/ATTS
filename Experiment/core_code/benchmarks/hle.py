@@ -113,16 +113,14 @@ def _filter_dataset(
 class HLEBenchmark(BenchmarkConfig):
     name = "hle"
     majority_vote_compatible = False
-    # judge_model: HLE answers (free-form text + LaTeX expressions) require an
-    # LLM judge for semantic equivalence, not string match. Default 'none' (set
-    # 2026-04-11 for a one-off smoke test) caused sonnet_socratic_self_refine to
-    # underestimate accuracy by ~8 pp because all 100 grade.json files were
-    # written with judge_model="none" and is_correct came from str(predicted) ==
-    # str(gold). Restored 2026-04-28.
-    judge_model = "claude-haiku-4-5-20251001"
+    # 2026-05-01: judge_model class attribute removed. Judge identity now lives
+    # in YAML (benchmark.judge: {name, model, ...}) and arrives via __init__'s
+    # judge_spec. The bespoke "vllm -> claude" and "codex -> gpt-5-codex-mini"
+    # routing that used to live here is also gone: backend mapping was a
+    # workaround for the fact that orchestrator backend leaked into judge
+    # selection. Now the user picks the judge backend explicitly in YAML.
     grading_summary = (
-        "LLM judge: claude-haiku-4-5-20251001 "
-        "(codex backend remaps to gpt-5-codex-mini); "
+        "LLM judge per YAML benchmark.judge block; "
         "multipleChoice rows fall through to string match"
     )
 
@@ -154,12 +152,9 @@ class HLEBenchmark(BenchmarkConfig):
         answer_type = row.get("answer_type", "exactMatch")
         if answer_type == "multipleChoice":
             return check_answer(predicted, gold, "multipleChoice"), 0.0
-        # vLLM serves the orchestrator, not the judge -> route judge through Claude.
-        grade_backend = "claude" if backend == "vllm" else backend
-        # Codex-backend HLE eval scripts (gpt5.2_low, gpt5.4) need a GPT judge model.
-        judge_model = "gpt-5-codex-mini" if grade_backend == "codex" else self.judge_model
+        # `backend` (orchestrator backend) is intentionally ignored here: the
+        # judge backend lives entirely in self.judge_spec["name"] per YAML.
         return await judge_answer(
-            predicted, gold, question, judge_model,
-            backend=grade_backend, out_dir=out_dir,
+            predicted, gold, question, self.judge_spec, out_dir=out_dir,
         )
 

@@ -20,6 +20,11 @@ def _run(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
 
 
+# Standard claude-haiku judge_spec for tests that need an LLM judge.
+_HAIKU_SPEC = {"name": "claude", "model": "claude-haiku-4-5-20251001"}
+_CODEX_SPEC = {"name": "codex", "model": "gpt-5-codex-mini"}
+
+
 # ---- GPQA: pure string match on multipleChoice letter ----
 
 def test_gpqa_grade_multiplechoice_correct():
@@ -39,7 +44,7 @@ def test_gpqa_grade_multiplechoice_wrong():
 # ---- BabyVision: hybrid (choice -> string match, blank -> LLM judge) ----
 
 def test_babyvision_choice_row_uses_string_match():
-    bench = BabyVisionBenchmark()
+    bench = BabyVisionBenchmark(judge_spec=_HAIKU_SPEC)
     row = {"ansType": "choice"}
     is_correct, cost = _run(bench.grade("b", "b", "q", row, backend="claude"))
     assert is_correct is True
@@ -47,68 +52,67 @@ def test_babyvision_choice_row_uses_string_match():
 
 
 def test_babyvision_blank_row_uses_judge_answer():
-    bench = BabyVisionBenchmark()
+    bench = BabyVisionBenchmark(judge_spec=_HAIKU_SPEC)
     row = {"ansType": "blank"}
     with patch("benchmarks.babyvision.judge_answer", new=AsyncMock(return_value=(True, 0.001))) as m:
         is_correct, cost = _run(bench.grade("foo", "bar", "q", row, backend="claude"))
     assert is_correct is True
     assert cost == 0.001
-    args, kwargs = m.call_args
+    args, _ = m.call_args
     assert args[0] == "foo"
     assert args[1] == "bar"
-    assert args[3] == "claude-haiku-4-5-20251001"
-    assert kwargs["backend"] == "claude"
+    assert args[3] == _HAIKU_SPEC  # full spec dict, not just model string
 
 
-# ---- HLE: judge with codex bridge inline ----
+# ---- HLE: judge identity from YAML, no bespoke backend routing ----
 
-def test_hle_grade_claude_backend_uses_haiku():
-    bench = HLEBenchmark()
+def test_hle_grade_uses_yaml_supplied_judge():
+    bench = HLEBenchmark(judge_spec=_HAIKU_SPEC)
     row = {"answer_type": "exactMatch"}
     with patch("benchmarks.hle.judge_answer", new=AsyncMock(return_value=(True, 0.002))) as m:
-        is_correct, cost = _run(bench.grade("x", "y", "q", row, backend="claude"))
+        is_correct, _ = _run(bench.grade("x", "y", "q", row, backend="claude"))
     args, _ = m.call_args
-    assert args[3] == "claude-haiku-4-5-20251001"
+    assert args[3] == _HAIKU_SPEC
     assert is_correct is True
 
 
-def test_hle_grade_codex_backend_remaps_to_gpt5_codex_mini():
-    bench = HLEBenchmark()
+def test_hle_grade_with_codex_judge_spec():
+    """Old behavior 'codex backend remaps to gpt-5-codex-mini' is now the
+    user's responsibility: they put name=codex+model=gpt-5-codex-mini in YAML."""
+    bench = HLEBenchmark(judge_spec=_CODEX_SPEC)
     row = {"answer_type": "exactMatch"}
     with patch("benchmarks.hle.judge_answer", new=AsyncMock(return_value=(False, 0.003))) as m:
-        is_correct, cost = _run(bench.grade("x", "y", "q", row, backend="codex"))
-    args, kwargs = m.call_args
-    assert args[3] == "gpt-5-codex-mini"
-    assert kwargs["backend"] == "codex"
+        _run(bench.grade("x", "y", "q", row, backend="codex"))
+    args, _ = m.call_args
+    assert args[3] == _CODEX_SPEC
 
 
-def test_hle_grade_vllm_backend_routes_to_claude():
-    bench = HLEBenchmark()
+def test_hle_grade_orchestrator_backend_does_not_affect_judge():
+    """orchestrator backend (here vllm) is independent of judge selection."""
+    bench = HLEBenchmark(judge_spec=_HAIKU_SPEC)
     row = {"answer_type": "exactMatch"}
     with patch("benchmarks.hle.judge_answer", new=AsyncMock(return_value=(True, 0.0))) as m:
         _run(bench.grade("x", "y", "q", row, backend="vllm"))
-    args, kwargs = m.call_args
-    assert kwargs["backend"] == "claude"
-    assert args[3] == "claude-haiku-4-5-20251001"
+    args, _ = m.call_args
+    assert args[3] == _HAIKU_SPEC
 
 
 def test_hle_grade_multiplechoice_row_uses_string_match():
-    bench = HLEBenchmark()
+    bench = HLEBenchmark(judge_spec=_HAIKU_SPEC)
     row = {"answer_type": "multipleChoice"}
     is_correct, cost = _run(bench.grade("c", "c", "q", row, backend="claude"))
     assert is_correct is True
     assert cost == 0.0
 
 
-# ---- RBenchV: always LLM judge ----
+# ---- RBenchV: always LLM judge from YAML spec ----
 
 def test_rbenchv_uses_judge_answer():
-    bench = RBenchVBenchmark()
+    bench = RBenchVBenchmark(judge_spec=_HAIKU_SPEC)
     with patch("benchmarks.rbenchv.judge_answer", new=AsyncMock(return_value=(True, 0.004))) as m:
-        is_correct, cost = _run(bench.grade("p", "g", "q", {}, backend="claude"))
-    args, kwargs = m.call_args
-    assert args[3] == "claude-haiku-4-5-20251001"
-    assert kwargs["backend"] == "claude"
+        is_correct, _ = _run(bench.grade("p", "g", "q", {}, backend="claude"))
+    args, _ = m.call_args
+    assert args[3] == _HAIKU_SPEC
     assert is_correct is True
 
 
@@ -122,12 +126,13 @@ def test_all_benchmarks_have_grading_summary():
         assert len(cls.grading_summary) > 10
 
 
-# ---- judge_model class attr preserved (cache invalidation) ----
+# ---- judge_spec is now an instance attribute carried from __init__ ----
 
-def test_judge_model_preserved_per_benchmark():
-    assert LCBBenchmark.judge_model is None
-    assert AIMEBenchmark.judge_model is None
-    assert GPQABenchmark.judge_model is None
-    assert HLEBenchmark.judge_model == "claude-haiku-4-5-20251001"
-    assert BabyVisionBenchmark.judge_model == "claude-haiku-4-5-20251001"
-    assert RBenchVBenchmark.judge_model == "claude-haiku-4-5-20251001"
+def test_judge_spec_carried_per_instance():
+    """Replaces test_judge_model_preserved_per_benchmark. judge_model class
+    attribute was removed 2026-05-01; identity now comes from YAML."""
+    assert LCBBenchmark().judge_spec is None
+    assert AIMEBenchmark().judge_spec is None
+    assert GPQABenchmark().judge_spec is None
+    bench = HLEBenchmark(judge_spec=_HAIKU_SPEC)
+    assert bench.judge_spec == _HAIKU_SPEC

@@ -46,10 +46,10 @@ def _format_choices(row: dict) -> str:
 
 class BabyVisionBenchmark(BenchmarkConfig):
     name = "babyvision"
-    judge_model = "claude-haiku-4-5-20251001"
+    # 2026-05-01: judge_model class attribute removed; identity now in YAML.
     grading_summary = (
         "hybrid: string match for ansType=choice rows; "
-        "LLM judge claude-haiku-4-5-20251001 for ansType=blank rows"
+        "LLM judge per YAML benchmark.judge block for ansType=blank rows"
     )
     explorer_base_prompt = f"""\
 You are an expert problem solver specializing in visual reasoning and cognitive tasks.
@@ -100,9 +100,7 @@ If you cannot solve it exactly, give your best estimate and set confidence accor
     async def grade(self, predicted, gold, question, row, backend, out_dir=None):
         if row.get("ansType") == "choice":
             return check_answer(predicted, gold, "multipleChoice"), 0.0
-        grade_backend = "claude" if backend == "vllm" else backend
         return await judge_answer(
-            predicted, gold, question, self.judge_model,
-            backend=grade_backend, out_dir=out_dir,
+            predicted, gold, question, self.judge_spec, out_dir=out_dir,
         )
 

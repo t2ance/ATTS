@@ -86,7 +86,6 @@ _INTEGRATION_SCHEMA: dict[str, Any] = {
 class LCBBenchmark(BenchmarkConfig):
     name = "lcb"
     majority_vote_compatible = False
-    judge_model = None
     grading_summary = "code execution (lcb_runner test cases)"
     explore_schema = _EXPLORE_SCHEMA
     integrate_schema = _INTEGRATION_SCHEMA

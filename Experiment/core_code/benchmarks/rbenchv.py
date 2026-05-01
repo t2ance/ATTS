@@ -35,8 +35,8 @@ def _filter_dataset(
 class RBenchVBenchmark(BenchmarkConfig):
     name = "rbenchv"
     majority_vote_compatible = False
-    judge_model = "claude-haiku-4-5-20251001"
-    grading_summary = "LLM judge: claude-haiku-4-5-20251001"
+    # 2026-05-01: judge_model class attribute removed; identity now in YAML.
+    grading_summary = "LLM judge per YAML benchmark.judge block"
     explorer_base_prompt = f"""\
 You are an expert problem solver specializing in visual reasoning tasks.
 Solve the given problem step by step.
@@ -88,9 +88,7 @@ If you cannot solve it exactly, give your best estimate and set confidence accor
         return row.get("catagory", "unknown").lower()
 
     async def grade(self, predicted, gold, question, row, backend, out_dir=None):
-        grade_backend = "claude" if backend == "vllm" else backend
         return await judge_answer(
-            predicted, gold, question, self.judge_model,
-            backend=grade_backend, out_dir=out_dir,
+            predicted, gold, question, self.judge_spec, out_dir=out_dir,
         )
 
