@@ -3,14 +3,15 @@ benchmark:
   subset: gold
   text_only: true
 backend: vllm
-explore_model: grpo-8b
-method: tts-agent
-orchestrator_model: grpo-8b
-integrate_model: grpo-8b
-cache_dir: ../analysis/cache/hle/sonnet/gold
-no_integrate: true
+method:
+  name: tts-agent
+  explore_model: grpo-8b
+  orchestrator_model: grpo-8b
+  integrate_model: grpo-8b
+  cache_dir: ../analysis/cache/hle/sonnet/gold
+  no_integrate: true
+  num_explores: 8
 num: 100
-num_explores: 8
 num_workers: 1
 seed: 42
 log_dir: ../analysis/run/hle/grpo_8b_step78

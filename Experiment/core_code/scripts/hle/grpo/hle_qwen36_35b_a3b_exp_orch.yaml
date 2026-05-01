@@ -3,32 +3,23 @@ benchmark:
   subset: gold
   text_only: true
 backend: vllm
-# `_exp_orch` arm: BOTH explorer and orchestrator are Qwen3.6-35B-A3B-FP8.
-# Distinct from `_temp` (which uses Sonnet explorer cache) -- this isolates
-# the effect of swapping the explorer model while holding everything else
-# (orchestrator decoding recipe, num_explores, no_integrate) constant.
-explore_model: qwen36-35b-a3b-fp8
-method: tts-agent
-orchestrator_model: qwen36-35b-a3b-fp8
-# Points at the Qwen-explorer pre-cache (NOT the Sonnet cache the `_temp`
-# yaml reads from). Per cache_discipline memory: new (model, sampling) tuple
-# = new cache dir, no reuse.
-cache_dir: ../analysis/cache/hle/qwen36_35b_a3b_fp8/gold
-no_integrate: true
+method:
+  name: tts-agent
+  explore_model: qwen36-35b-a3b-fp8
+  orchestrator_model: qwen36-35b-a3b-fp8
+  cache_dir: ../analysis/cache/hle/qwen36_35b_a3b_fp8/gold
+  no_integrate: true
+  num_explores: 8
+  sampling:
+    temperature: 1.0
+    top_p: 0.95
+    top_k: 20
+    min_p: 0.0
+    presence_penalty: 1.5
+    repetition_penalty: 1.0
+    enable_thinking: true
+    max_tokens: 32768
 num: 100
-num_explores: 8
 num_workers: 64
 seed: 42
 log_dir: ../analysis/run/hle/qwen36_35b_a3b_fp8_exp_orch
-# MUST match hle_qwen36_35b_a3b_precache.yaml.sampling exactly so cache
-# distribution = on-the-fly orchestrator distribution. Also matches the
-# `_temp` yaml so the orchestrator side is identical between the two arms.
-sampling:
-  temperature: 1.0
-  top_p: 0.95
-  top_k: 20
-  min_p: 0.0
-  presence_penalty: 1.5
-  repetition_penalty: 1.0
-  enable_thinking: true
-  max_tokens: 32768

@@ -1,13 +1,14 @@
 benchmark:
   name: lcb
 backend: claude
-explore_model: claude-haiku-4-5-20251001
-method: tts-agent
-orchestrator_model: claude-haiku-4-5-20251001
-integrate_model: claude-haiku-4-5-20251001
-cache_dir: ../analysis/cache/lcb/haiku
+method:
+  name: tts-agent
+  explore_model: claude-haiku-4-5-20251001
+  orchestrator_model: claude-haiku-4-5-20251001
+  integrate_model: claude-haiku-4-5-20251001
+  cache_dir: ../analysis/cache/lcb/haiku
+  num_explores: 8
 num: 10
-num_explores: 8
 num_workers: 16
 seed: 42
 log_dir: ../analysis/run/lcb/haiku

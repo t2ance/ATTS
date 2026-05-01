@@ -1,13 +1,11 @@
 benchmark:
   name: aime2025
 backend: claude
-explore_model: claude-sonnet-4-6
-method: self-refine
-orchestrator_model: claude-sonnet-4-6
-integrate_model: claude-sonnet-4-6
-no_cache_only: true
-cache_dir: ../analysis/cache/aime2025/sonnet_self_refine
-num_explores: 8
+method:
+  name: self-refine
+  explore_model: claude-sonnet-4-6
+  cache_dir: ../analysis/cache/aime2025/sonnet_self_refine
+  num_explores: 8
 num_workers: 1
 seed: 42
 log_dir: ../analysis/run/aime2025/sonnet_self_refine

@@ -3,36 +3,23 @@ benchmark:
   subset: gold
   text_only: true
 backend: vllm
-# explore_model is a cache-key label only (cache_only=True enforces hits, no
-# live Anthropic call). Points at the paper main-result Sonnet explore cache
-# so we hold candidate quality constant and swap only the orchestrator.
-explore_model: claude-sonnet-4-6
-method: tts-agent
-orchestrator_model: qwen36-35b-a3b-fp8
-cache_dir: ../analysis/cache/hle/sonnet/gold
-no_integrate: true
+method:
+  name: tts-agent
+  explore_model: claude-sonnet-4-6
+  orchestrator_model: qwen36-35b-a3b-fp8
+  cache_dir: ../analysis/cache/hle/sonnet/gold
+  no_integrate: true
+  num_explores: 8
+  sampling:
+    temperature: 1.0
+    top_p: 0.95
+    top_k: 20
+    min_p: 0.0
+    presence_penalty: 1.5
+    repetition_penalty: 1.0
+    enable_thinking: true
+    max_tokens: 32768
 num: 100
-num_explores: 8
 num_workers: 8
 seed: 42
-# Distinct from `_baseline`: same explore cache, same method, only the
-# orchestrator decoding changes (see `sampling:` block below). Run dir
-# suffix `_temp` keeps the two side by side without overwriting.
 log_dir: ../analysis/run/hle/qwen36_35b_a3b_fp8_temp
-# Sampling: Qwen3.6 official "thinking mode" recipe. Every entry here
-# overrides a vLLM/backend default; without these the call falls back to
-# the legacy hardcode in vllm.py (temperature=0 greedy, max_tokens=8192,
-# chat_template's enable_thinking default = ON for Qwen3.6).
-sampling:
-  temperature: 1.0          # vLLM default 0.0 (greedy). Qwen3.6-Thinking recipe = 1.0.
-  top_p: 0.95               # vLLM default 1.0. Qwen3.6 recipe = 0.95.
-  top_k: 20                 # vLLM default -1 (disabled). Qwen3.6 recipe = 20.
-  min_p: 0.0                # vLLM default 0.0; pinned for explicit self-doc.
-  presence_penalty: 1.5     # vLLM default 0.0. Qwen3.6 recipe = 1.5 (anti-repeat under thinking).
-  repetition_penalty: 1.0   # vLLM default 1.0; pinned for explicit self-doc.
-  enable_thinking: true     # Qwen3.6 chat_template default = true; pinned so paper text matches code.
-  # max_tokens=32768: vLLM serve has --max-model-len=65536 (total = input+output);
-  # setting max_tokens to that ceiling left 0 budget for input and 400ed all calls
-  # (verified 2026-05-01 00:47 HLE smoke). Halving leaves ∼32k for prompt + 8-turn
-  # accumulated context. Baseline path silently used vllm.py:374 hardcode 8192.
-  max_tokens: 32768

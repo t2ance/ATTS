@@ -1,12 +1,13 @@
 benchmark:
   name: gpqa
 backend: claude
-explore_model: claude-sonnet-4-6
-method: tts-agent
-orchestrator_model: claude-sonnet-4-6
-integrate_model: claude-sonnet-4-6
-cache_dir: ../analysis/cache/gpqa/sonnet
-num_explores: 8
+method:
+  name: tts-agent
+  explore_model: claude-sonnet-4-6
+  orchestrator_model: claude-sonnet-4-6
+  integrate_model: claude-sonnet-4-6
+  cache_dir: ../analysis/cache/gpqa/sonnet
+  num_explores: 8
 num_workers: 4
 seed: 42
 log_dir: ../analysis/run/gpqa/sonnet

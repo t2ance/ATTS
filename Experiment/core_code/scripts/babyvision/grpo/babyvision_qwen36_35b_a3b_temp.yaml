@@ -1,32 +1,23 @@
 benchmark:
   name: babyvision
 backend: vllm
-explore_model: claude-sonnet-4-6
-method: tts-agent
-orchestrator_model: qwen36-35b-a3b-fp8
-cache_dir: ../analysis/cache/babyvision/sonnet
-no_integrate: true
-num_explores: 8
-# 2026-05-01: align with LCB _temp topology — 3 independent TP=1 vLLM replicas
-# (port 8000/8001/8002), each max_num_seqs default 256. 64 client workers /
-# 3 replicas ≈ 21 in-flight per replica, well below server cap.
+method:
+  name: tts-agent
+  explore_model: claude-sonnet-4-6
+  orchestrator_model: qwen36-35b-a3b-fp8
+  cache_dir: ../analysis/cache/babyvision/sonnet
+  no_integrate: true
+  num_explores: 8
+  sampling:
+    temperature: 1.0
+    top_p: 0.95
+    top_k: 20
+    min_p: 0.0
+    presence_penalty: 1.5
+    repetition_penalty: 1.0
+    enable_thinking: true
+    max_tokens: 65536
 num_workers: 64
 seed: 42
-# Distinct from `_baseline`: same explore cache, only orchestrator decoding changes.
 log_dir: ../analysis/run/babyvision/qwen36_35b_a3b_fp8_temp
-# Qwen3.6 thinking recipe — see hle_qwen36_35b_a3b_temp.yaml for per-key rationale.
-sampling:
-  temperature: 1.0
-  top_p: 0.95
-  top_k: 20
-  min_p: 0.0
-  presence_penalty: 1.5
-  repetition_penalty: 1.0
-  enable_thinking: true
-  # 2026-05-01: bumped 32768 -> 65536 alongside LCB. Image-conditioned BV
-  # prompts trigger longer think-blocks; while 93% of BV empty rows in
-  # run_20260501_064415 were SO-skip rather than token-exhaust, raising the
-  # ceiling removes the residual 5/388 truncation cases as a confound when
-  # validating the SO-instruction fix. Couples with serve --max-model-len=131072.
-  max_tokens: 65536
 resume: /data3/peijia/dr-claw/Explain/Experiment/analysis/run/babyvision/qwen36_35b_a3b_fp8_temp/run_20260501_064415

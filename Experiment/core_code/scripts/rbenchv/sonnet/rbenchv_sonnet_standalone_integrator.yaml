@@ -1,11 +1,10 @@
 benchmark:
   name: rbenchv
 backend: claude
-explore_model: claude-sonnet-4-6
-method: standalone-integrator
-integrate_model: claude-sonnet-4-6
-cache_dir: ../analysis/cache/rbenchv/sonnet
-num_explores: 8
+method:
+  name: standalone-integrator
+  integrate_model: claude-sonnet-4-6
+  cache_dir: ../analysis/cache/rbenchv/sonnet
 num_workers: 4
 seed: 42
 log_dir: ../analysis/run/rbenchv/sonnet_standalone_integrator

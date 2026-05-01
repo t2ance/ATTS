@@ -1,26 +1,13 @@
 benchmark:
   name: babyvision
 backend: vllm
-# explore_model is a cache-key label only (cache_only=True enforces hits, no
-# live Anthropic call). Points at the paper main-result Sonnet explore cache
-# so we hold candidate quality constant and swap only the orchestrator.
-explore_model: claude-sonnet-4-6
-method: tts-agent
-orchestrator_model: qwen36-35b-a3b-fp8
-# integrate_model omitted: no_integrate=true; validator (eval.py:103-110)
-# allows None in this case (relaxed 2026-04-30).
-cache_dir: ../analysis/cache/babyvision/sonnet
-no_integrate: true
-num_explores: 8
-# num_workers=8: serve is TP=2 single-replica with ~100 GB aggregate KV pool.
-# Matches paper main-result tts-agent + no_integrate config; only the
-# orchestrator differs (Sonnet 4.6 -> Qwen3.6-35B-A3B-FP8 base). The
-# architecture is Qwen3_5MoeForConditionalGeneration (multimodal) so image
-# inputs flow through the vision encoder; FP8 quantization is applied to LM
-# weights, not the vision tower. Sonnet explore candidates are pure text
-# (already produced by paper run) — Qwen orchestrator only synthesizes from
-# their text outputs, vision encoder fires only on the orchestrator's own
-# question read.
+method:
+  name: tts-agent
+  explore_model: claude-sonnet-4-6
+  orchestrator_model: qwen36-35b-a3b-fp8
+  cache_dir: ../analysis/cache/babyvision/sonnet
+  no_integrate: true
+  num_explores: 8
 num_workers: 8
 seed: 42
 log_dir: ../analysis/run/babyvision/qwen36_35b_a3b_fp8_baseline

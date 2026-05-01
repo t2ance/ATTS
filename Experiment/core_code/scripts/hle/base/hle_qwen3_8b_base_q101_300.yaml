@@ -3,15 +3,16 @@ benchmark:
   subset: gold
   text_only: true
 backend: vllm
-explore_model: qwen3-8b-base
-method: tts-agent
-orchestrator_model: qwen3-8b-base
-integrate_model: qwen3-8b-base
-cache_dir: ../analysis/cache/hle/haiku/gold
-no_integrate: true
+method:
+  name: tts-agent
+  explore_model: qwen3-8b-base
+  orchestrator_model: qwen3-8b-base
+  integrate_model: qwen3-8b-base
+  cache_dir: ../analysis/cache/hle/haiku/gold
+  no_integrate: true
+  num_explores: 8
 skip: 100
 num: 200
-num_explores: 8
 num_workers: 3
 seed: 42
 log_dir: ../analysis/run/hle/qwen3_8b_base

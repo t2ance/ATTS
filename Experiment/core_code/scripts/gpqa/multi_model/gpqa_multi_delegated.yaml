@@ -1,20 +1,19 @@
 benchmark:
   name: gpqa
 backend: claude
-explore_model: claude-sonnet-4-6
-method: tts-agent-multi
-orchestrator_model: claude-sonnet-4-6
-cache_dirs:
-  haiku: ../analysis/cache/gpqa/haiku
-  sonnet: ../analysis/cache/gpqa/sonnet
-  opus: ../analysis/cache/gpqa/opus
-model_budgets:
-  haiku: 8
-  sonnet: 8
-  opus: 4
-no_integrate: true
+method:
+  name: tts-agent-multi
+  orchestrator_model: claude-sonnet-4-6
+  cache_dirs:
+    haiku: ../analysis/cache/gpqa/haiku
+    sonnet: ../analysis/cache/gpqa/sonnet
+    opus: ../analysis/cache/gpqa/opus
+  model_budgets:
+    haiku: 8
+    sonnet: 8
+    opus: 4
+  num_explores: 8
 seed: 42
-num_explores: 8
 num_workers: 4
 log_dir: ../analysis/run/gpqa/multi_model
 resume: ../analysis/run/gpqa/multi_model/run_20260320_010416

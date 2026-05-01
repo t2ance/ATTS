@@ -3,21 +3,20 @@ benchmark:
   subset: gold
   text_only: true
 backend: claude
-explore_model: claude-sonnet-4-6
-method: tts-agent-multi
-orchestrator_model: claude-sonnet-4-6
-cache_dirs:
-  haiku: ../analysis/cache/hle/haiku/gold
-  sonnet: ../analysis/cache/hle/sonnet/gold
-  opus: ../analysis/cache/hle/opus/gold
-model_budgets:
-  haiku: 8
-  sonnet: 8
-  opus: 4
-exploration_effort: low
-no_integrate: true
+method:
+  name: tts-agent-multi
+  orchestrator_model: claude-sonnet-4-6
+  cache_dirs:
+    haiku: ../analysis/cache/hle/haiku/gold
+    sonnet: ../analysis/cache/hle/sonnet/gold
+    opus: ../analysis/cache/hle/opus/gold
+  model_budgets:
+    haiku: 8
+    sonnet: 8
+    opus: 4
+  exploration_effort: low
+  num_explores: 16
 num: 100
 seed: 42
-num_explores: 16
 num_workers: 8
 log_dir: ../analysis/run/hle/multi_model_effort_low

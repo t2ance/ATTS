@@ -1,20 +1,19 @@
 benchmark:
   name: lcb
 backend: claude
-explore_model: claude-sonnet-4-6
-method: tts-agent-multi
-orchestrator_model: claude-sonnet-4-6
-cache_dirs:
-  haiku: ../analysis/cache/lcb/haiku
-  sonnet: ../analysis/cache/lcb/sonnet
-  opus: ../analysis/cache/lcb/opus
-model_budgets:
-  haiku: 8
-  sonnet: 8
-  opus: 4
-exploration_effort: low
-no_integrate: true
+method:
+  name: tts-agent-multi
+  orchestrator_model: claude-sonnet-4-6
+  cache_dirs:
+    haiku: ../analysis/cache/lcb/haiku
+    sonnet: ../analysis/cache/lcb/sonnet
+    opus: ../analysis/cache/lcb/opus
+  model_budgets:
+    haiku: 8
+    sonnet: 8
+    opus: 4
+  exploration_effort: low
+  num_explores: 16
 seed: 42
-num_explores: 16
 num_workers: 8
 log_dir: ../analysis/run/lcb/multi_model_effort_low

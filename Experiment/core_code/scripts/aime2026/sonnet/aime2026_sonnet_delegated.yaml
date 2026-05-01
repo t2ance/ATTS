@@ -1,12 +1,13 @@
 benchmark:
   name: aime2026
 backend: claude
-explore_model: claude-sonnet-4-6
-method: tts-agent
-orchestrator_model: claude-sonnet-4-6
-integrate_model: claude-sonnet-4-6
-cache_dir: ../analysis/cache/aime2026/sonnet
-num_explores: 8
+method:
+  name: tts-agent
+  explore_model: claude-sonnet-4-6
+  orchestrator_model: claude-sonnet-4-6
+  integrate_model: claude-sonnet-4-6
+  cache_dir: ../analysis/cache/aime2026/sonnet
+  num_explores: 8
 num_workers: 16
 seed: 42
 log_dir: ../analysis/run/aime2026/sonnet

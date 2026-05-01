@@ -1,24 +1,22 @@
 benchmark:
   name: gpqa
 backend: vllm
-# `_exp_orch` arm: BOTH explorer and orchestrator are Qwen3.6-35B-A3B-FP8.
-# See hle_qwen36_35b_a3b_exp_orch.yaml for ablation rationale.
-explore_model: qwen36-35b-a3b-fp8
-method: tts-agent
-orchestrator_model: qwen36-35b-a3b-fp8
-cache_dir: ../analysis/cache/gpqa/qwen36_35b_a3b_fp8
-no_integrate: true
-num_explores: 8
+method:
+  name: tts-agent
+  explore_model: qwen36-35b-a3b-fp8
+  orchestrator_model: qwen36-35b-a3b-fp8
+  cache_dir: ../analysis/cache/gpqa/qwen36_35b_a3b_fp8
+  no_integrate: true
+  num_explores: 8
+  sampling:
+    temperature: 1.0
+    top_p: 0.95
+    top_k: 20
+    min_p: 0.0
+    presence_penalty: 1.5
+    repetition_penalty: 1.0
+    enable_thinking: true
+    max_tokens: 32768
 num_workers: 64
 seed: 42
 log_dir: ../analysis/run/gpqa/qwen36_35b_a3b_fp8_exp_orch
-# MUST match gpqa_qwen36_35b_a3b_precache.yaml.sampling exactly.
-sampling:
-  temperature: 1.0
-  top_p: 0.95
-  top_k: 20
-  min_p: 0.0
-  presence_penalty: 1.5
-  repetition_penalty: 1.0
-  enable_thinking: true
-  max_tokens: 32768
