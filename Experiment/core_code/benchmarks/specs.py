@@ -54,27 +54,32 @@ class HLESpec(_Spec):
     subset: Literal["gold", "revision", "uncertain"] | None = None
     category: str | None = None
     text_only: bool = False
+    judge: "JudgeSpec"  # required; explicit YAML, no implicit class-attr default
 
 
 class GPQASpec(_Spec):
     name: Literal["gpqa"]
     domain: str | None = None
+    # No `judge:` — multipleChoice grading is purely string match. extra="forbid" rejects it.
 
 
 class LCBSpec(_Spec):
     name: Literal["lcb"]
     difficulty: str | None = None
+    # No `judge:` — code execution grading via lcb_runner. extra="forbid" rejects it.
 
 
 class BabyVisionSpec(_Spec):
     name: Literal["babyvision"]
     type: str | None = None
     subtype: str | None = None
+    judge: "JudgeSpec"  # required; choice questions short-circuit before invoking judge
 
 
 class RBenchVSpec(_Spec):
     name: Literal["rbenchv"]
     category: str | None = None
+    judge: "JudgeSpec"  # required; visual reasoning answers need semantic equivalence
 
 
 class AIME2025Spec(_Spec):
