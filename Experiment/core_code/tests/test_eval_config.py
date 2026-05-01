@@ -16,13 +16,13 @@ def _minimal_kwargs(method_block=None, **overrides):
     """Build a minimum valid EvalConfig dict.
 
     Defaults to a self-refine method block (the simplest single-cache spec
-    that requires only explore_model + cache_dir).
+    that requires only backend + explore_model + cache_dir).
     """
     base = {
         "benchmark": {"name": "hle"},
-        "backend": "claude",
         "method": method_block or {
             "name": "self-refine",
+            "backend": {"name": "claude"},
             "explore_model": "claude-sonnet-4-6",
             "cache_dir": "/cache/x",
         },
@@ -45,6 +45,7 @@ def test_minimal_config_validates():
     cfg = EvalConfig(**_minimal_kwargs())
     assert cfg.method.name == "self-refine"
     assert cfg.method.cache_dir == Path("/cache/x")
+    assert cfg.method.backend.name == "claude"
     assert cfg.benchmark.name == "hle"
 
 
@@ -55,13 +56,17 @@ def test_extra_field_forbidden_top_level():
 
 def test_top_level_has_no_method_specific_fields():
     """Method-related fields no longer live at top level. Setting them
-    there must fail under extra='forbid'."""
+    there must fail under extra='forbid'. Includes the 6 newly-moved
+    backend fields."""
+    string_dead = {"orchestrator_model", "explore_model", "integrate_model",
+                   "reward_model", "cache_dir", "backend"}
     for dead in ("orchestrator_model", "explore_model", "integrate_model",
                  "reward_model", "cache_dir", "cache_dirs", "model_budgets",
                  "no_integrate", "num_explores", "num_rollouts",
-                 "no_cache_only"):
+                 "no_cache_only", "backend", "budget_tokens", "effort",
+                 "timeout", "max_output_tokens", "explore_timeout"):
         with pytest.raises(ValidationError, match=dead):
-            EvalConfig(**_minimal_kwargs(**{dead: "x" if "model" in dead else 1}))
+            EvalConfig(**_minimal_kwargs(**{dead: "x" if dead in string_dead else 1}))
 
 
 # ---------------------------------------------------------------------------
@@ -71,6 +76,7 @@ def test_top_level_has_no_method_specific_fields():
 def test_tts_agent_happy_path_no_integrate():
     cfg = EvalConfig(**_minimal_kwargs(method={
         "name": "tts-agent",
+        "backend": {"name": "claude"},
         "orchestrator_model": "m",
         "explore_model": "m",
         "cache_dir": "/cache/x",
@@ -79,12 +85,14 @@ def test_tts_agent_happy_path_no_integrate():
     assert cfg.method.name == "tts-agent"
     assert cfg.method.no_integrate is True
     assert cfg.method.integrate_model is None
+    assert cfg.method.backend.name == "claude"
 
 
 def test_tts_agent_requires_integrate_model_when_no_integrate_false():
     with pytest.raises(ValidationError, match="integrate_model"):
         EvalConfig(**_minimal_kwargs(method={
             "name": "tts-agent",
+            "backend": {"name": "claude"},
             "orchestrator_model": "m",
             "explore_model": "m",
             "cache_dir": "/cache/x",
@@ -95,6 +103,7 @@ def test_tts_agent_requires_integrate_model_when_no_integrate_false():
 def test_tts_agent_multi_happy_path():
     cfg = EvalConfig(**_minimal_kwargs(method={
         "name": "tts-agent-multi",
+        "backend": {"name": "claude"},
         "orchestrator_model": "claude-sonnet-4-6",
         "cache_dirs": {"haiku": "/cache/haiku", "sonnet": "/cache/sonnet"},
         "model_budgets": {"haiku": 8, "sonnet": 8},
@@ -107,6 +116,7 @@ def test_tts_agent_multi_missing_required_fields():
     with pytest.raises(ValidationError):
         EvalConfig(**_minimal_kwargs(method={
             "name": "tts-agent-multi",
+            "backend": {"name": "claude"},
             "orchestrator_model": "m",
             # missing cache_dirs and model_budgets
         }))
@@ -117,6 +127,7 @@ def test_self_refine_rejects_orchestrator_model():
     with pytest.raises(ValidationError, match="orchestrator_model|extra"):
         EvalConfig(**_minimal_kwargs(method={
             "name": "self-refine",
+            "backend": {"name": "claude"},
             "explore_model": "m",
             "cache_dir": "/cache/x",
             "orchestrator_model": "should not be here",
@@ -142,10 +153,33 @@ def test_rerank_requires_reward_model():
         }))
 
 
+def test_rerank_rejects_backend_field():
+    """Rerank doesn't have a backend; setting one in the method block must fail."""
+    with pytest.raises(ValidationError, match="backend|extra"):
+        EvalConfig(**_minimal_kwargs(method={
+            "name": "rerank",
+            "reward_model": "rm",
+            "cache_dir": "/cache/x",
+            "backend": {"name": "claude"},
+        }))
+
+
+def test_backend_config_extra_forbidden():
+    """BackendConfig itself has extra:forbid."""
+    with pytest.raises(ValidationError, match="extra"):
+        EvalConfig(**_minimal_kwargs(method={
+            "name": "self-refine",
+            "backend": {"name": "claude", "typoed": True},
+            "explore_model": "m",
+            "cache_dir": "/cache/x",
+        }))
+
+
 def test_standalone_integrator_requires_integrate_model():
     with pytest.raises(ValidationError, match="integrate_model"):
         EvalConfig(**_minimal_kwargs(method={
             "name": "standalone-integrator",
+            "backend": {"name": "claude"},
             "cache_dir": "/cache/x",
         }))
 
@@ -163,15 +197,17 @@ def test_load_config_yaml(tmp_path):
     yml = _write(tmp_path, "x.yaml", """
         benchmark:
           name: hle
-        backend: claude
         method:
           name: self-refine
+          backend:
+            name: claude
           explore_model: claude-sonnet-4-6
           cache_dir: /cache/single
         num: 50
     """)
     cfg = load_config(config_path=yml, schema=EvalConfig)
     assert cfg.method.cache_dir == Path("/cache/single")
+    assert cfg.method.backend.name == "claude"
     assert cfg.num == 50
 
 
@@ -179,9 +215,10 @@ def test_load_config_multi_method_yaml(tmp_path):
     yml = _write(tmp_path, "x.yaml", """
         benchmark:
           name: hle
-        backend: claude
         method:
           name: tts-agent-multi
+          backend:
+            name: claude
           orchestrator_model: claude-sonnet-4-6
           cache_dirs:
             haiku: /cache/haiku
@@ -205,9 +242,10 @@ def test_hle_filters_validate(tmp_path):
           name: hle
           subset: gold
           text_only: true
-        backend: claude
         method:
           name: self-refine
+          backend:
+            name: claude
           explore_model: claude-sonnet-4-6
           cache_dir: /cache/x
     """)
@@ -221,9 +259,10 @@ def test_hle_filters_reject_unknown_field(tmp_path):
         benchmark:
           name: hle
           domain: physics
-        backend: claude
         method:
           name: self-refine
+          backend:
+            name: claude
           explore_model: claude-sonnet-4-6
           cache_dir: /cache/x
     """)
@@ -236,9 +275,10 @@ def test_gpqa_filters_validate(tmp_path):
         benchmark:
           name: gpqa
           domain: Physics
-        backend: claude
         method:
           name: self-refine
+          backend:
+            name: claude
           explore_model: claude-sonnet-4-6
           cache_dir: /cache/x
     """)
@@ -251,9 +291,9 @@ def test_filters_empty_validates_for_all_benchmarks():
     for name in ("hle", "lcb", "gpqa", "babyvision", "aime2025", "aime2026", "rbenchv"):
         cfg = EvalConfig(
             benchmark={"name": name},
-            backend="claude",
             method={
                 "name": "self-refine",
+                "backend": {"name": "claude"},
                 "explore_model": "m",
                 "cache_dir": "/cache/x",
             },
