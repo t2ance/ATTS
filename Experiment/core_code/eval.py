@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field, model_validator
 os.environ.pop("CLAUDECODE", None)
 
 from benchmarks import get_benchmark
-from benchmarks.base import BenchmarkConfig, Candidate3
+from benchmarks.base import BenchmarkConfig, Candidate3, find_cached_judge, judge_label
 from benchmarks.specs import BenchmarkSpec
 from methods import MethodSpec, get_method
 from methods.specs import SamplingConfig
@@ -92,23 +92,43 @@ async def _grade_with_cache(
     backend: str, grade_dir: Path,
     quiet: bool = True,
 ) -> tuple[bool, float]:
-    """Grade an answer, caching the result as grade.json in grade_dir."""
-    judge_key = benchmark.judge_model or "none"
-    grade_path = grade_dir / "grade.json"
-    if grade_path.exists():
-        cached = json.loads(grade_path.read_text(encoding="utf-8"))
-        if cached.get("judge_model") == judge_key:
-            return cached["is_correct"], cached.get("judge_cost_usd", 0.0)
+    """Grade an answer, caching the bundle under grade_dir/judges/<label>/.
 
+    grade_dir is the per-explore (cache_base/<qid>/explore_N/) or per-rollout
+    integrate (run_dir/grading/<qid>/[/rollout_<r>]/) directory. On cache hit,
+    returns the cached verdict with judge_cost=0. On miss, calls benchmark.grade
+    (which writes config.json + input.md/output.md/result.json into the bundle)
+    and finalizes the bundle with grade.json.
+
+    No-judge benchmarks (LCB/GPQA/AIME -> judge_spec is None) short-circuit
+    through benchmark.grade with out_dir=None and write nothing under judges/.
+    """
+    if benchmark.judge_spec is None:
+        return await benchmark.grade(
+            predicted, gold, question, row,
+            backend=backend, out_dir=None,
+        )
+
+    judges_dir = grade_dir / "judges"
+    cached = find_cached_judge(judges_dir, benchmark.judge_spec)
+    if cached is not None:
+        grade_path = cached / "grade.json"
+        if grade_path.exists():
+            data = json.loads(grade_path.read_text(encoding="utf-8"))
+            return data["is_correct"], 0.0
+        # config.json present but grade.json missing -> partial bundle, re-run.
+
+    label = judge_label(benchmark.judge_spec)
+    bundle_dir = judges_dir / label
+    bundle_dir.mkdir(parents=True, exist_ok=True)
     is_correct, judge_cost = await benchmark.grade(
         predicted, gold, question, row,
-        backend=backend, out_dir=grade_dir / "judge",
+        backend=backend, out_dir=bundle_dir,
     )
     if not quiet:
         print(f"  [sub-model] judge: correct={is_correct}, predicted={str(predicted)[:60]}, gold={str(gold)[:60]}, cost=${judge_cost}")
-    grade_dir.mkdir(parents=True, exist_ok=True)
-    grade_path.write_text(json.dumps({
-        "judge_model": judge_key,
+    (bundle_dir / "grade.json").write_text(json.dumps({
+        "judge_spec": benchmark.judge_spec,
         "is_correct": is_correct,
         "predicted": predicted,
         "gold": gold,
@@ -125,7 +145,13 @@ async def _grade_cached_explores(
     grade_qid_dir: Path,
     quiet: bool = True,
 ) -> tuple[list[Candidate3], float]:
-    """Grade all cached explores for one question from a single cache directory."""
+    """Grade all cached explores for one question from a single cache directory.
+
+    _grade_with_cache writes the bundle into cache_base/<qid>/explore_<idx>/judges/<label>/.
+    This makes subsequent runs (same model + judge_spec) hit the cache for free.
+    The legacy explicit-cache-hit fast-path is no longer needed; _grade_with_cache
+    handles cache lookup internally via find_cached_judge.
+    """
     candidates: list[Candidate3] = []
     total_jc = 0.0
     idx = 1
@@ -138,31 +164,10 @@ async def _grade_cached_explores(
             idx += 1
             continue
         ans = benchmark.get_answer_from_explore(d)
-        # Explicit cache check: reuse grade from shared cache if available
-        cache_grade_path = cache_base / qid / f"explore_{idx}" / "grade.json"
-        judge_key = benchmark.judge_model or "none"
-        cached_grade = None
-        if cache_grade_path.exists():
-            cached_grade = json.loads(cache_grade_path.read_text(encoding="utf-8"))
-            if cached_grade.get("judge_model") != judge_key:
-                cached_grade = None
-        if cached_grade is not None:
-            is_correct_exp = cached_grade["is_correct"]
-            jc = 0.0
-        else:
-            # Write grade BACK to the shared cache (cache_base/qid/explore_N/grade.json),
-            # not the per-run grading dir, so the next eval against this same cache
-            # hits the cache_grade_path read-path above with jc=0 instead of re-paying
-            # the judge cost. Prior to this 2026-05-01 fix, _grade_with_cache wrote
-            # to grade_qid_dir/explore_N (per-run only); the read-path added in
-            # commit 995d9ab (2026-04-12) was only useful for caches that already
-            # had legacy grade.json from pre-Initial-commit code (e.g. Sonnet HLE
-            # cache, mtime 2026-03-07). Any newly-built explorer cache (qwen36_*)
-            # got re-graded on every eval. Writing to cache_base closes that loop.
-            is_correct_exp, jc = await _grade_with_cache(
-                benchmark, ans, gold_answer, question, row,
-                backend=backend, grade_dir=cache_base / qid / f"explore_{idx}", quiet=quiet,
-            )
+        is_correct_exp, jc = await _grade_with_cache(
+            benchmark, ans, gold_answer, question, row,
+            backend=backend, grade_dir=cache_base / qid / f"explore_{idx}", quiet=quiet,
+        )
         candidates.append((benchmark.normalize_answer(ans), is_correct_exp, d.get("cost_usd", 0.0)))
         total_jc += jc
         idx += 1
@@ -302,7 +307,7 @@ async def evaluate(
                 "quiet": quiet,
                 "cache_dir": str(cache_dir) if cache_dir else None,
                 "cache_only": infra.cache_only,
-                "judge_model": benchmark.judge_model,
+                "judge_spec": benchmark.judge_spec,
                 "budget_tokens": infra.budget_tokens,
                 "effort": infra.effort,
                 **(dataset_config or {}),
@@ -344,16 +349,27 @@ async def evaluate(
     # rollout_idx=0 for K=1 rows so old resume behavior preserved.
     row_by_id = {(benchmark.get_id(r), r.get("_rollout_idx") or 0): r for r in rows}
 
-    # Count total candidates to grade and how many are already cached
+    # Count total candidates to grade and how many are already cached.
+    # Uses find_cached_judge against the new judges/<label>/ bundle layout.
+    # Benchmarks without a judge (judge_spec is None) count as "cached" since
+    # they incur zero judge cost regardless.
+    def _bundle_cached(parent_dir: Path) -> bool:
+        if benchmark.judge_spec is None:
+            return True
+        try:
+            cached = find_cached_judge(parent_dir / "judges", benchmark.judge_spec)
+        except RuntimeError:
+            return False  # label collision; surface at grade time
+        return cached is not None and (cached / "grade.json").exists()
+
     if done_records:
-        judge_key = benchmark.judge_model or "none"
         total_to_grade = 0
         already_cached = 0
         for rec in done_records:
             qid = rec["id"]
             rec_rollout = rec.get("rollout_idx")  # None = K=1 old behavior
             grade_qid_dir = _rollout_subpath(logger.run_dir / "grading", qid, rec_rollout)
-            # Count explores from cache_dir (shared haiku cache; always uses real qid)
+            # Count explores from cache_dir (shared cache; always uses real qid)
             if grade_cache_dir is not None:
                 idx = 1
                 seq = 0
@@ -362,23 +378,13 @@ async def evaluate(
                     if not d.get("timed_out"):
                         seq += 1
                         total_to_grade += 1
-                        gp = grade_qid_dir / f"explore_{seq}" / "grade.json"
-                        if gp.exists():
-                            c = json.loads(gp.read_text())
-                            if c.get("judge_model") == judge_key:
-                                already_cached += 1
+                        if _bundle_cached(grade_qid_dir / f"explore_{seq}"):
+                            already_cached += 1
                     idx += 1
-            # Count integrate grade. The actual write path (line ~354) is
-            # grade_qid_dir / "grade.json"; an earlier display-only count looked
-            # under integrate_{N+1}/ which has never existed on disk, so the
-            # banner reported every resumed final-answer grade as 'need judge'
-            # while _grade_with_cache silently hit cache. Aligned 2026-04-28.
+            # Count integrate grade. Write path is grade_qid_dir/judges/<label>/.
             total_to_grade += 1
-            gp = grade_qid_dir / "grade.json"
-            if gp.exists():
-                c = json.loads(gp.read_text())
-                if c.get("judge_model") == judge_key:
-                    already_cached += 1
+            if _bundle_cached(grade_qid_dir):
+                already_cached += 1
         need_judge = total_to_grade - already_cached
         print(f"Grading {len(done_records)} resumed records ({total_to_grade} candidates, {already_cached} cached, {need_judge} need judge)...", flush=True)
 
@@ -410,16 +416,8 @@ async def evaluate(
             grade_dir = _rollout_subpath(logger.run_dir / "grading", qid, rec_rollout)
             # Detect cache-hit BEFORE calling _grade_with_cache so the per-record
             # log line tells the user "previously graded" vs "freshly judged".
-            # Without this, every resumed record prints the same line regardless
-            # of whether actual work happened, hiding the true progress.
-            judge_key = benchmark.judge_model or "none"
-            final_grade_path = grade_dir / "grade.json"
-            final_cached = False
-            if final_grade_path.exists():
-                try:
-                    final_cached = (json.loads(final_grade_path.read_text(encoding="utf-8")).get("judge_model") == judge_key)
-                except Exception:
-                    final_cached = False
+            # Uses the new judges/<label>/ layout via find_cached_judge.
+            final_cached = _bundle_cached(grade_dir)
             is_correct, jc_int = await _grade_with_cache(
                 benchmark, predicted, gold_answer, question_text, orig_row,
                 backend=backend, grade_dir=grade_dir,
