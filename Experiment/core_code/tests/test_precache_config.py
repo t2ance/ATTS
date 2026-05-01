@@ -44,7 +44,7 @@ def test_precache_requires_cache_dir():
         PrecacheConfig(**kw)
 
 
-def test_precache_loader_yaml_plus_override(tmp_path):
+def test_precache_loader_yaml(tmp_path):
     yml = _write(tmp_path, "p.yaml", """
         benchmark:
           name: hle
@@ -54,13 +54,9 @@ def test_precache_loader_yaml_plus_override(tmp_path):
         cache_dir: /cache/h
         num_explores: 16
     """)
-    cfg = load_config(
-        config_path=yml,
-        dot_overrides=["num_explores=4"],
-        schema=PrecacheConfig,
-    )
+    cfg = load_config(config_path=yml, schema=PrecacheConfig)
     assert cfg.cache_dir == Path("/cache/h")
-    assert cfg.num_explores == 4
+    assert cfg.num_explores == 16
     assert cfg.benchmark.subset == "gold"
 
 
@@ -74,7 +70,7 @@ def test_precache_filter_validation(tmp_path):
         cache_dir: /cache/h
     """)
     with pytest.raises(ValidationError, match="difficulty"):
-        load_config(config_path=yml, dot_overrides=[], schema=PrecacheConfig)
+        load_config(config_path=yml, schema=PrecacheConfig)
 
 
 def test_precache_extra_field_forbidden():

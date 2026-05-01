@@ -1,82 +1,34 @@
 from __future__ import annotations
 import sys
+import textwrap
 from pathlib import Path
 
 _CORE_CODE_DIR = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_CORE_CODE_DIR))
 
 import pytest
+import yaml
 from pydantic import ValidationError
-from eval import EvalConfig
+from eval import EvalConfig, load_config
 
 
-def _minimal_kwargs(**overrides):
+def _minimal_kwargs(method_block=None, **overrides):
+    """Build a minimum valid EvalConfig dict.
+
+    Defaults to a self-refine method block (the simplest single-cache spec
+    that requires only explore_model + cache_dir).
+    """
     base = {
         "benchmark": {"name": "hle"},
         "backend": "claude",
-        "explore_model": "claude-sonnet-4-6",
-        "method": "self-refine",
+        "method": method_block or {
+            "name": "self-refine",
+            "explore_model": "claude-sonnet-4-6",
+            "cache_dir": "/cache/x",
+        },
     }
     base.update(overrides)
     return base
-
-
-def test_minimal_config_validates():
-    cfg = EvalConfig(**_minimal_kwargs())
-    assert cfg.method == "self-refine"
-    assert cfg.cache_dirs == {}
-    assert cfg.cache_dir is None
-    assert cfg.num_rollouts == 1
-    assert cfg.benchmark.name == "hle"
-
-
-def test_tts_agent_multi_requires_cache_dirs_and_budgets():
-    with pytest.raises(ValidationError, match="tts-agent-multi"):
-        EvalConfig(**_minimal_kwargs(method="tts-agent-multi", orchestrator_model="claude-sonnet-4-6"))
-
-
-def test_tts_agent_multi_happy_path():
-    cfg = EvalConfig(**_minimal_kwargs(
-        method="tts-agent-multi",
-        orchestrator_model="claude-sonnet-4-6",
-        cache_dirs={"haiku": "/cache/haiku", "sonnet": "/cache/sonnet"},
-        model_budgets={"haiku": 8, "sonnet": 8},
-    ))
-    assert cfg.cache_dirs["haiku"] == Path("/cache/haiku")
-    assert cfg.model_budgets["sonnet"] == 8
-
-
-def test_cache_dir_and_cache_dirs_mutually_exclusive():
-    with pytest.raises(ValidationError, match="self-refine"):
-        EvalConfig(**_minimal_kwargs(
-            method="self-refine",
-            cache_dirs={"x": "/cache/x"},
-        ))
-
-
-def test_num_rollouts_constrained_to_tts_agent_vllm():
-    with pytest.raises(ValidationError, match="num_rollouts"):
-        EvalConfig(**_minimal_kwargs(num_rollouts=4, method="self-refine"))
-    with pytest.raises(ValidationError, match="num_rollouts"):
-        EvalConfig(**_minimal_kwargs(
-            num_rollouts=4, method="tts-agent",
-            orchestrator_model="x", integrate_model="x", backend="claude",
-        ))
-
-
-def test_rerank_requires_reward_model():
-    with pytest.raises(ValidationError, match="reward_model"):
-        EvalConfig(**_minimal_kwargs(method="rerank"))
-
-
-def test_extra_field_forbidden():
-    with pytest.raises(ValidationError, match="typoed_field|extra"):
-        EvalConfig(**_minimal_kwargs(typoed_field=True))
-
-
-import textwrap
-import yaml
-from eval import load_config, _set_dotpath, EvalConfig
 
 
 def _write(tmp_path, name, body):
@@ -85,105 +37,167 @@ def _write(tmp_path, name, body):
     return p
 
 
-def test_load_config_yaml_only(tmp_path):
-    yml = _write(tmp_path, "x.yaml", """
-        benchmark:
-          name: hle
-        backend: claude
-        explore_model: claude-sonnet-4-6
-        method: self-refine
-        cache_dir: /cache/single
-        num: 50
-    """)
-    cfg = load_config(config_path=yml, dot_overrides=[], schema=EvalConfig)
-    assert cfg.cache_dir == Path("/cache/single")
-    assert cfg.num == 50
+# ---------------------------------------------------------------------------
+# EvalConfig top-level shape
+# ---------------------------------------------------------------------------
 
-
-def test_dot_overrides_beat_yaml(tmp_path):
-    yml = _write(tmp_path, "x.yaml", """
-        benchmark:
-          name: hle
-        backend: claude
-        explore_model: claude-sonnet-4-6
-        method: self-refine
-        seed: 13
-    """)
-    cfg = load_config(config_path=yml, dot_overrides=["seed=7"], schema=EvalConfig)
-    assert cfg.seed == 7
-
-
-def test_dot_overrides_beat_flat(tmp_path):
-    yml = _write(tmp_path, "x.yaml", """
-        benchmark:
-          name: hle
-        backend: claude
-        explore_model: claude-sonnet-4-6
-        method: self-refine
-    """)
-    cfg = load_config(
-        config_path=yml,
-        dot_overrides=["seed=7", "seed=99"],
-        schema=EvalConfig,
-    )
-    assert cfg.seed == 99
-
-
-def test_dot_override_dict_field(tmp_path):
-    yml = _write(tmp_path, "x.yaml", """
-        benchmark:
-          name: hle
-        backend: claude
-        explore_model: claude-sonnet-4-6
-        method: tts-agent-multi
-        orchestrator_model: claude-sonnet-4-6
-        cache_dirs:
-          haiku: /cache/haiku
-          sonnet: /cache/sonnet
-        model_budgets:
-          haiku: 8
-          sonnet: 8
-    """)
-    cfg = load_config(
-        config_path=yml,
-        dot_overrides=["model_budgets.haiku=2"],
-        schema=EvalConfig,
-    )
-    assert cfg.model_budgets == {"haiku": 2, "sonnet": 8}
-
-
-def test_set_dotpath_creates_nested():
-    d = {}
-    _set_dotpath(d, "a.b.c", "1")
-    assert d == {"a": {"b": {"c": 1}}}
-
-
-def test_set_dotpath_coerces_int_float_bool():
-    d = {}
-    _set_dotpath(d, "x", "42")
-    _set_dotpath(d, "y", "3.5")
-    _set_dotpath(d, "z", "true")
-    _set_dotpath(d, "s", "hello")
-    assert d == {"x": 42, "y": 3.5, "z": True, "s": "hello"}
-
-
-def test_load_without_yaml(tmp_path):
-    cfg = load_config(
-        config_path=None,
-        dot_overrides=[
-            "benchmark.name=hle", "backend=claude",
-            "explore_model=claude-sonnet-4-6", "method=self-refine",
-        ],
-        schema=EvalConfig,
-    )
+def test_minimal_config_validates():
+    cfg = EvalConfig(**_minimal_kwargs())
+    assert cfg.method.name == "self-refine"
+    assert cfg.method.cache_dir == Path("/cache/x")
     assert cfg.benchmark.name == "hle"
 
 
-def test_set_dotpath_rejects_non_dict_intermediate():
-    d = {"existing": "scalar_value"}
-    with pytest.raises(AssertionError, match="cannot descend into non-dict"):
-        _set_dotpath(d, "existing.subkey", "5")
+def test_extra_field_forbidden_top_level():
+    with pytest.raises(ValidationError, match="typoed_field|extra"):
+        EvalConfig(**_minimal_kwargs(typoed_field=True))
 
+
+def test_top_level_has_no_method_specific_fields():
+    """Method-related fields no longer live at top level. Setting them
+    there must fail under extra='forbid'."""
+    for dead in ("orchestrator_model", "explore_model", "integrate_model",
+                 "reward_model", "cache_dir", "cache_dirs", "model_budgets",
+                 "no_integrate", "num_explores", "num_rollouts",
+                 "no_cache_only"):
+        with pytest.raises(ValidationError, match=dead):
+            EvalConfig(**_minimal_kwargs(**{dead: "x" if "model" in dead else 1}))
+
+
+# ---------------------------------------------------------------------------
+# MethodSpec discriminator + per-method requirements
+# ---------------------------------------------------------------------------
+
+def test_tts_agent_happy_path_no_integrate():
+    cfg = EvalConfig(**_minimal_kwargs(method={
+        "name": "tts-agent",
+        "orchestrator_model": "m",
+        "explore_model": "m",
+        "cache_dir": "/cache/x",
+        "no_integrate": True,
+    }))
+    assert cfg.method.name == "tts-agent"
+    assert cfg.method.no_integrate is True
+    assert cfg.method.integrate_model is None
+
+
+def test_tts_agent_requires_integrate_model_when_no_integrate_false():
+    with pytest.raises(ValidationError, match="integrate_model"):
+        EvalConfig(**_minimal_kwargs(method={
+            "name": "tts-agent",
+            "orchestrator_model": "m",
+            "explore_model": "m",
+            "cache_dir": "/cache/x",
+            "no_integrate": False,
+        }))
+
+
+def test_tts_agent_multi_happy_path():
+    cfg = EvalConfig(**_minimal_kwargs(method={
+        "name": "tts-agent-multi",
+        "orchestrator_model": "claude-sonnet-4-6",
+        "cache_dirs": {"haiku": "/cache/haiku", "sonnet": "/cache/sonnet"},
+        "model_budgets": {"haiku": 8, "sonnet": 8},
+    }))
+    assert cfg.method.cache_dirs["haiku"] == Path("/cache/haiku")
+    assert cfg.method.model_budgets["sonnet"] == 8
+
+
+def test_tts_agent_multi_missing_required_fields():
+    with pytest.raises(ValidationError):
+        EvalConfig(**_minimal_kwargs(method={
+            "name": "tts-agent-multi",
+            "orchestrator_model": "m",
+            # missing cache_dirs and model_budgets
+        }))
+
+
+def test_self_refine_rejects_orchestrator_model():
+    """Dead field for self-refine: orchestrator_model must fail at validation."""
+    with pytest.raises(ValidationError, match="orchestrator_model|extra"):
+        EvalConfig(**_minimal_kwargs(method={
+            "name": "self-refine",
+            "explore_model": "m",
+            "cache_dir": "/cache/x",
+            "orchestrator_model": "should not be here",
+        }))
+
+
+def test_rerank_rejects_explore_model():
+    """Dead field for rerank: explore_model must fail at validation."""
+    with pytest.raises(ValidationError, match="explore_model|extra"):
+        EvalConfig(**_minimal_kwargs(method={
+            "name": "rerank",
+            "reward_model": "rm",
+            "cache_dir": "/cache/x",
+            "explore_model": "should not be here",
+        }))
+
+
+def test_rerank_requires_reward_model():
+    with pytest.raises(ValidationError, match="reward_model"):
+        EvalConfig(**_minimal_kwargs(method={
+            "name": "rerank",
+            "cache_dir": "/cache/x",
+        }))
+
+
+def test_standalone_integrator_requires_integrate_model():
+    with pytest.raises(ValidationError, match="integrate_model"):
+        EvalConfig(**_minimal_kwargs(method={
+            "name": "standalone-integrator",
+            "cache_dir": "/cache/x",
+        }))
+
+
+def test_unknown_method_name_rejected():
+    with pytest.raises(ValidationError):
+        EvalConfig(**_minimal_kwargs(method={"name": "totally-fake-method"}))
+
+
+# ---------------------------------------------------------------------------
+# load_config (YAML loader, no more dot_overrides)
+# ---------------------------------------------------------------------------
+
+def test_load_config_yaml(tmp_path):
+    yml = _write(tmp_path, "x.yaml", """
+        benchmark:
+          name: hle
+        backend: claude
+        method:
+          name: self-refine
+          explore_model: claude-sonnet-4-6
+          cache_dir: /cache/single
+        num: 50
+    """)
+    cfg = load_config(config_path=yml, schema=EvalConfig)
+    assert cfg.method.cache_dir == Path("/cache/single")
+    assert cfg.num == 50
+
+
+def test_load_config_multi_method_yaml(tmp_path):
+    yml = _write(tmp_path, "x.yaml", """
+        benchmark:
+          name: hle
+        backend: claude
+        method:
+          name: tts-agent-multi
+          orchestrator_model: claude-sonnet-4-6
+          cache_dirs:
+            haiku: /cache/haiku
+            sonnet: /cache/sonnet
+          model_budgets:
+            haiku: 8
+            sonnet: 8
+    """)
+    cfg = load_config(config_path=yml, schema=EvalConfig)
+    assert cfg.method.cache_dirs["haiku"] == Path("/cache/haiku")
+    assert cfg.method.model_budgets["sonnet"] == 8
+
+
+# ---------------------------------------------------------------------------
+# Benchmark filters (preserved from old test file — schema unchanged)
+# ---------------------------------------------------------------------------
 
 def test_hle_filters_validate(tmp_path):
     yml = _write(tmp_path, "x.yaml", """
@@ -192,10 +206,12 @@ def test_hle_filters_validate(tmp_path):
           subset: gold
           text_only: true
         backend: claude
-        explore_model: claude-sonnet-4-6
-        method: self-refine
+        method:
+          name: self-refine
+          explore_model: claude-sonnet-4-6
+          cache_dir: /cache/x
     """)
-    cfg = load_config(config_path=yml, dot_overrides=[], schema=EvalConfig)
+    cfg = load_config(config_path=yml, schema=EvalConfig)
     assert cfg.benchmark.subset == "gold"
     assert cfg.benchmark.text_only is True
 
@@ -206,11 +222,13 @@ def test_hle_filters_reject_unknown_field(tmp_path):
           name: hle
           domain: physics
         backend: claude
-        explore_model: claude-sonnet-4-6
-        method: self-refine
+        method:
+          name: self-refine
+          explore_model: claude-sonnet-4-6
+          cache_dir: /cache/x
     """)
     with pytest.raises(ValidationError, match="domain"):
-        load_config(config_path=yml, dot_overrides=[], schema=EvalConfig)
+        load_config(config_path=yml, schema=EvalConfig)
 
 
 def test_gpqa_filters_validate(tmp_path):
@@ -219,10 +237,12 @@ def test_gpqa_filters_validate(tmp_path):
           name: gpqa
           domain: Physics
         backend: claude
-        explore_model: claude-sonnet-4-6
-        method: self-refine
+        method:
+          name: self-refine
+          explore_model: claude-sonnet-4-6
+          cache_dir: /cache/x
     """)
-    cfg = load_config(config_path=yml, dot_overrides=[], schema=EvalConfig)
+    cfg = load_config(config_path=yml, schema=EvalConfig)
     assert cfg.benchmark.domain == "Physics"
 
 
@@ -232,9 +252,10 @@ def test_filters_empty_validates_for_all_benchmarks():
         cfg = EvalConfig(
             benchmark={"name": name},
             backend="claude",
-            explore_model="m",
-            method="self-refine",
+            method={
+                "name": "self-refine",
+                "explore_model": "m",
+                "cache_dir": "/cache/x",
+            },
         )
         assert cfg.benchmark.name == name
-
-
