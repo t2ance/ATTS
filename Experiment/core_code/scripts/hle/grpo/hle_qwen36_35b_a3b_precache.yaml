@@ -2,6 +2,9 @@ benchmark:
   name: hle
   subset: gold
   text_only: true
+  judge:
+    name: claude
+    model: claude-haiku-4-5-20251001
 backend: vllm
 # Explorer = orchestrator: same Qwen3.6-35B-A3B-FP8 alias served on :8000-:8002.
 # This is the `_exp_orch` arm of the ablation -- explorer model swapped from

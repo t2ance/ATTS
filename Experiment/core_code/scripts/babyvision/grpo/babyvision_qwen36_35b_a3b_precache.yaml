@@ -1,5 +1,8 @@
 benchmark:
   name: babyvision
+  judge:
+    name: claude
+    model: claude-haiku-4-5-20251001
 backend: vllm
 # Explorer = orchestrator: same Qwen3.6-35B-A3B-FP8 alias on :8000-:8002.
 # See hle_qwen36_35b_a3b_precache.yaml for the `_exp_orch` arm rationale.

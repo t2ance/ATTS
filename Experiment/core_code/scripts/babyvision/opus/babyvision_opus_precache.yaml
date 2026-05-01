@@ -1,5 +1,8 @@
 benchmark:
   name: babyvision
+  judge:
+    name: claude
+    model: claude-haiku-4-5-20251001
 backend: claude
 explore_model: claude-opus-4-6
 cache_dir: ../analysis/cache/babyvision/opus
