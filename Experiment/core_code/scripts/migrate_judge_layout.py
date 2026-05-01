@@ -310,6 +310,44 @@ def _phase_cleanup(cache_root: Path, archive_root: Path, limit: int | None) -> N
     print(f"Phase cleanup: {deleted} legacy entries archived to {archive_root}, {skipped} skipped.")
 
 
+def _phase_archive_only(cache_root: Path, archive_root: Path, limit: int | None) -> None:
+    """Archive legacy grade.json + judge/ without writing any new bundle.
+
+    For caches whose legacy grades cannot or should not be migrated to the new
+    judges/<label>/ layout (e.g. judge_model is vllm-served and current YAML
+    expects a different judge, or the benchmark grades without an LLM judge so
+    the legacy grade.json is dead data). Result: cache/<qid>/explore_N/ keeps
+    only the explore artifact (result.json etc.); grade.json + judge/ move to
+    archive_root preserving cache-root-relative path.
+    """
+    if archive_root.resolve() == cache_root.resolve() or archive_root.resolve().is_relative_to(cache_root.resolve()):
+        raise SystemExit(
+            f"--archive-root must NOT be inside --cache-root.\n"
+            f"  cache-root:   {cache_root}\n"
+            f"  archive-root: {archive_root}"
+        )
+
+    archived = 0
+    for explore_dir in _explore_dirs(cache_root):
+        if limit is not None and archived >= limit:
+            break
+        legacy_grade = explore_dir / "grade.json"
+        legacy_judge = explore_dir / "judge"
+        if not legacy_grade.exists() and not legacy_judge.exists():
+            continue
+        rel = explore_dir.relative_to(cache_root)
+        archive_explore_dir = archive_root / rel
+        if legacy_grade.exists():
+            _archive_then_delete(legacy_grade, archive_explore_dir / "grade.json")
+        if legacy_judge.exists():
+            _archive_then_delete(legacy_judge, archive_explore_dir / "judge")
+        archived += 1
+        if archived % 100 == 0:
+            print(f"  ... archived {archived} explores")
+
+    print(f"Phase archive-only: {archived} legacy entries archived to {archive_root}.")
+
+
 def run(cache_root: Path, phase: str, limit: int | None, archive_root: Path | None = None) -> None:
     if phase == "dry-run":
         return _phase_dry_run(cache_root, limit)
@@ -319,6 +357,10 @@ def run(cache_root: Path, phase: str, limit: int | None, archive_root: Path | No
         if archive_root is None:
             raise SystemExit("--archive-root is required for --phase cleanup")
         return _phase_cleanup(cache_root, archive_root, limit)
+    if phase == "archive-only":
+        if archive_root is None:
+            raise SystemExit("--archive-root is required for --phase archive-only")
+        return _phase_archive_only(cache_root, archive_root, limit)
     raise SystemExit(f"Unknown phase: {phase!r}")
 
 
@@ -326,10 +368,10 @@ def main() -> None:
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--cache-root", type=Path, required=True,
                    help="Root of the cache tree to migrate (e.g. analysis/cache/hle/<model>/<filter>).")
-    p.add_argument("--phase", choices=["dry-run", "copy", "cleanup"], required=True)
+    p.add_argument("--phase", choices=["dry-run", "copy", "cleanup", "archive-only"], required=True)
     p.add_argument("--archive-root", type=Path, default=None,
-                   help="Required for --phase cleanup. Legacy grade.json + judge/ are moved here, "
-                        "preserving their relative path under cache-root. Must be outside cache-root.")
+                   help="Required for --phase cleanup and --phase archive-only. Legacy grade.json + "
+                        "judge/ are moved here, preserving relative path under cache-root. Must be outside cache-root.")
     p.add_argument("--limit", type=int, default=None,
                    help="Process at most N eligible explores (for piloting copy phase).")
     args = p.parse_args()

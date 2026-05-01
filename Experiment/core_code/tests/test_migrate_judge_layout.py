@@ -387,3 +387,77 @@ def test_cleanup_requires_archive_root(tmp_path):
     mig.run(cache_root=cache, phase="copy", limit=None)
     with pytest.raises(SystemExit, match="archive-root is required"):
         mig.run(cache_root=cache, phase="cleanup", limit=None)
+
+
+# ---------------------------------------------------------------------------
+# archive-only phase: move legacy without writing any new bundle
+# ---------------------------------------------------------------------------
+
+def test_archive_only_moves_legacy_without_creating_bundle(tmp_path):
+    cache = tmp_path / "cache"
+    archive = tmp_path / "archive"
+    explore = cache / "qid_x" / "explore_2"
+    _make_legacy_explore(explore)
+    legacy_grade_bytes = (explore / "grade.json").read_bytes()
+    legacy_judge_files = {p.relative_to(explore / "judge"): p.read_bytes()
+                          for p in (explore / "judge").rglob("*") if p.is_file()}
+
+    mig.run(cache_root=cache, phase="archive-only", limit=None, archive_root=archive)
+
+    # Legacy gone from cache.
+    assert not (explore / "grade.json").exists()
+    assert not (explore / "judge").exists()
+    # No bundle was created (key difference vs cleanup).
+    assert not (explore / "judges").exists()
+    # Other explore files (result.json etc.) untouched.
+    assert (explore / "result.json").exists()
+    # Archive contains exact bytes.
+    archived_grade = archive / "qid_x" / "explore_2" / "grade.json"
+    assert archived_grade.exists()
+    assert archived_grade.read_bytes() == legacy_grade_bytes
+    for rel, content in legacy_judge_files.items():
+        assert (archive / "qid_x" / "explore_2" / "judge" / rel).read_bytes() == content
+
+
+def test_archive_only_handles_explore_with_only_grade_no_judge_dir(tmp_path):
+    """LCB-style: explore has grade.json but no judge/ directory. Must still archive."""
+    cache = tmp_path / "cache"
+    archive = tmp_path / "archive"
+    explore = cache / "qid_lcb" / "explore_1"
+    explore.mkdir(parents=True)
+    (explore / "grade.json").write_text(json.dumps({
+        "judge_model": "claude-haiku-4-5-20251001", "is_correct": True,
+        "predicted": "code", "gold": "", "judge_cost_usd": 0.0,
+    }))
+    (explore / "result.json").write_text(json.dumps({"answer": "code"}))
+
+    mig.run(cache_root=cache, phase="archive-only", limit=None, archive_root=archive)
+
+    assert not (explore / "grade.json").exists()
+    assert (explore / "result.json").exists()
+    assert (archive / "qid_lcb" / "explore_1" / "grade.json").exists()
+
+
+def test_archive_only_rejects_archive_root_inside_cache_root(tmp_path):
+    cache = tmp_path / "cache"
+    _make_legacy_explore(cache / "qid1" / "explore_1")
+    with pytest.raises(SystemExit, match="archive-root must NOT be inside"):
+        mig.run(cache_root=cache, phase="archive-only", limit=None,
+                archive_root=cache / "archive")
+
+
+def test_archive_only_requires_archive_root(tmp_path):
+    cache = tmp_path / "cache"
+    _make_legacy_explore(cache / "qid1" / "explore_1")
+    with pytest.raises(SystemExit, match="archive-root is required"):
+        mig.run(cache_root=cache, phase="archive-only", limit=None)
+
+
+def test_archive_only_skips_already_archived_explore(tmp_path):
+    """Re-running on a clean explore (no legacy files) must be a no-op, not crash."""
+    cache = tmp_path / "cache"
+    archive = tmp_path / "archive"
+    _make_legacy_explore(cache / "qid1" / "explore_1")
+    mig.run(cache_root=cache, phase="archive-only", limit=None, archive_root=archive)
+    # Second run should not crash and should not re-archive.
+    mig.run(cache_root=cache, phase="archive-only", limit=None, archive_root=archive)
