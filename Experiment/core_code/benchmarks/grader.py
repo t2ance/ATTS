@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from pathlib import Path
 from typing import Any
@@ -92,11 +93,22 @@ def _get_judge_system_prompt(backend: str) -> str:
 
 
 async def judge_answer(
-    predicted: str, gold: str, question: str, model: str,
-    backend: str = "codex",
+    predicted: str, gold: str, question: str, judge_spec: dict,
     out_dir: Path | None = None,
 ) -> tuple[bool, float]:
-    """Use an LLM to judge if predicted answer matches gold. Returns (correct, cost_usd)."""
+    """Use an LLM to judge if predicted answer matches gold. Returns (correct, cost_usd).
+
+    judge_spec carries `name` (backend: claude/codex/vllm), `model`, and an
+    optional `sampling` block (vllm only). When out_dir is set, the bundle
+    written there contains:
+      - config.json   (full judge_spec dump; identity source-of-truth)
+      - input.md      (judge prompt, written by TrajectoryWriter via call_sub_model)
+      - output.md     (judge raw output, same)
+      - result.json   (judge structured verdict, written by save_sub_model_result)
+    """
+    backend = judge_spec["name"]
+    model = judge_spec["model"]
+    sampling = judge_spec.get("sampling")
     judge_prompt = _get_judge_system_prompt(backend)
     user_message = (
         f"[question]: {question}\n"
@@ -113,11 +125,19 @@ async def judge_answer(
             model=model,
             output_schema=JUDGE_SCHEMA,
             writer=writer,
+            sampling=sampling,
         )
     except asyncio.TimeoutError:
         print(f"  [judge] SDK timeout after all retries -- treating as incorrect")
         return False, 0.0
     if out_dir is not None:
+        out_dir.mkdir(parents=True, exist_ok=True)
+        # config.json is the identity source-of-truth for find_cached_judge.
+        # Sort keys for deterministic byte-equal writes across runs.
+        (out_dir / "config.json").write_text(
+            json.dumps(judge_spec, indent=2, sort_keys=True, ensure_ascii=False),
+            encoding="utf-8",
+        )
         save_sub_model_result(
             out_dir=out_dir,
             result=result,
@@ -135,16 +155,21 @@ async def judge_answer(
 
 async def grade_answer(
     predicted: str, gold: str, question: str, answer_type: str,
-    judge_model: str | None = None,
-    backend: str = "codex",
+    judge_spec: dict | None = None,
     out_dir: Path | None = None,
 ) -> tuple[bool, float]:
-    """Grade an answer. Returns (correct, judge_cost_usd)."""
+    """Grade an answer. Returns (correct, judge_cost_usd).
+
+    Routing:
+      - multipleChoice answer_type   -> check_answer (string match), 0 cost
+      - judge_spec is None           -> check_answer (no LLM judge available)
+      - otherwise                    -> judge_answer with judge_spec
+    """
     if answer_type == "multipleChoice":
         return check_answer(predicted, gold, answer_type), 0.0
-    if judge_model is None:
+    if judge_spec is None:
         return check_answer(predicted, gold, answer_type), 0.0
-    return await judge_answer(predicted, gold, question, judge_model, backend=backend, out_dir=out_dir)
+    return await judge_answer(predicted, gold, question, judge_spec, out_dir=out_dir)
 
 
 # ---------------------------------------------------------------------------
