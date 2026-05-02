@@ -1,0 +1,45 @@
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+  judge:
+    name: vllm
+    model: qwen36-35b-a3b-fp8
+    # Judge-tuned recipe: classification task, no thinking trace, bounded output.
+    # Prior _temp recipe (T=1.0, max_tokens=32768, enable_thinking=true) burned the
+    # full 32k budget on the JSON `reasoning` string, hitting parse-fail truncation
+    # on 10/3200 explores. Right-column from user's table:
+    sampling:
+      temperature: 0.6
+      top_p: 0.95
+      top_k: 20
+      min_p: 0.0
+      presence_penalty: 0.0
+      repetition_penalty: 1.0
+      enable_thinking: false
+      max_tokens: 4096
+method:
+  # regrade_cache.py only consumes method.cache_dir + benchmark.judge above;
+  # the remaining method.* fields are inert in this flow but required by the
+  # tts-agent spec validator.
+  name: tts-agent
+  backend:
+    name: vllm
+  explore_model: claude-haiku-4-5-20251001
+  orchestrator_model: qwen36-35b-a3b-fp8
+  cache_dir: ../analysis/cache/hle/haiku/gold
+  no_integrate: true
+  num_explores: 8
+  sampling:
+    temperature: 1.0
+    top_p: 0.95
+    top_k: 20
+    min_p: 0.0
+    presence_penalty: 1.5
+    repetition_penalty: 1.0
+    enable_thinking: true
+    max_tokens: 32768
+num: 433
+num_workers: 64
+seed: 42
+log_dir: ../analysis/run/hle/qwen36_35b_a3b_fp8_regrade_haiku_cache
