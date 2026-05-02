@@ -9,10 +9,13 @@ Exposes transport primitives only:
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
 from typing import Any, Awaitable, Callable
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 from trajectory import TrajectoryWriter
 
@@ -117,7 +120,7 @@ async def _codex_request(
                 ) as resp:
                     if (resp.status_code >= 500 or resp.status_code == 429) and _attempt < max_retries - 1:
                         delay = min(60 * (_attempt + 1), 600) if resp.status_code == 429 else 5 * (_attempt + 1)
-                        print(f"  [codex] {resp.status_code}, retrying in {delay}s (attempt {_attempt + 1}/{max_retries})")
+                        logger.warning(f"  [codex] {resp.status_code}, retrying in {delay}s (attempt {_attempt + 1}/{max_retries})")
                         await _asyncio.sleep(delay)
                         continue
                     resp.raise_for_status()
@@ -145,7 +148,7 @@ async def _codex_request(
             break  # success
         except (httpx.RemoteProtocolError, httpx.ReadError, httpx.ReadTimeout, httpx.ConnectError) as e:
             if _attempt < max_retries - 1:
-                print(f"  [codex] connection error (attempt {_attempt + 1}/3), retrying: {e}")
+                logger.warning(f"  [codex] connection error (attempt {_attempt + 1}/3), retrying: {e}")
                 await _asyncio.sleep(5 * (_attempt + 1))
                 continue
             raise
@@ -271,7 +274,7 @@ async def run_tool_conversation(
 
         # Handle text output (either plain text or structured output)
         if output_text:
-            print(f"[orchestrator] {output_text[:200]}")
+            logger.info(f"[orchestrator] {output_text[:200]}")
             if writer:
                 writer.write_text(output_text)
 
@@ -279,7 +282,7 @@ async def run_tool_conversation(
             # Conversation ended -- check for structured output
             if output_text and response_format:
                 parsed = json.loads(output_text)
-                print(f"[structured_output] {parsed}")
+                logger.info(f"[structured_output] {parsed}")
                 if writer:
                     writer.write_tool_use("StructuredOutput", parsed)
                 if on_structured_output:
@@ -292,7 +295,7 @@ async def run_tool_conversation(
             name = tc["name"]
             args = json.loads(tc["arguments"])
 
-            print(f"[tool_use] {name}")
+            logger.info(f"[tool_use] {name}")
             if writer:
                 writer.write_tool_use(name, args)
 
@@ -331,7 +334,7 @@ async def run_tool_conversation(
                 total_usage[k] = total_usage.get(k, 0) + v
         assert output_text is not None, "Final structured output request returned no text"
         parsed = json.loads(output_text)
-        print(f"[structured_output] (forced) {parsed}")
+        logger.info(f"[structured_output] (forced) {parsed}")
         if writer:
             writer.write_tool_use("StructuredOutput", parsed)
         on_structured_output(parsed)

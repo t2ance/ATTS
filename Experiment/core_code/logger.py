@@ -10,7 +10,9 @@ Creates a timestamped run directory under logs/ with:
 from __future__ import annotations
 
 import json
+import logging
 import os
+import sys
 import time
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
@@ -29,6 +31,30 @@ def now_str() -> str:
     across eval.py and precache_explores.py worker progress prints.
     """
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+_LOGGING_CONFIGURED = False
+_LOG_FORMAT = "%(asctime)s | %(levelname)-7s | %(name)s | %(message)s"
+_LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
+
+
+def setup_console_logging(level: int = logging.INFO) -> None:
+    """Configure the root logger to stream to stdout in unified format.
+
+    Idempotent: safe to call from multiple entry points or twice in the
+    same process; the second call is a no-op. Stdout (not stderr) so that
+    `nohup ... > log 2>&1` and `tail -f log` continue to surface messages
+    the same way bare print did before this migration.
+    """
+    global _LOGGING_CONFIGURED
+    if _LOGGING_CONFIGURED:
+        return
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter(_LOG_FORMAT, datefmt=_LOG_DATEFMT))
+    root = logging.getLogger()
+    root.addHandler(handler)
+    root.setLevel(level)
+    _LOGGING_CONFIGURED = True
 
 
 @dataclass

@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import zipfile
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 from benchmarks.base import BenchmarkConfig
 from benchmarks.grader import check_answer, judge_answer
@@ -51,7 +54,7 @@ def _load_hle_dataset() -> list[dict]:
         return rows
     data_dir = _find_data_dir()
     if data_dir is None:
-        print("Dataset not found. Downloading via datasets library...")
+        logger.info("Dataset not found. Downloading via datasets library...")
         rows = _load_via_datasets()
         if rows is not None:
             return rows

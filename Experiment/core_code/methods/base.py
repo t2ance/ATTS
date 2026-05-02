@@ -7,11 +7,14 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from methods.tool_state import ExploreStepState
 from trajectory import CostTracker, RoundLog, SolveResult, TrajectoryWriter
@@ -291,7 +294,7 @@ def make_sub_model_caller(
                 for d in _out_dirs(cache_key):
                     d.mkdir(parents=True, exist_ok=True)
                     (d / "result.json").write_text(payload, encoding="utf-8")
-                print(f"  [sub-model] {cache_key}: WALL-CLOCK TIMEOUT after {duration:.0f}s (limit: {timeout}s)")
+                logger.info(f"  [sub-model] {cache_key}: WALL-CLOCK TIMEOUT after {duration:.0f}s (limit: {timeout}s)")
                 return {"timed_out": True}, "", 0.0, {}, duration
         else:
             result, traj, cost, usage = await api_coro

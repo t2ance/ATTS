@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from importlib import import_module
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from methods.base import (
     Candidate,
@@ -274,16 +277,16 @@ async def solve(
 
     ectx = EffortSolveContext(ctx=ctx, effort_callers=effort_callers, effort_budgets=effort_budgets)
 
-    print(f"\nEffort-adaptive TTS Agent [{infra.backend}] -- solving with up to {max_iterations} rounds")
-    print(f"Effort levels: {list(cache_dirs.keys())}")
-    print(f"Problem: {problem[:100]}")
-    print()
+    logger.info(f"\nEffort-adaptive TTS Agent [{infra.backend}] -- solving with up to {max_iterations} rounds")
+    logger.info(f"Effort levels: {list(cache_dirs.keys())}")
+    logger.info(f"Problem: {problem[:100]}")
+    logger.info("")
 
     await _run_orchestrator_effort(ectx, orchestrator_model, explore_model, user_message_text)
 
     assert ctx.state.final_answer is not None, "Orchestrator did not submit a final answer"
 
-    print(f"\nTotal cost: ${ctx.cost.total_cost_usd}"
+    logger.info(f"\nTotal cost: ${ctx.cost.total_cost_usd}"
           f" (input: {ctx.cost.total_input_tokens}, output: {ctx.cost.total_output_tokens})")
 
     return ctx.result(ctx.state.final_answer)

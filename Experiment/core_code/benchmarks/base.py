@@ -5,11 +5,14 @@ from __future__ import annotations
 import base64
 import io
 import json
+import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any
 
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 from prompts import format_claude_structured_suffix
 
@@ -554,7 +557,7 @@ class BenchmarkConfig(ABC):
         mv = self.majority_vote_compatible
         if max_n > 0 and total > 0:
             header = f"{'':14s} oracle  " + ("majority  " if mv else "") + "explore_cost"
-            print(header)
+            logger.info(header)
             for n in range(1, max_n + 1):
                 o_pct = oracle[str(n)] / total * 100
                 e_cost = cost_bon[str(n)]
@@ -563,7 +566,7 @@ class BenchmarkConfig(ABC):
                     m_pct = majority[str(n)] / total * 100
                     line += f"{m_pct}%    "
                 line += f"${e_cost}"
-                print(line)
+                logger.info(line)
             agg_o_pct = summary.get("aggregator_oracle", 0) / total * 100
             total_cost = summary["total_cost_usd"]
             line = f"best-of-{'+agg':<6s} {agg_o_pct}%    "
@@ -571,7 +574,7 @@ class BenchmarkConfig(ABC):
                 agg_m_pct = summary.get("aggregator_majority", 0) / total * 100
                 line += f"{agg_m_pct}%    "
             line += f"${total_cost}"
-            print(line)
+            logger.info(line)
         per_subset = summary.get("per_subset")
         if per_subset:
             ps_single = summary.get("per_subset_single", {})
@@ -583,13 +586,13 @@ class BenchmarkConfig(ABC):
                     return "---"
                 return f"{e['correct']}/{e['total']} ({e['correct']/e['total']*100}%)"
             if mv:
-                print(f"Per-subset accuracy:  {'single':>10s} {'majority':>10s} {'integrated':>10s}")
+                logger.info(f"Per-subset accuracy:  {'single':>10s} {'majority':>10s} {'integrated':>10s}")
                 for label in labels:
-                    print(f"  {label:20s} {_pct(ps_single, label):>10s} {_pct(ps_majority, label):>10s} {_pct(per_subset, label):>10s}")
+                    logger.info(f"  {label:20s} {_pct(ps_single, label):>10s} {_pct(ps_majority, label):>10s} {_pct(per_subset, label):>10s}")
             else:
-                print(f"Per-subset accuracy:  {'single':>10s} {'integrated':>10s}")
+                logger.info(f"Per-subset accuracy:  {'single':>10s} {'integrated':>10s}")
                 for label in labels:
-                    print(f"  {label:20s} {_pct(ps_single, label):>10s} {_pct(per_subset, label):>10s}")
+                    logger.info(f"  {label:20s} {_pct(ps_single, label):>10s} {_pct(per_subset, label):>10s}")
 
     def _print_multi_model_metrics(self, summary: dict, total: int, per_model: dict) -> None:
         if total == 0:
@@ -600,11 +603,11 @@ class BenchmarkConfig(ABC):
             max_n = max((int(k) for k in oracle), default=0)
             if max_n == 0:
                 continue
-            print(f"  {model.capitalize()} BoN:")
+            logger.info(f"  {model.capitalize()} BoN:")
             for n in range(1, max_n + 1):
                 o_pct = oracle[str(n)] / total * 100
                 e_cost = cost_bon[str(n)]
-                print(f"    best-of-{n:<4d} {o_pct:.1f}%    ${e_cost:.2f}")
+                logger.info(f"    best-of-{n:<4d} {o_pct:.1f}%    ${e_cost:.2f}")
 
     def save_plots(self, summary: dict, run_dir: Path) -> None:
         save_cost_accuracy_plot(summary, run_dir, majority_vote=self.majority_vote_compatible)

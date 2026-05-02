@@ -1,12 +1,22 @@
 """Generate cost-vs-accuracy comparison plots with all TTS methods for each benchmark."""
 
 import json
+import logging
 import re
+import sys
 from pathlib import Path
 
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
+
+logger = logging.getLogger(__name__)
+
+# Run from anywhere: ensure core_code/ is on sys.path so `from logger import ...` works.
+_CORE_CODE = Path(__file__).resolve().parents[1]
+if str(_CORE_CODE) not in sys.path:
+    sys.path.insert(0, str(_CORE_CODE))
+from logger import setup_console_logging
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]  # dr-claw/Explain/
 RUN_DIR = PROJECT_ROOT / "Experiment" / "analysis" / "run"
@@ -218,7 +228,7 @@ def plot_benchmark(bench_key: str, bench_cfg: dict) -> None:
     """Main figure: baselines + ATTS + ATTS-MM + BoN curve."""
     delegated = parse_delegated_log(bench_cfg["delegated"])
     if delegated is None:
-        print(f"  Skipping {bench_key}: delegated log not complete")
+        logger.info(f"  Skipping {bench_key}: delegated log not complete")
         return
 
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -312,7 +322,7 @@ def plot_benchmark(bench_key: str, bench_cfg: dict) -> None:
     fig.savefig(FIGURES_DIR / f"{out_name}.pdf", bbox_inches="tight")
     fig.savefig(FIGURES_DIR / f"{out_name}.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print(f"  Saved {out_name}.pdf")
+    logger.info(f"  Saved {out_name}.pdf")
 
 
 def plot_effort_ablation() -> None:
@@ -376,7 +386,7 @@ def plot_effort_ablation() -> None:
     fig.savefig(FIGURES_DIR / f"{out}.pdf", bbox_inches="tight")
     fig.savefig(FIGURES_DIR / f"{out}.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print(f"  Saved {out}.pdf")
+    logger.info(f"  Saved {out}.pdf")
 
 
 def plot_orch_ablation() -> None:
@@ -448,7 +458,7 @@ def plot_orch_ablation() -> None:
     fig.savefig(FIGURES_DIR / f"{out}.pdf", bbox_inches="tight")
     fig.savefig(FIGURES_DIR / f"{out}.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print(f"  Saved {out}.pdf")
+    logger.info(f"  Saved {out}.pdf")
 
 
 def plot_main_results_combined() -> None:
@@ -550,20 +560,21 @@ def plot_main_results_combined() -> None:
     fig.savefig(FIGURES_DIR / f"{out}.pdf", bbox_inches="tight")
     fig.savefig(FIGURES_DIR / f"{out}.png", dpi=150, bbox_inches="tight")
     plt.close(fig)
-    print(f"  Saved {out}.pdf")
+    logger.info(f"  Saved {out}.pdf")
 
 
 def main():
+    setup_console_logging()
     FIGURES_DIR.mkdir(parents=True, exist_ok=True)
     for bench_key, bench_cfg in BENCHMARKS.items():
-        print(f"Plotting {bench_key}...")
+        logger.info(f"Plotting {bench_key}...")
         plot_benchmark(bench_key, bench_cfg)
 
-    print("Plotting main results combined...")
+    logger.info("Plotting main results combined...")
     plot_main_results_combined()
-    print("Plotting effort ablation...")
+    logger.info("Plotting effort ablation...")
     plot_effort_ablation()
-    print("Plotting orchestrator ablation...")
+    logger.info("Plotting orchestrator ablation...")
     plot_orch_ablation()
 
 

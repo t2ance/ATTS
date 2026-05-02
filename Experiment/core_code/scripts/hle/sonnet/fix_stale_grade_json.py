@@ -24,15 +24,19 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import sys
 from collections import Counter
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO))
 
 from benchmarks import get_benchmark
 from benchmarks.grader import judge_answer
+from logger import setup_console_logging
 
 RUN_DIR = REPO.parent / "analysis" / "run" / "hle" / "sonnet_socratic_self_refine" / "run_20260427_071039"
 GRADING_DIR = RUN_DIR / "grading"
@@ -98,27 +102,28 @@ def rebuild_results_and_progress() -> None:
         prog["summary"]["judge_cost_usd"] = total_judge_cost
         PROGRESS_PATH.write_text(json.dumps(prog, indent=2))
 
-    print(f"\n=== results.jsonl + progress.json rebuilt ===")
-    print(f"correct: {correct}/{len(rows)} = {correct/len(rows)*100:.1f}%")
-    print(f"total judge_cost_usd: ${total_judge_cost:.4f}")
+    logger.info(f"\n=== results.jsonl + progress.json rebuilt ===")
+    logger.info(f"correct: {correct}/{len(rows)} = {correct/len(rows)*100:.1f}%")
+    logger.info(f"total judge_cost_usd: ${total_judge_cost:.4f}")
 
 
 async def main() -> None:
+    setup_console_logging()
     bench = get_benchmark("hle")
     assert bench.judge_model == JUDGE_MODEL, f"hle.py judge_model={bench.judge_model!r}, expected {JUDGE_MODEL!r}"
 
     rows = bench.load_dataset()
     qid_to_question = {bench.get_id(r): bench.get_question(r) for r in rows}
-    print(f"Loaded {len(qid_to_question)} HLE rows")
+    logger.info(f"Loaded {len(qid_to_question)} HLE rows")
 
     stale: list[Path] = []
     for f in GRADING_DIR.rglob("grade.json"):
         d = json.loads(f.read_text())
         if d.get("judge_model") != JUDGE_MODEL:
             stale.append(f)
-    print(f"Found {len(stale)} grade.json with judge_model != {JUDGE_MODEL!r}")
+    logger.info(f"Found {len(stale)} grade.json with judge_model != {JUDGE_MODEL!r}")
     if not stale:
-        print("(nothing to do at the file level)")
+        logger.info("(nothing to do at the file level)")
     else:
         sem = asyncio.Semaphore(NUM_WORKERS)
         tasks = [fix_one(qid_to_question, p, sem) for p in stale]
@@ -132,8 +137,8 @@ async def main() -> None:
             correct += int(r["is_correct"])
             if done % 25 == 0 or done == len(stale):
                 pct = 100.0 * correct / done
-                print(f"  [{done:>4}/{len(stale)}] correct_so_far={correct} ({pct:.1f}%) cost=${total_cost:.4f}", flush=True)
-        print(f"\nfile-level fix complete: {len(stale)} re-judged, total cost ${total_cost:.4f}")
+                logger.info(f"  [{done:>4}/{len(stale)}] correct_so_far={correct} ({pct:.1f}%) cost=${total_cost:.4f}")
+        logger.info(f"\nfile-level fix complete: {len(stale)} re-judged, total cost ${total_cost:.4f}")
 
     rebuild_results_and_progress()
 

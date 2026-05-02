@@ -12,12 +12,15 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import logging
 import os
 import sys
 from pathlib import Path
 from typing import Literal
 
 from pydantic import BaseModel
+
+logger = logging.getLogger(__name__)
 
 os.environ.pop("CLAUDECODE", None)
 
@@ -30,7 +33,7 @@ from benchmarks.base import BenchmarkConfig
 from benchmarks.specs import BenchmarkSpec
 from eval import SamplingConfig
 from methods.base import make_sub_model_caller
-from logger import now_str
+from logger import now_str, setup_console_logging
 
 
 class PrecacheConfig(BaseModel):
@@ -89,9 +92,9 @@ async def precache(
                 tasks.append((qid, row, i))
 
     total = len(tasks)
-    print(f"Tasks: {total} to run, {skipped} already cached")
+    logger.info(f"Tasks: {total} to run, {skipped} already cached")
     if total == 0:
-        print("Nothing to do.")
+        logger.info("Nothing to do.")
         return
 
     completed = 0
@@ -100,7 +103,7 @@ async def precache(
     async def worker(qid: str, row: dict, explore_idx: int) -> None:
         nonlocal completed
         async with sem:
-            print(f"  [{qid} explore_{explore_idx}] started at {now_str()}")
+            logger.info(f"  [{qid} explore_{explore_idx}] started")
             question_cache_dir = cache_dir / qid
             sub_model_fn = make_sub_model_caller(
                 backend, cache_dir=question_cache_dir, cache_only=False,
@@ -127,7 +130,7 @@ async def precache(
 
             if result.get("timed_out"):
                 completed += 1
-                print(f"  [{completed}/{total}] {qid} explore_{explore_idx}: TIMED OUT at {now_str()} after {duration:.0f}s")
+                logger.info(f"  [{completed}/{total}] {qid} explore_{explore_idx}: TIMED OUT after {duration:.0f}s")
                 return
 
             # Validate structured output; retry if malformed
@@ -135,7 +138,7 @@ async def precache(
                 answer = benchmark.get_answer_from_explore(result)
             except KeyError as e:
                 shutil.rmtree(result_dir, ignore_errors=True)
-                print(f"  [{qid} explore_{explore_idx}] MALFORMED at {now_str()} (missing {e}), retrying...")
+                logger.warning(f"  [{qid} explore_{explore_idx}] MALFORMED (missing {e}), retrying...")
                 result, traj, cost_usd, usage, duration = await sub_model_fn(
                     system_prompt=explorer_prompt,
                     user_message=input_text,
@@ -148,20 +151,21 @@ async def precache(
                 )
                 if result.get("timed_out"):
                     completed += 1
-                    print(f"  [{completed}/{total}] {qid} explore_{explore_idx}: TIMED OUT at {now_str()} on retry")
+                    logger.info(f"  [{completed}/{total}] {qid} explore_{explore_idx}: TIMED OUT on retry")
                     return
                 answer = benchmark.get_answer_from_explore(result)
 
             completed += 1
             answer_short = answer.replace("\n", " ")[:80]
-            print(f"  [{completed}/{total}] {qid} explore_{explore_idx}: answer={answer_short} at {now_str()}, confidence={result.get('confidence', 'N/A')}")
+            logger.info(f"  [{completed}/{total}] {qid} explore_{explore_idx}: answer={answer_short}, confidence={result.get('confidence', 'N/A')}")
 
     await asyncio.gather(*(worker(qid, row, idx) for qid, row, idx in tasks))
 
-    print(f"\nDone. {completed} cached, {skipped} skipped (already existed).")
+    logger.info(f"\nDone. {completed} cached, {skipped} skipped (already existed).")
 
 
 def main() -> None:
+    setup_console_logging()
     from eval import load_config
 
     parser = argparse.ArgumentParser(description="Pre-cache explore results")
@@ -179,11 +183,11 @@ def main() -> None:
     benchmark = get_benchmark(cfg.benchmark.name, judge_spec=judge_spec)
     bench_filters = cfg.benchmark.model_dump(exclude={"name", "judge"}, exclude_defaults=True)
 
-    print(f"Loading {benchmark.name.upper()} dataset...")
+    logger.info(f"Loading {benchmark.name.upper()} dataset...")
     all_rows = benchmark.load_dataset()
 
     filtered = benchmark.filter_dataset(all_rows, **bench_filters)
-    print(f"Filtered to {len(filtered)} questions")
+    logger.info(f"Filtered to {len(filtered)} questions")
 
     if cfg.shuffle:
         import random

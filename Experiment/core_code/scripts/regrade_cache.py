@@ -22,9 +22,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import sys
 import time
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 REPO = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO))
@@ -32,6 +35,7 @@ sys.path.insert(0, str(REPO))
 from eval import EvalConfig, _grade_with_cache, load_config
 from benchmarks import get_benchmark
 from benchmarks.base import judge_label
+from logger import setup_console_logging
 
 
 # Default concurrency. Override via YAML's num_workers if you want.
@@ -68,6 +72,7 @@ async def regrade_one(
 
 
 async def main() -> None:
+    setup_console_logging()
     p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     p.add_argument("--config", type=Path, required=True,
                    help="YAML with benchmark.judge + method.cache_dir.")
@@ -84,20 +89,20 @@ async def main() -> None:
 
     bench = get_benchmark(cfg.benchmark.name, judge_spec=judge_spec)
     label = judge_label(judge_spec)
-    print(f"=== regrade_cache ===")
-    print(f"config:     {args.config}")
-    print(f"judge_spec: {json.dumps(judge_spec, ensure_ascii=False)}")
-    print(f"cache_dir:  {cache_dir}")
-    print(f"backend:    {backend}")
-    print(f"label:      {label}")
-    print(f"workers:    {args.num_workers}")
+    logger.info(f"=== regrade_cache ===")
+    logger.info(f"config:     {args.config}")
+    logger.info(f"judge_spec: {json.dumps(judge_spec, ensure_ascii=False)}")
+    logger.info(f"cache_dir:  {cache_dir}")
+    logger.info(f"backend:    {backend}")
+    logger.info(f"label:      {label}")
+    logger.info(f"workers:    {args.num_workers}")
 
-    print(f"\nLoading {bench.name.upper()} dataset...")
+    logger.info(f"\nLoading {bench.name.upper()} dataset...")
     all_rows = bench.load_dataset()
     bench_filters = cfg.benchmark.model_dump(exclude={"name", "judge"}, exclude_defaults=True)
     filtered = bench.filter_dataset(all_rows, **bench_filters)
     row_by_id = {bench.get_id(r): r for r in filtered}
-    print(f"Dataset rows after filter: {len(filtered)}")
+    logger.info(f"Dataset rows after filter: {len(filtered)}")
 
     # Walk cache_dir, queue (qid, explore_N) jobs for every result.json present.
     tasks = []
@@ -118,10 +123,10 @@ async def main() -> None:
                 continue
             tasks.append(regrade_one(bench, qid, row, explore_dir, label, backend, sem))
 
-    print(f"qid in cache but not in dataset (skipped): {qids_skipped_no_row}")
-    print(f"Total (qid, explore) re-grade jobs: {len(tasks)}\n")
+    logger.info(f"qid in cache but not in dataset (skipped): {qids_skipped_no_row}")
+    logger.info(f"Total (qid, explore) re-grade jobs: {len(tasks)}\n")
     if not tasks:
-        print("Nothing to do.")
+        logger.info("Nothing to do.")
         return
 
     correct = wrong = timed_out = 0
@@ -147,20 +152,20 @@ async def main() -> None:
             elapsed = time.time() - t0
             rate = i / max(elapsed, 1e-6)
             eta_s = (len(tasks) - i) / max(rate, 1e-6)
-            print(
+            logger.info(
                 f"  [{i:>4}/{len(tasks)}] correct={correct} wrong={wrong} "
                 f"timed_out={timed_out} | judged={judged} cached={cached} "
                 f"cost=${total_cost:.4f} | rate={rate:.1f}/s eta={eta_s/60:.1f}min"
             )
 
-    print(f"\n=== regrade_cache complete ===")
-    print(f"Correct:    {correct}")
-    print(f"Wrong:      {wrong}")
-    print(f"Timed-out:  {timed_out}")
-    print(f"Judge calls (cache miss): {judged}")
-    print(f"Cache hits (skipped):     {cached}")
-    print(f"Total judge cost: ${total_cost:.4f}")
-    print(f"Wall time: {(time.time() - t0)/60:.1f} min")
+    logger.info(f"\n=== regrade_cache complete ===")
+    logger.info(f"Correct:    {correct}")
+    logger.info(f"Wrong:      {wrong}")
+    logger.info(f"Timed-out:  {timed_out}")
+    logger.info(f"Judge calls (cache miss): {judged}")
+    logger.info(f"Cache hits (skipped):     {cached}")
+    logger.info(f"Total judge cost: ${total_cost:.4f}")
+    logger.info(f"Wall time: {(time.time() - t0)/60:.1f} min")
 
 
 if __name__ == "__main__":

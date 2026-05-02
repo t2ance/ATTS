@@ -9,9 +9,12 @@ from __future__ import annotations
 
 import functools
 import json
+import logging
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Callable
+
+logger = logging.getLogger(__name__)
 
 from methods.specs import (
     MethodSpec, TTSAgentSpec, TTSAgentMultiSpec, TTSAgentEffortSpec,
@@ -52,7 +55,7 @@ class MethodConfig(ABC):
         }
         before = len(rows)
         out = [r for r in rows if benchmark.get_id(r) in cached_ids]
-        print(f"{self.name}: {len(out)} questions with cache (from {before})")
+        logger.info(f"{self.name}: {len(out)} questions with cache (from {before})")
         return out
 
     def preflight(
@@ -80,7 +83,7 @@ class MethodConfig(ABC):
                 f"(of {len(qids) * num_explores} expected) under {cache_dir}. "
                 f"First 10: {sample}"
             )
-        print(
+        logger.info(
             f"Cache pre-flight OK: {len(qids)} qids x {num_explores} explores "
             f"= {len(qids) * num_explores} cache files present at {cache_dir}"
         )

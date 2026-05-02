@@ -8,7 +8,11 @@ the value of LLM-based aggregation from sequential adaptive exploration.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import replace
+
+logger = logging.getLogger(__name__)
+
 from methods.base import InfraConfig, create_solve_context, load_cached_candidates
 from trajectory import CostTracker, RoundLog, SolveResult
 
@@ -43,7 +47,7 @@ async def solve(
     )
 
     if len(candidates) == 0:
-        print(f"  [standalone-integrator] No valid candidates for {question_id}")
+        logger.info(f"  [standalone-integrator] No valid candidates for {question_id}")
         return SolveResult(answer="", cost=CostTracker(), rounds=[], writer=ctx.writer)
 
     ctx.cost.add(explore_cost_total, {}, component="explorer")
@@ -70,7 +74,7 @@ async def solve(
         tool_input={"answer": final_answer, "cost_usd": cost_usd},
     ))
 
-    print(f"  [standalone-integrator] {len(candidates)} candidates -> "
+    logger.info(f"  [standalone-integrator] {len(candidates)} candidates -> "
           f"answer={final_answer}, cost=${ctx.cost.total_cost_usd:.4f}")
 
     return ctx.result(final_answer)

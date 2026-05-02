@@ -10,6 +10,10 @@ more compute, not self-evaluation.
 
 from __future__ import annotations
 
+import logging
+
+logger = logging.getLogger(__name__)
+
 from methods.base import Candidate, InfraConfig, create_solve_context
 from methods.tool_state import advance
 from trajectory import RoundLog, SolveResult
@@ -62,7 +66,7 @@ async def solve(
         ctx.state.explore = advance(ctx.state.explore)
 
         if result.get("timed_out"):
-            print(f"  [budget-forcing] Round {i}: TIMED OUT")
+            logger.info(f"  [budget-forcing] Round {i}: TIMED OUT")
             ctx.writer.write_text(f"## Round {i}: TIMED OUT")
             break
 
@@ -90,13 +94,13 @@ async def solve(
             f"- **Cost**: ${r_cost}"
         )
 
-        print(f"  [budget-forcing] Round {i}: answer={answer}, confidence={result.get('confidence', 'N/A')}")
+        logger.info(f"  [budget-forcing] Round {i}: answer={answer}, confidence={result.get('confidence', 'N/A')}")
 
         prev_trajectory = trajectory_text
 
     final_answer = ctx.state.candidates[-1].answer if ctx.state.candidates else ""
 
-    print(f"  [budget-forcing] final answer: {final_answer} after {len(ctx.rounds)} rounds")
-    print(f"  [budget-forcing] total cost: ${ctx.cost.total_cost_usd}")
+    logger.info(f"  [budget-forcing] final answer: {final_answer} after {len(ctx.rounds)} rounds")
+    logger.info(f"  [budget-forcing] total cost: ${ctx.cost.total_cost_usd}")
 
     return ctx.result(final_answer)

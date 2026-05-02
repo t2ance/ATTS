@@ -22,14 +22,18 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # repo bootstrap (mirrors eval.py)
 REPO = Path(__file__).resolve().parents[3]
 sys.path.insert(0, str(REPO))
 
 from benchmarks import get_benchmark
+from logger import setup_console_logging
 
 
 RUN_DIR = REPO.parent / "analysis" / "run" / "hle" / "sonnet_socratic_self_refine" / "run_20260427_071039"
@@ -77,17 +81,18 @@ async def regrade_one(bench, row: dict, sem: asyncio.Semaphore) -> dict:
 
 
 async def main() -> None:
+    setup_console_logging()
     bench = get_benchmark("hle")
-    print(f"Benchmark: {bench.name}, judge_model={bench.judge_model}")
+    logger.info(f"Benchmark: {bench.name}, judge_model={bench.judge_model}")
     assert bench.judge_model == "claude-haiku-4-5-20251001", \
         f"hle.py patch not applied: judge_model={bench.judge_model!r}"
 
     rows = [json.loads(line) for line in RESULTS_PATH.read_text().splitlines() if line.strip()]
-    print(f"Loaded {len(rows)} rows from {RESULTS_PATH}")
+    logger.info(f"Loaded {len(rows)} rows from {RESULTS_PATH}")
 
     # Pre-snapshot current is_correct for diff
     old_correct = sum(1 for r in rows if r["is_correct"])
-    print(f"Pre-regrade acc: {old_correct}/{len(rows)} = {old_correct/len(rows)*100:.1f}%")
+    logger.info(f"Pre-regrade acc: {old_correct}/{len(rows)} = {old_correct/len(rows)*100:.1f}%")
 
     sem = asyncio.Semaphore(NUM_WORKERS)
     tasks = [regrade_one(bench, r, sem) for r in rows]
@@ -96,7 +101,7 @@ async def main() -> None:
         r = await coro
         results.append(r)
         marker = "OK " if r["is_correct"] else "wrn"
-        print(f"  [{i:>3}/{len(rows)}] {r['qid'][:24]} -> {marker} (judge_cost=${r['judge_cost_usd']:.4f})")
+        logger.info(f"  [{i:>3}/{len(rows)}] {r['qid'][:24]} -> {marker} (judge_cost=${r['judge_cost_usd']:.4f})")
 
     # Update results.jsonl in-place
     by_qid = {r["qid"]: r for r in results}
@@ -111,10 +116,10 @@ async def main() -> None:
 
     new_correct = sum(1 for r in rows if r["is_correct"])
     total_judge_cost = sum(r["judge_cost_usd"] for r in rows)
-    print(f"\n=== regrade complete ===")
-    print(f"Old acc: {old_correct}/{len(rows)} = {old_correct/len(rows)*100:.1f}%")
-    print(f"New acc: {new_correct}/{len(rows)} = {new_correct/len(rows)*100:.1f}%  (delta {new_correct - old_correct:+d})")
-    print(f"Judge cost: ${total_judge_cost:.4f}")
+    logger.info(f"\n=== regrade complete ===")
+    logger.info(f"Old acc: {old_correct}/{len(rows)} = {old_correct/len(rows)*100:.1f}%")
+    logger.info(f"New acc: {new_correct}/{len(rows)} = {new_correct/len(rows)*100:.1f}%  (delta {new_correct - old_correct:+d})")
+    logger.info(f"Judge cost: ${total_judge_cost:.4f}")
 
     # Patch progress.json
     if PROGRESS_PATH.exists():
@@ -124,7 +129,7 @@ async def main() -> None:
         prog["summary"]["correct"] = new_correct
         prog["summary"]["judge_cost_usd"] = total_judge_cost
         PROGRESS_PATH.write_text(json.dumps(prog, indent=2))
-        print(f"Patched {PROGRESS_PATH}")
+        logger.info(f"Patched {PROGRESS_PATH}")
 
 
 if __name__ == "__main__":

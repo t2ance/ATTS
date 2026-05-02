@@ -14,9 +14,12 @@ from __future__ import annotations
 import base64
 import io
 import json
+import logging
 
 import torch
 from PIL import Image
+
+logger = logging.getLogger(__name__)
 
 from dataclasses import replace
 from methods.base import InfraConfig, create_solve_context, load_cached_candidates
@@ -240,7 +243,7 @@ async def solve(
         idx += 1
 
     if len(candidates) == 0:
-        print(f"  [rerank] No valid candidates for {question_id} -- returning empty answer")
+        logger.info(f"  [rerank] No valid candidates for {question_id} -- returning empty answer")
         return SolveResult(answer="", cost=CostTracker(), rounds=[], writer=ctx.writer)
 
     # -- Score candidates --
@@ -291,7 +294,7 @@ async def solve(
             },
         ))
 
-    print(f"  [rerank] {len(candidates)} candidates scored, best=explore_{best['idx']} "
+    logger.info(f"  [rerank] {len(candidates)} candidates scored, best=explore_{best['idx']} "
           f"(score={best['reward_score']:.4f}, answer={best['answer']})")
 
     return ctx.result(best["answer"])

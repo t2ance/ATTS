@@ -3,7 +3,7 @@
 Exposes the same transport primitives as claude.py:
   - call_sub_model(...)         -> (result, trajectory_text, cost_usd, usage)
   - run_tool_conversation(...)  -> (cost_usd, usage, exit_reason)
-    where exit_reason ∈ {"committed", "cap_exceeded", "incomplete"}
+    where exit_reason ∈ {"committed", "cap_exceeded", "incomplete", "context_overflow"}
 
 Connects to a vLLM server (started separately via ``vllm serve``).
 Uses text-based <tool_call> parsing (no --enable-auto-tool-choice needed).
@@ -13,10 +13,13 @@ from __future__ import annotations
 
 import itertools
 import json
+import logging
 import re
 from typing import Any, Awaitable, Callable
 
 from openai import AsyncOpenAI, BadRequestError
+
+logger = logging.getLogger(__name__)
 
 # vLLM 0.17.x emits VLLMValidationError with parameter="input_tokens" (token-
 # count check, vllm/renderers/params.py:344) or "input_text" (char-count pre-
@@ -348,7 +351,7 @@ async def call_sub_model(
         param = body.get("param") if isinstance(body, dict) else None
         if param in _CONTEXT_OVERFLOW_PARAMS:
             msg = body.get("message", "") if isinstance(body, dict) else ""
-            print(
+            logger.info(
                 f"[vllm.call_sub_model] CONTEXT OVERFLOW soft-skip "
                 f"param={param} model={model} msg={msg[:200]!r}"
             )
@@ -404,7 +407,7 @@ async def call_sub_model(
     # remains possible from the cached result.json.
     if not result:
         finish = response.choices[0].finish_reason if response.choices else "?"
-        print(
+        logger.info(
             f"[vllm.call_sub_model] PARSE FAILED finish={finish} "
             f"completion_tokens={usage['output_tokens']} model={model} "
             f"text[:200]={text[:200]!r}"
@@ -542,14 +545,36 @@ async def run_tool_conversation(
     total_usage = {"input_tokens": 0, "output_tokens": 0}
 
     for turn in range(max_turns):
-        response = await client.chat.completions.create(
-            model=model,
-            messages=messages,
-            tools=openai_tools,
-            tool_choice="none",
-            extra_body=extra_body or None,
-            **direct_kwargs,
-        )
+        # Soft-skip context-overflow BadRequest (input_tokens / input_text):
+        # mirrors call_sub_model:326-373. The orchestrator multi-turn input
+        # accumulates each cached-explore tool_response, and at the boundary
+        # turn the (input + max_tokens) sum can exceed max-model-len by a
+        # handful of tokens. Crashing the whole eval over a single boundary
+        # turn is the wrong granularity; instead terminate this question's
+        # orchestrator loop with exit_reason="context_overflow" and let the
+        # eval/method layer continue with the next question.
+        # 2026-05-02 incident: LCB eval crashed at 156/175 with
+        # input_tokens=45537 (limit 45536); patch added.
+        try:
+            response = await client.chat.completions.create(
+                model=model,
+                messages=messages,
+                tools=openai_tools,
+                tool_choice="none",
+                extra_body=extra_body or None,
+                **direct_kwargs,
+            )
+        except BadRequestError as e:
+            body = e.body if isinstance(e.body, dict) else {}
+            param = body.get("param") if isinstance(body, dict) else None
+            if param in _CONTEXT_OVERFLOW_PARAMS:
+                msg = body.get("message", "") if isinstance(body, dict) else ""
+                logger.info(
+                    f"[orchestrator] CONTEXT OVERFLOW soft-skip turn={turn} "
+                    f"param={param} model={model} msg={msg[:200]!r}"
+                )
+                return _estimate_cost_usd(total_usage, model), total_usage, "context_overflow"
+            raise
 
         choice = response.choices[0]
         if response.usage:
@@ -560,7 +585,7 @@ async def run_tool_conversation(
         # natural unit is tokens (response.usage.completion_tokens), so we use
         # tokens directly instead of mirroring claude.py's char-based check.
         if max_output_tokens is not None and total_usage["output_tokens"] > max_output_tokens:
-            print(
+            logger.info(
                 f"[orchestrator] output token cap exceeded "
                 f"({total_usage['output_tokens']} > {max_output_tokens}), terminating"
             )
@@ -570,13 +595,13 @@ async def run_tool_conversation(
         text_content = choice.message.content or ""
         text_calls = parse_tool_calls(text_content) if text_content else []
 
-        print(f"[vllm turn {turn}] finish={choice.finish_reason} tools={len(text_calls)} content_len={len(text_content)}")
+        logger.info(f"[vllm turn {turn}] finish={choice.finish_reason} tools={len(text_calls)} content_len={len(text_content)}")
 
         if writer and text_content:
             writer.write_text(text_content)
 
         if not text_calls:
-            print("[orchestrator] no tool call in response, ending")
+            logger.info("[orchestrator] no tool call in response, ending")
             # Orchestrator emitted text without tool_call; no commit signal.
             return _estimate_cost_usd(total_usage, model), total_usage, "incomplete"
 
@@ -601,7 +626,7 @@ async def run_tool_conversation(
                 # If `required` is empty (no schema declared), skip validation.
                 missing = [k for k in required if k not in args]
                 if missing:
-                    print(
+                    logger.info(
                         f"[structured_output_invalid] missing {missing}; "
                         f"got keys={list(args.keys())}"
                     )
@@ -619,14 +644,14 @@ async def run_tool_conversation(
                         ),
                     })
                     break
-                print(f"[structured_output] {args}")
+                logger.info(f"[structured_output] {args}")
                 if writer:
                     writer.write_tool_use("StructuredOutput", args)
                 if on_structured_output:
                     on_structured_output(args)
                 return _estimate_cost_usd(total_usage, model), total_usage, "committed"
 
-            print(f"[tool_use] {name}")
+            logger.info(f"[tool_use] {name}")
             if writer:
                 writer.write_tool_use(name, args)
 

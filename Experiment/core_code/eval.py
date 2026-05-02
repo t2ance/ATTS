@@ -9,11 +9,14 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import logging
 import os
 import time
 from pathlib import Path
 import yaml
 from pydantic import BaseModel, Field, model_validator
+
+logger = logging.getLogger(__name__)
 
 os.environ.pop("CLAUDECODE", None)
 
@@ -24,7 +27,7 @@ from methods import MethodSpec, get_method
 from methods.specs import SamplingConfig
 from methods.base import InfraConfig
 from multimodal_input import redact_image_for_logs
-from logger import RunLogger, now_str
+from logger import RunLogger, now_str, setup_console_logging
 
 
 # ---------------------------------------------------------------------------
@@ -130,7 +133,7 @@ async def _grade_with_cache(
         predicted, gold, question, row,
         backend=backend, out_dir=bundle_dir,
     )
-    print(f"  [sub-model] judge: correct={is_correct}, predicted={str(predicted)[:60]}, gold={str(gold)[:60]}, cost=${judge_cost}")
+    logger.info(f"  [sub-model] judge: correct={is_correct}, predicted={str(predicted)[:60]}, gold={str(gold)[:60]}, cost=${judge_cost}")
     (bundle_dir / "grade.json").write_text(json.dumps({
         "judge_spec": benchmark.judge_spec,
         "is_correct": is_correct,
@@ -270,7 +273,7 @@ async def evaluate(
                 rec = json.loads(line)
                 done_ids.add((rec["id"], rec.get("rollout_idx") or 0))
                 done_records.append(rec)
-        print(f"Resuming {resume_run_dir}: {len(done_ids)} rollouts already completed")
+        logger.info(f"Resuming {resume_run_dir}: {len(done_ids)} rollouts already completed")
 
     benchmark = infra.benchmark
     cache_dir = infra.cache_dir
@@ -291,9 +294,9 @@ async def evaluate(
     errors = 0
 
     if resume_run_dir is not None:
-        logger = RunLogger.resume(resume_run_dir)
+        run_logger = RunLogger.resume(resume_run_dir)
     else:
-        logger = RunLogger.create(
+        run_logger = RunLogger.create(
             base_dir=log_dir,
             config={
                 "total_questions": total,
@@ -311,16 +314,16 @@ async def evaluate(
                 **(dataset_config or {}),
             },
         )
-    infra.logger = logger
+    infra.logger = run_logger
 
-    print(f"\n{'=' * 60}")
-    print(f"{benchmark.name.upper()} Evaluation")
-    print(f"Backend: {backend} | Orchestrator: {orchestrator_model} | Explorer: {explore_model} | Integrator: {integrate_model}")
-    print(f"Grading: {benchmark.grading_summary}")
-    print(f"Questions to run: {len(pending)} ({len(done_records)} already completed, {total} total)")
-    print(f"Max iterations per question: {num_explores} | Workers: {num_workers}")
-    print(f"Logs:   {logger.run_dir}")
-    print(f"{'=' * 60}\n")
+    logger.info(f"\n{'=' * 60}")
+    logger.info(f"{benchmark.name.upper()} Evaluation")
+    logger.info(f"Backend: {backend} | Orchestrator: {orchestrator_model} | Explorer: {explore_model} | Integrator: {integrate_model}")
+    logger.info(f"Grading: {benchmark.grading_summary}")
+    logger.info(f"Questions to run: {len(pending)} ({len(done_records)} already completed, {total} total)")
+    logger.info(f"Max iterations per question: {num_explores} | Workers: {num_workers}")
+    logger.info(f"Logs:   {run_logger.run_dir}")
+    logger.info(f"{'=' * 60}\n")
 
     total_cost = 0.0
     total_judge_cost = 0.0
@@ -366,7 +369,7 @@ async def evaluate(
         for rec in done_records:
             qid = rec["id"]
             rec_rollout = rec.get("rollout_idx")  # None = K=1 old behavior
-            grade_qid_dir = _rollout_subpath(logger.run_dir / "grading", qid, rec_rollout)
+            grade_qid_dir = _rollout_subpath(run_logger.run_dir / "grading", qid, rec_rollout)
             # Count explores from cache_dir (shared cache; always uses real qid)
             if grade_cache_dir is not None:
                 idx = 1
@@ -384,7 +387,7 @@ async def evaluate(
             if _bundle_cached(grade_qid_dir):
                 already_cached += 1
         need_judge = total_to_grade - already_cached
-        print(f"Grading {len(done_records)} resumed records ({total_to_grade} candidates, {already_cached} cached, {need_judge} need judge)...", flush=True)
+        logger.info(f"Grading {len(done_records)} resumed records ({total_to_grade} candidates, {already_cached} cached, {need_judge} need judge)...")
 
     async def grade_done_record(idx: int, rec: dict) -> dict:
         nonlocal grade_done_count
@@ -400,18 +403,18 @@ async def evaluate(
         async with grade_sem:
             cands, jc = await _grade_question_explores(
                 benchmark, qid, gold_answer, question_text, orig_row,
-                rec.get("rounds", []), grade_cache_dir, backend, logger.run_dir,
+                rec.get("rounds", []), grade_cache_dir, backend, run_logger.run_dir,
                 rollout_idx=rec_rollout,
             )
             pm_cands = None
             if cache_dirs_multi:
                 pm_cands, pm_jc = await _grade_question_explores_multi(
                     benchmark, qid, gold_answer, question_text, orig_row,
-                    cache_dirs_multi, backend, logger.run_dir,
+                    cache_dirs_multi, backend, run_logger.run_dir,
                     rollout_idx=rec_rollout,
                 )
                 jc += pm_jc
-            grade_dir = _rollout_subpath(logger.run_dir / "grading", qid, rec_rollout)
+            grade_dir = _rollout_subpath(run_logger.run_dir / "grading", qid, rec_rollout)
             # Detect cache-hit BEFORE calling _grade_with_cache so the per-record
             # log line tells the user "previously graded" vs "freshly judged".
             # Uses the new judges/<label>/ layout via find_cached_judge.
@@ -424,7 +427,7 @@ async def evaluate(
         async with grade_done_lock:
             grade_done_count += 1
             tag = "[cached]" if final_cached else "[judged]"
-            print(f"  Grading resumed records: {grade_done_count}/{len(done_records)} ({qid}) {tag}", flush=True)
+            logger.info(f"  Grading resumed records: {grade_done_count}/{len(done_records)} ({qid}) {tag}")
 
         return {
             "idx": idx, "cands": cands, "bon_jc": jc,
@@ -474,7 +477,7 @@ async def evaluate(
         qid_label = qid if rollout_idx is None else f"{qid}/rollout_{rollout_idx}"
 
         async with sem:
-            print(f"  [{qid_label}] started at {now_str()}")
+            logger.info(f"  [{qid_label}] started")
 
             t0 = time.time()
             image_data_url = benchmark.get_image(row)
@@ -507,9 +510,9 @@ async def evaluate(
             ]
 
             elapsed = time.time() - t0
-            traj_dir = _rollout_subpath(logger.run_dir / "trajectories", qid, rollout_idx)
+            traj_dir = _rollout_subpath(run_logger.run_dir / "trajectories", qid, rollout_idx)
             actual_explores = sum(1 for r in (result.rounds if result else []) if r.action == "explore")
-            grade_dir = _rollout_subpath(logger.run_dir / "grading", qid, rollout_idx)
+            grade_dir = _rollout_subpath(run_logger.run_dir / "grading", qid, rollout_idx)
             is_correct, judge_cost_1 = await _grade_with_cache(
                 benchmark, predicted, gold_answer, question, row,
                 backend=backend, grade_dir=grade_dir,
@@ -517,7 +520,7 @@ async def evaluate(
 
             question_cands, qbon_jc = await _grade_question_explores(
                 benchmark, qid, gold_answer, question, row,
-                round_logs, grade_cache_dir, backend, logger.run_dir,
+                round_logs, grade_cache_dir, backend, run_logger.run_dir,
                 rollout_idx=rollout_idx,
             )
             # best-of-1 = first cached explore's grade. orchestrator's run_explore
@@ -536,7 +539,7 @@ async def evaluate(
             if cache_dirs_multi:
                 pm_cands, pm_jc = await _grade_question_explores_multi(
                     benchmark, qid, gold_answer, question, row,
-                    cache_dirs_multi, backend, logger.run_dir,
+                    cache_dirs_multi, backend, run_logger.run_dir,
                     rollout_idx=rollout_idx,
                 )
                 qbon_jc += pm_jc
@@ -598,7 +601,7 @@ async def evaluate(
             done_so_far = len(all_records)
             status = "correct" if is_correct else "wrong"
             predicted_short = str(predicted).replace("\n", " ")[:80]
-            print(f"  [{done_so_far}/{total}] {qid_label}: {status} at {now_str()} ({elapsed:.0f}s), predicted={predicted_short}, cost=${question_cost}")
+            logger.info(f"  [{done_so_far}/{total}] {qid_label}: {status} ({elapsed:.0f}s), predicted={predicted_short}, cost=${question_cost}")
 
             # Running summary
             metrics = benchmark.compute_metrics(all_candidates, all_integrated, all_subset_labels,
@@ -616,8 +619,8 @@ async def evaluate(
                 "explore_distribution": {str(k): v for k, v in sorted(explore_dist.items())},
                 **metrics,
             }
-            logger.log_question(record, summary=running_summary)
-            benchmark.save_plots(running_summary, logger.run_dir)
+            run_logger.log_question(record, summary=running_summary)
+            benchmark.save_plots(running_summary, run_logger.run_dir)
 
     await asyncio.gather(*(process_question(i, row) for i, row in enumerate(pending)))
 
@@ -637,26 +640,26 @@ async def evaluate(
         "explore_distribution": {str(k): v for k, v in sorted(explore_dist.items())},
         **metrics,
     }
-    logger.finalize(summary)
-    benchmark.save_plots(summary, logger.run_dir)
+    run_logger.finalize(summary)
+    benchmark.save_plots(summary, run_logger.run_dir)
 
-    print(f"\nEVALUATION COMPLETE")
-    print(f"Total:        {total}")
+    logger.info(f"\nEVALUATION COMPLETE")
+    logger.info(f"Total:        {total}")
     if total > 0:
-        print(f"Integrated:   {correct}/{total} ({correct/total*100}%)")
-    print(f"Errors:       {errors}")
-    print(f"Cost breakdown:")
+        logger.info(f"Integrated:   {correct}/{total} ({correct/total*100}%)")
+    logger.info(f"Errors:       {errors}")
+    logger.info(f"Cost breakdown:")
     for comp in sorted(total_cost_by_component):
-        print(f"  {comp.capitalize():14s} ${total_cost_by_component[comp]}")
+        logger.info(f"  {comp.capitalize():14s} ${total_cost_by_component[comp]}")
     avg_str = f" (avg ${total_cost/total}/question)" if total > 0 else ""
-    print(f"  {'Total':14s} ${total_cost}{avg_str}")
-    print(f"  {'Judge':14s} ${total_judge_cost + bon_judge_cost} (not included in total)")
+    logger.info(f"  {'Total':14s} ${total_cost}{avg_str}")
+    logger.info(f"  {'Judge':14s} ${total_judge_cost + bon_judge_cost} (not included in total)")
     if explore_dist:
-        print(f"Explore distribution:")
+        logger.info(f"Explore distribution:")
         for ec in sorted(explore_dist):
-            print(f"  {ec} explores: {explore_dist[ec]} questions")
+            logger.info(f"  {ec} explores: {explore_dist[ec]} questions")
     benchmark.print_metrics(summary, total)
-    print(f"Logs:       {logger.run_dir}")
+    logger.info(f"Logs:       {run_logger.run_dir}")
 
     return summary
 
@@ -666,6 +669,7 @@ async def evaluate(
 # ---------------------------------------------------------------------------
 
 async def async_main() -> None:
+    setup_console_logging()
     parser = argparse.ArgumentParser(description="Evaluate TTS agent")
     parser.add_argument("--config", type=str, required=True,
                         help="Path to YAML config")
@@ -695,14 +699,14 @@ async def async_main() -> None:
     num_explores = getattr(cfg.method, "num_explores", 8)
     num_rollouts = getattr(cfg.method, "num_rollouts", 1)
 
-    print(f"Loading {benchmark.name.upper()} dataset...")
+    logger.info(f"Loading {benchmark.name.upper()} dataset...")
     all_rows = benchmark.load_dataset()
-    print(f"Loaded {len(all_rows)} total questions")
+    logger.info(f"Loaded {len(all_rows)} total questions")
 
     filtered = benchmark.filter_dataset(all_rows, **bench_filters)
-    print(f"Filtered to {len(filtered)} questions")
+    logger.info(f"Filtered to {len(filtered)} questions")
     if not filtered:
-        print("No questions match the filter criteria.")
+        logger.info("No questions match the filter criteria.")
         return
 
     if cfg.shuffle:
@@ -711,7 +715,7 @@ async def async_main() -> None:
         random.shuffle(filtered)
 
     if cfg.skip > 0:
-        print(f"Skipping first {cfg.skip} questions")
+        logger.info(f"Skipping first {cfg.skip} questions")
         filtered = filtered[cfg.skip:]
 
     # Per-method launch-time hooks: rerank/standalone filter rows by what's
@@ -733,7 +737,7 @@ async def async_main() -> None:
         assert len(expanded) == len(question_rows) * num_rollouts
         filtered = expanded
         effective_num = len(expanded)
-        print(f"Rejection sampling: expanded {len(question_rows)} questions x {num_rollouts} rollouts = {effective_num} tasks")
+        logger.info(f"Rejection sampling: expanded {len(question_rows)} questions x {num_rollouts} rollouts = {effective_num} tasks")
     else:
         effective_num = cfg.num
 

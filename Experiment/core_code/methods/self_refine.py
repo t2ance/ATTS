@@ -12,8 +12,11 @@ Stopping criterion: Feedback says is_correct=True, or hard limit reached.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from methods.base import Candidate, InfraConfig, create_solve_context
 from methods.tool_state import advance
@@ -163,7 +166,7 @@ async def solve(
     await run_explore(ctx, explore_model)
 
     if not ctx.state.candidates:
-        print("  [self-refine] Draft 0 TIMED OUT, no answer")
+        logger.info("  [self-refine] Draft 0 TIMED OUT, no answer")
         return ctx.result("")
 
     draft0 = ctx.state.candidates[-1]
@@ -188,7 +191,7 @@ async def solve(
         f"- **Cost**: ${draft0.cost_usd}"
     )
 
-    print(f"  [self-refine] Draft 0 (generator): answer={draft0.answer}")
+    logger.info(f"  [self-refine] Draft 0 (generator): answer={draft0.answer}")
 
     # -- Steps 2..max_iterations: Feedback -> Refine loop --
     # These are custom prompts (not from benchmark), so we manually add the
@@ -218,7 +221,7 @@ async def solve(
         ctx.cost.add(fb_cost, fb_usage, component="feedback")
 
         if fb_result.get("timed_out"):
-            print(f"  [self-refine] Feedback {i}: TIMED OUT")
+            logger.info(f"  [self-refine] Feedback {i}: TIMED OUT")
             ctx.writer.write_text(f"## Feedback {i}: TIMED OUT")
             break
 
@@ -233,7 +236,7 @@ async def solve(
             f"- **Cost**: ${fb_cost}"
         )
 
-        print(f"  [self-refine] Feedback {i}: {status}")
+        logger.info(f"  [self-refine] Feedback {i}: {status}")
 
         # If feedback says the current solution is correct, stop
         if is_correct:
@@ -254,7 +257,7 @@ async def solve(
         ctx.cost.add(ref_cost, ref_usage, component="explorer")
 
         if ref_result.get("timed_out"):
-            print(f"  [self-refine] Refiner {i}: TIMED OUT")
+            logger.info(f"  [self-refine] Refiner {i}: TIMED OUT")
             ctx.writer.write_text(f"## Draft {i - 1} (Refiner): TIMED OUT")
             break
 
@@ -289,11 +292,11 @@ async def solve(
             f"- **Cost**: ${ref_cost}"
         )
 
-        print(f"  [self-refine] Draft {i - 1} (refiner): answer={answer}, confidence={ref_result.get('confidence', 'N/A')}")
+        logger.info(f"  [self-refine] Draft {i - 1} (refiner): answer={answer}, confidence={ref_result.get('confidence', 'N/A')}")
 
     final_answer = history.drafts[-1].answer
 
-    print(f"  [self-refine] final answer: {final_answer} after {len(ctx.rounds)} drafts")
-    print(f"  [self-refine] total cost: ${ctx.cost.total_cost_usd}")
+    logger.info(f"  [self-refine] final answer: {final_answer} after {len(ctx.rounds)} drafts")
+    logger.info(f"  [self-refine] total cost: ${ctx.cost.total_cost_usd}")
 
     return ctx.result(final_answer)

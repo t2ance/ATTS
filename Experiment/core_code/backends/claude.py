@@ -10,9 +10,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import sys
 from pathlib import Path
 from typing import Any, Awaitable, Callable
+
+logger = logging.getLogger(__name__)
 
 _SDK_INIT_MAX_RETRIES = 3
 _SDK_INIT_RETRY_DELAY = 5.0  # seconds
@@ -161,14 +164,14 @@ async def call_sub_model(
                     break  # success
                 except Exception as e:
                     if _is_sdk_init_error(e) and attempt < _SDK_INIT_MAX_RETRIES - 1:
-                        print(f"  [sub-model] SDK init error (attempt {attempt + 1}/{_SDK_INIT_MAX_RETRIES}), retrying in {_SDK_INIT_RETRY_DELAY}s: {e}")
+                        logger.warning(f"  [sub-model] SDK init error (attempt {attempt + 1}/{_SDK_INIT_MAX_RETRIES}), retrying in {_SDK_INIT_RETRY_DELAY}s: {e}")
                         await asyncio.sleep(_SDK_INIT_RETRY_DELAY)
                         continue
                     raise
         except Exception as e:
             if _is_policy_error(e) and policy_attempts < _POLICY_MAX_RETRIES:
                 policy_attempts += 1
-                print(f"  [sub-model] Usage Policy refusal (attempt {policy_attempts}/{_POLICY_MAX_RETRIES}), retrying in {_POLICY_RETRY_DELAY}s: {e}")
+                logger.warning(f"  [sub-model] Usage Policy refusal (attempt {policy_attempts}/{_POLICY_MAX_RETRIES}), retrying in {_POLICY_RETRY_DELAY}s: {e}")
                 await asyncio.sleep(_POLICY_RETRY_DELAY)
                 continue
             raise
@@ -304,7 +307,7 @@ async def run_tool_conversation(
                             if "output_tokens" in evt_usage:
                                 _output_tokens = evt_usage["output_tokens"]
                                 if max_output_tokens is not None and _output_tokens > max_output_tokens:
-                                    print(
+                                    logger.info(
                                         f"  [orchestrator] output token cap exceeded "
                                         f"({_output_tokens} > {max_output_tokens}), terminating"
                                     )
@@ -322,13 +325,13 @@ async def run_tool_conversation(
                                 if writer:
                                     writer.write_text(f"\n\n<thinking>\n{block.thinking}\n</thinking>\n\n")
                             elif isinstance(block, TextBlock):
-                                print(f"[orchestrator] {block.text}")
+                                logger.info(f"[orchestrator] {block.text}")
                                 if writer:
                                     writer.write_text(block.text)
                             elif isinstance(block, ToolUseBlock):
                                 if block.name == "StructuredOutput":
                                     _check_structured_output(block.input)
-                                    print(f"[structured_output] {block.input}")
+                                    logger.info(f"[structured_output] {block.input}")
                                     if writer:
                                         writer.write_tool_use("StructuredOutput", block.input)
                                     if on_structured_output:
@@ -336,7 +339,7 @@ async def run_tool_conversation(
                                     _structured_output_emitted = True
                                 elif block.name.startswith(_MCP_PREFIX):
                                     tool_name = block.name.removeprefix(_MCP_PREFIX)
-                                    print(f"[tool_use] {tool_name}")
+                                    logger.info(f"[tool_use] {tool_name}")
                                     if writer:
                                         writer.write_tool_use(tool_name, block.input)
 
@@ -364,7 +367,7 @@ async def run_tool_conversation(
         except Exception as e:
             is_retryable = _is_sdk_init_error(e) or isinstance(e, MalformedToolCallError)
             if is_retryable and attempt < _SDK_INIT_MAX_RETRIES - 1:
-                print(f"  [orchestrator] retryable error (attempt {attempt + 1}/{_SDK_INIT_MAX_RETRIES}), retrying in {_SDK_INIT_RETRY_DELAY}s: {e}")
+                logger.warning(f"  [orchestrator] retryable error (attempt {attempt + 1}/{_SDK_INIT_MAX_RETRIES}), retrying in {_SDK_INIT_RETRY_DELAY}s: {e}")
                 await asyncio.sleep(_SDK_INIT_RETRY_DELAY)
                 continue
             raise

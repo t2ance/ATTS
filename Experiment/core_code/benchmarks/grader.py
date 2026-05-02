@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import re
 from pathlib import Path
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 from methods.base import call_sub_model, save_sub_model_result
 from prompts import format_claude_structured_suffix
@@ -151,7 +154,7 @@ async def judge_answer(
         last_result, last_trajectory, last_usage = result, trajectory_text, usage
         if not (result.get("timed_out") or result.get("parse_failed")):
             break
-        print(
+        logger.warning(
             f"  [judge] attempt {attempt}/{max_retries} invalid "
             f"(timed_out={result.get('timed_out')}, parse_failed={result.get('parse_failed')}, "
             f"finish_reason={result.get('finish_reason')})"
