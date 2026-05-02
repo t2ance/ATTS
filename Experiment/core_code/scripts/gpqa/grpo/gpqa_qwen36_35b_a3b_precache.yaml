@@ -1,15 +1,20 @@
 benchmark:
   name: gpqa
 backend: vllm
-# Explorer = orchestrator: same Qwen3.6-35B-A3B-FP8 alias served on :8000-:8002.
-# `_exp_orch` arm: explorer model swapped from Sonnet to the same Qwen used
-# by the orchestrator. See hle_qwen36_35b_a3b_precache.yaml for full rationale.
+# Explorer = orchestrator: same Qwen3.6-35B-A3B-FP8 alias served as a single
+# DP=4 endpoint on :8000 (vllm internally fans out to 4 GPU workers). The
+# `_exp_orch` arm uses the same Qwen for explorer + orchestrator. See
+# hle_qwen36_35b_a3b_precache.yaml for full rationale.
 explore_model: qwen36-35b-a3b-fp8
 # Distinct from sonnet (../analysis/cache/gpqa/sonnet); fresh cache for the
 # new (model, sampling) tuple per cache_discipline memory.
 cache_dir: ../analysis/cache/gpqa/qwen36_35b_a3b_fp8
 num_explores: 8
-# 128 across 3 replicas (~43 in-flight each); see hle precache for derivation.
+# 128 client-side asyncio tasks. vllm DP=4 queues to ~5-6 in-flight 128K
+# requests per worker (KV-cache bound) ~ 20-24 truly concurrent, the rest
+# queue. The earlier 3-replica era used the same 128 (~43 per replica via
+# itertools round-robin); under DP=4 vllm load-balances internally, no
+# client-side change needed.
 num_workers: 128
 seed: 42
 # MUST match gpqa_qwen36_35b_a3b_exp_orch.yaml.sampling exactly.

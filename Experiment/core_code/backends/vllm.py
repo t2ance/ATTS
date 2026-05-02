@@ -22,19 +22,18 @@ from openai import AsyncOpenAI
 # Configuration
 # ---------------------------------------------------------------------------
 
-# Multi-replica vLLM serve (2026-05-01): 3 independent TP=1 servers on
-# GPU 0/1/2 ports 8000/8001/8002. TP=3/DP=3 are blocked because
-# intermediate_size=8192 is not divisible by 3 (verified by pydantic
-# ValidationError when launching TP=3). Each call to _get_client() returns
-# the next client in a round-robin cycle so concurrent ATTS workers
-# (num_workers=32) distribute uniformly across all 3 replicas. The cycle is
-# safe under asyncio because the event loop is single-threaded -- next() on
-# itertools.cycle is atomic w.r.t. coroutine scheduling. If only one replica
-# is up, set VLLM_BASE_URLS to a single-entry list.
+# Single-process vLLM DP=4 serve (2026-05-02): one `vllm serve --data-parallel-
+# size 4` process exposes a single HTTP endpoint on port 8000 and internally
+# manages 4 engine workers, one per GPU (CUDA_VISIBLE_DEVICES=0,1,2,3). vllm
+# does request load-balancing and continuous-batching across the 4 workers
+# itself, so the client only needs one base URL. The list+round-robin
+# scaffolding below is preserved (single-entry list) for compatibility with
+# pre-DP=4 multi-replica setups; restore those URLs if running independent
+# replicas instead. TP=3/DP=3 are categorically blocked at the model layer
+# (intermediate_size=8192 not divisible by 3); DP=4 is allowed because
+# 8192 % 4 == 0.
 VLLM_BASE_URLS = [
     "http://localhost:8000/v1",
-    "http://localhost:8001/v1",
-    "http://localhost:8002/v1",
 ]
 _clients: list[AsyncOpenAI] | None = None
 _client_cycle = None
