@@ -78,8 +78,7 @@ def process_explore_result(
     label_suffix = f" ({model_label})" if model_label else ""
 
     if result.get("timed_out"):
-        if not ctx.quiet:
-            print(f"  [sub-model] explore #{used}{label_suffix}: TIMED OUT -- recording empty candidate")
+        print(f"  [sub-model] explore #{used}{label_suffix}: TIMED OUT -- recording empty candidate")
         state.candidates.append(
             Candidate(answer="", reasoning="timed out", approach="", confidence=0.0, cost_usd=0.0)
         )
@@ -123,8 +122,7 @@ def process_explore_result(
         model_label=model_label,
         extra_budget_text=extra_budget_text,
     ))
-    if not ctx.quiet:
-        print(f"  [sub-model] explore candidate #{len(state.candidates)}{label_suffix}: answer={answer}, confidence={result.get('confidence', 'N/A')}")
+    print(f"  [sub-model] explore candidate #{len(state.candidates)}{label_suffix}: answer={answer}, confidence={result.get('confidence', 'N/A')}")
     return text
 
 
@@ -133,8 +131,7 @@ def make_structured_output_handler(ctx: SolveContext):
     def on_structured_output(result: dict) -> None:
         ctx.state.final_answer = ctx.benchmark.get_answer_from_explore(result)
         ctx.state.final_reasoning = result.get("reasoning", "")
-        if not ctx.quiet:
-            print(f"[structured_output] answer={ctx.state.final_answer}")
+        print(f"[structured_output] answer={ctx.state.final_answer}")
         _log_round(ctx, RoundLog(
             round_num=ctx.state.explore.call_count + 1,
             action="submit_answer",
@@ -193,8 +190,7 @@ async def run_integrate(ctx: SolveContext, integrate_model: str) -> str:
     state.final_reasoning = result.get("reasoning")
     state.final_analysis = result.get("analysis")
 
-    if not ctx.quiet:
-        print(f"  [sub-model] integrate: final_answer={final_answer}")
+    print(f"  [sub-model] integrate: final_answer={final_answer}")
     return "Final answer recorded."
 
 
@@ -281,7 +277,6 @@ async def _run_orchestrator(
         effort=ctx.effort,
         output_format=output_format,
         writer=ctx.writer,
-        quiet=ctx.quiet,
         on_structured_output=make_structured_output_handler(ctx),
         max_output_tokens=ctx.max_output_tokens,
         temperature=temperature,
@@ -341,12 +336,11 @@ async def solve(
         rollout_idx=rollout_idx,
     )
 
-    if not ctx.quiet:
-        print(f"\nDelegated TTS Agent [{infra.backend}] -- solving with up to {infra.max_iterations} rounds")
-        print(f"Problem: {problem}")
-        if image_data_url:
-            print("Image: included")
-        print()
+    print(f"\nDelegated TTS Agent [{infra.backend}] -- solving with up to {infra.max_iterations} rounds")
+    print(f"Problem: {problem}")
+    if image_data_url:
+        print("Image: included")
+    print()
 
     await _run_orchestrator(
         ctx, orchestrator_model, explore_model, integrate_model, user_message_text,
@@ -358,9 +352,8 @@ async def solve(
     if ctx.state.final_answer is None:
         ctx.state.final_answer = ""
 
-    if not ctx.quiet:
-        print(f"\nTotal cost: ${ctx.cost.total_cost_usd}"
-              f" (input: {ctx.cost.total_input_tokens}, output: {ctx.cost.total_output_tokens})")
+    print(f"\nTotal cost: ${ctx.cost.total_cost_usd}"
+          f" (input: {ctx.cost.total_input_tokens}, output: {ctx.cost.total_output_tokens})")
 
     result = ctx.result(ctx.state.final_answer)
     result.exit_reason = getattr(ctx, "_exit_reason", "incomplete")

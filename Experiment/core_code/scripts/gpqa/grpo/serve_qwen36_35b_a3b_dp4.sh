@@ -22,10 +22,22 @@ set -euo pipefail
 # ~30 GB KV cache pool. 4 workers in parallel give ~4x query throughput at
 # num_workers saturation.
 #
-# max-model-len=131072 (128K) — bumped from 65536 on 2026-05-01 to absorb
-# yaml max_tokens=65536 per turn. Multi-turn accumulation can put input
-# alone at 30-50K on hard LCB/BV before the final response. KV memory
-# roughly doubles versus 64K; vllm auto-lowers max_num_seqs if needed.
+# max-model-len=65536 (64K). Sequence of values this session:
+#   131072 -> 40960 (precache throughput optimization 2026-05-02)
+#   40960  -> 131072 (eval orchestrator OOM-context fix 2026-05-02)
+#   131072 -> 65536  (matched-budget design 2026-05-02 user-directed)
+# Why 64K is the matched value:
+#   1. Explorer/orchestrator decode at 50-80 tok/s under DP=4 saturation;
+#      generating 64K tokens takes 800-1200s, which equals explore_timeout=1200s.
+#      Anything generating past 64K won't finish under wall-clock budget anyway.
+#   2. Throughput: KV pool / max-model-len = max in-flight per worker. At 64K
+#      we get 2x more in-flight slots than 128K (~40 vs 20 per worker), which
+#      lifts cluster cap from 83 to ~160 in-flight and increases per-step
+#      batch -> higher SM utilization -> more power.
+#   3. Context-overflow handling: when input + max_tokens > 65536 vllm raises
+#      BadRequest with param="input_tokens"; backends/vllm.py soft-skips this
+#      single explore (treats as timeout-equivalent) and the precache/eval
+#      continues. This is wired in vllm.py's try/except around chat.completions.
 # Watch the log for the "Maximum concurrency for X tokens per request" line.
 
 cd /data3/peijia/dr-claw/Explain/Experiment/core_code
@@ -41,7 +53,7 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 nohup conda run --no-capture-output -n grpo_vllm \
         --tensor-parallel-size 1 \
         --data-parallel-size 4 \
         --gpu-memory-utilization 0.85 \
-        --max-model-len 131072 \
+        --max-model-len 65536 \
         --trust-remote-code \
         --disable-custom-all-reduce \
         --port 8000 \

@@ -221,14 +221,12 @@ async def run_tool_conversation(
     effort: str | None = None,
     output_format: dict[str, Any] | None = None,
     writer=None,
-    quiet: bool = True,
     on_structured_output: Callable[[dict], None] | None = None,
 ) -> tuple[float, dict[str, Any], str]:
     """Run a multi-turn tool-calling conversation via Codex Responses API.
 
     tool_handler(name, args) -> (result_text, should_stop)
     writer: if provided, writes events to the trajectory.
-    quiet: if False, prints events to console.
     output_format: if provided, constrains the model's final text output to
         match the given JSON schema (via Codex response_format).
     on_structured_output: callback when the model emits structured output.
@@ -273,8 +271,7 @@ async def run_tool_conversation(
 
         # Handle text output (either plain text or structured output)
         if output_text:
-            if not quiet:
-                print(f"[orchestrator] {output_text[:200]}")
+            print(f"[orchestrator] {output_text[:200]}")
             if writer:
                 writer.write_text(output_text)
 
@@ -282,8 +279,7 @@ async def run_tool_conversation(
             # Conversation ended -- check for structured output
             if output_text and response_format:
                 parsed = json.loads(output_text)
-                if not quiet:
-                    print(f"[structured_output] {parsed}")
+                print(f"[structured_output] {parsed}")
                 if writer:
                     writer.write_tool_use("StructuredOutput", parsed)
                 if on_structured_output:
@@ -296,8 +292,7 @@ async def run_tool_conversation(
             name = tc["name"]
             args = json.loads(tc["arguments"])
 
-            if not quiet:
-                print(f"[tool_use] {name}")
+            print(f"[tool_use] {name}")
             if writer:
                 writer.write_tool_use(name, args)
 
@@ -336,8 +331,7 @@ async def run_tool_conversation(
                 total_usage[k] = total_usage.get(k, 0) + v
         assert output_text is not None, "Final structured output request returned no text"
         parsed = json.loads(output_text)
-        if not quiet:
-            print(f"[structured_output] (forced) {parsed}")
+        print(f"[structured_output] (forced) {parsed}")
         if writer:
             writer.write_tool_use("StructuredOutput", parsed)
         on_structured_output(parsed)

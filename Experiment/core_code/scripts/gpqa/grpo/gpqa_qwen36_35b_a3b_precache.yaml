@@ -10,12 +10,22 @@ explore_model: qwen36-35b-a3b-fp8
 # new (model, sampling) tuple per cache_discipline memory.
 cache_dir: ../analysis/cache/gpqa/qwen36_35b_a3b_fp8
 num_explores: 8
-# 128 client-side asyncio tasks. vllm DP=4 queues to ~5-6 in-flight 128K
-# requests per worker (KV-cache bound) ~ 20-24 truly concurrent, the rest
-# queue. The earlier 3-replica era used the same 128 (~43 per replica via
-# itertools round-robin); under DP=4 vllm load-balances internally, no
-# client-side change needed.
-num_workers: 128
+# 192 client-side asyncio tasks. Under DP=4 with --max-model-len=40960,
+# vllm reports max concurrency 63x per worker × 4 = 252 in-flight. The
+# previous 128 ceiling was filling up with thinking-mode long-tail explores
+# (5+ min each on hard GPQA Diamond), starving easy/fast explores. 192
+# keeps slot count under vllm's 252 cap with margin while letting easy
+# tasks flow alongside the long-tail. Bumped 2026-05-02 mid-run after
+# observing rate drop from 0.4/s → 0.13/s once all 128 slots filled with
+# multi-minute generations.
+num_workers: 192
+# Default is 1200s (20 min). Bumped DOWN to 600s (10 min) after observing
+# the same 192-slot saturation: a sub-10% pathological tail of GPQA Diamond
+# questions hits max_tokens=32768 in thinking mode, taking 10-30+ min per
+# explore and starving the rest. 600s lets ATTS still receive 6-7 of 8
+# explores per question (timed-out explore is excluded from candidate set;
+# integrator works on whatever cached + non-timed candidates exist).
+explore_timeout: 600.0
 seed: 42
 # MUST match gpqa_qwen36_35b_a3b_exp_orch.yaml.sampling exactly.
 sampling:

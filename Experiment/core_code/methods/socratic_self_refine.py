@@ -302,8 +302,7 @@ async def solve(
     await run_explore(ctx, explore_model)
 
     if not ctx.state.candidates:
-        if not ctx.quiet:
-            print("  [socratic-self-refine] Draft 0 TIMED OUT, no answer")
+        print("  [socratic-self-refine] Draft 0 TIMED OUT, no answer")
         return ctx.result("")
 
     draft0 = ctx.state.candidates[-1]
@@ -328,8 +327,7 @@ async def solve(
         f"- **Cost**: ${draft0.cost_usd}"
     )
 
-    if not ctx.quiet:
-        print(f"  [socratic-self-refine] Draft 0 (generator): answer={draft0.answer}")
+    print(f"  [socratic-self-refine] Draft 0 (generator): answer={draft0.answer}")
 
     # -- Steps 2..max_iterations: Feedback -> Refine loop --
     # These are custom prompts (not from benchmark), so we manually add the
@@ -359,8 +357,7 @@ async def solve(
         ctx.cost.add(fb_cost, fb_usage, component="feedback")
 
         if fb_result.get("timed_out"):
-            if not ctx.quiet:
-                print(f"  [socratic-self-refine] Feedback {i}: TIMED OUT")
+            print(f"  [socratic-self-refine] Feedback {i}: TIMED OUT")
             ctx.writer.write_text(f"## Feedback {i}: TIMED OUT")
             break
 
@@ -375,8 +372,7 @@ async def solve(
             f"- **Cost**: ${fb_cost}"
         )
 
-        if not ctx.quiet:
-            print(f"  [socratic-self-refine] Feedback {i}: {status}")
+        print(f"  [socratic-self-refine] Feedback {i}: {status}")
 
         # If feedback says the current solution is correct, stop
         if is_correct:
@@ -397,8 +393,7 @@ async def solve(
         ctx.cost.add(ref_cost, ref_usage, component="explorer")
 
         if ref_result.get("timed_out"):
-            if not ctx.quiet:
-                print(f"  [socratic-self-refine] Refiner {i}: TIMED OUT")
+            print(f"  [socratic-self-refine] Refiner {i}: TIMED OUT")
             ctx.writer.write_text(f"## Draft {i - 1} (Refiner): TIMED OUT")
             break
 
@@ -433,13 +428,11 @@ async def solve(
             f"- **Cost**: ${ref_cost}"
         )
 
-        if not ctx.quiet:
-            print(f"  [socratic-self-refine] Draft {i - 1} (refiner): answer={answer}, confidence={ref_result.get('confidence', 'N/A')}")
+        print(f"  [socratic-self-refine] Draft {i - 1} (refiner): answer={answer}, confidence={ref_result.get('confidence', 'N/A')}")
 
     final_answer = history.drafts[-1].answer
 
-    if not ctx.quiet:
-        print(f"  [socratic-self-refine] final answer: {final_answer} after {len(ctx.rounds)} drafts")
-        print(f"  [socratic-self-refine] total cost: ${ctx.cost.total_cost_usd}")
+    print(f"  [socratic-self-refine] final answer: {final_answer} after {len(ctx.rounds)} drafts")
+    print(f"  [socratic-self-refine] total cost: ${ctx.cost.total_cost_usd}")
 
     return ctx.result(final_answer)

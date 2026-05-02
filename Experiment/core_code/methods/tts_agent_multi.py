@@ -206,7 +206,6 @@ async def _run_orchestrator_multi(
         effort=ctx.effort,
         output_format=output_format,
         writer=ctx.writer,
-        quiet=ctx.quiet,
         on_structured_output=make_structured_output_handler(ctx),
     )
     ctx.cost.add(cost, usage, component="orchestrator")
@@ -272,18 +271,16 @@ async def solve(
 
     mctx = MultiModelSolveContext(ctx=ctx, model_callers=model_callers, model_budgets=model_budgets)
 
-    if not ctx.quiet:
-        print(f"\nMulti-model TTS Agent [{infra.backend}] -- solving with up to {infra.max_iterations} rounds")
-        print(f"Available models: {list(cache_dirs.keys())}")
-        print(f"Problem: {problem[:100]}")
-        print()
+    print(f"\nMulti-model TTS Agent [{infra.backend}] -- solving with up to {infra.max_iterations} rounds")
+    print(f"Available models: {list(cache_dirs.keys())}")
+    print(f"Problem: {problem[:100]}")
+    print()
 
     await _run_orchestrator_multi(mctx, orchestrator_model, user_message_text)
 
     assert ctx.state.final_answer is not None, "Orchestrator did not submit a final answer"
 
-    if not ctx.quiet:
-        print(f"\nTotal cost: ${ctx.cost.total_cost_usd}"
-              f" (input: {ctx.cost.total_input_tokens}, output: {ctx.cost.total_output_tokens})")
+    print(f"\nTotal cost: ${ctx.cost.total_cost_usd}"
+          f" (input: {ctx.cost.total_input_tokens}, output: {ctx.cost.total_output_tokens})")
 
     return ctx.result(ctx.state.final_answer)

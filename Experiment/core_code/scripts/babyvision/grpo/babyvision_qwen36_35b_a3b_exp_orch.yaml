@@ -21,6 +21,8 @@ method:
     repetition_penalty: 1.0
     enable_thinking: true
     max_tokens: 65536
-num_workers: 64
+# 128 client-side asyncio tasks. See gpqa_qwen36_35b_a3b_exp_orch.yaml for
+# the server cap math. User-directed 2026-05-02.
+num_workers: 128
 seed: 42
 log_dir: ../analysis/run/babyvision/qwen36_35b_a3b_fp8_exp_orch

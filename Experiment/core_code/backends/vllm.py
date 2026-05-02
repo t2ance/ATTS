@@ -16,7 +16,16 @@ import json
 import re
 from typing import Any, Awaitable, Callable
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, BadRequestError
+
+# vLLM 0.17.x emits VLLMValidationError with parameter="input_tokens" (token-
+# count check, vllm/renderers/params.py:344) or "input_text" (char-count pre-
+# check, line 263) ONLY when input + max_tokens exceeds max-model-len. The
+# HTTP layer translates this to a 400 BadRequest with `param=<name>` in the
+# response body. We use this as the structured signature to soft-skip a
+# single explore in the same way wall-clock timeouts are soft-skipped.
+# Verified by reading vllm 0.17.1 source 2026-05-02.
+_CONTEXT_OVERFLOW_PARAMS = ("input_tokens", "input_text")
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -42,7 +51,16 @@ _client_cycle = None
 def _get_client() -> AsyncOpenAI:
     global _clients, _client_cycle
     if _clients is None:
-        _clients = [AsyncOpenAI(base_url=u, api_key="not-needed") for u in VLLM_BASE_URLS]
+        # timeout=1800.0 (30 min): openai client default is 600s. LCB eval with
+        # max_tokens=65536 + thinking-mode decode hits >10min single-call wall
+        # time on long-tail problems, which triggers httpcore.ReadTimeout and
+        # crashes the eval (no try/except in eval.py per fail-fast policy).
+        # Set 2026-05-02 after LCB eval crashed at [126/175] mid-decode.
+        # 1800s covers up to ~36 tok/s × 1800 = 65k token decode comfortably.
+        _clients = [
+            AsyncOpenAI(base_url=u, api_key="not-needed", timeout=1800.0)
+            for u in VLLM_BASE_URLS
+        ]
         _client_cycle = itertools.cycle(_clients)
     return next(_client_cycle)
 
@@ -291,24 +309,65 @@ async def call_sub_model(
         f"temperature out of range: {direct_kwargs['temperature']}"
     )
 
-    response = await client.chat.completions.create(
-        model=model,
-        messages=messages,
-        response_format=(
-            {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "structured_output",
-                    "schema": output_schema,
-                    "strict": True,
+    # Wrap the chat completion in a try/except that softly handles vllm's
+    # context-overflow BadRequest (input + max_tokens > max-model-len). Per
+    # design (2026-05-02 user-directed), max-model-len is set to 64K to
+    # match explore_timeout=1200s (anything decoding past 64K tokens won't
+    # finish under that wall-clock budget anyway). When a single explore's
+    # accumulated input + max_tokens exceeds the configured ceiling, we
+    # treat it the same as a timeout: write a soft sentinel result and
+    # let the caller skip this explore without crashing the whole batch.
+    # Only the structured `param in _CONTEXT_OVERFLOW_PARAMS` BadRequest is
+    # exempted; other 400s (bad sampling args, unknown model, malformed
+    # messages) still raise per fail-fast policy.
+    try:
+        response = await client.chat.completions.create(
+            model=model,
+            messages=messages,
+            response_format=(
+                {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "structured_output",
+                        "schema": output_schema,
+                        "strict": True,
+                    },
+                }
+                if output_schema
+                else None
+            ),
+            extra_body=extra_body or None,
+            **direct_kwargs,
+        )
+    except BadRequestError as e:
+        # openai SDK flattens the response body: e.body is the inner error
+        # dict directly (with keys: message, type, param, code), NOT the
+        # outer {"error": {...}} wrapper from the raw HTTP response. Verified
+        # by repro test 2026-05-02.
+        body = e.body if isinstance(e.body, dict) else {}
+        param = body.get("param") if isinstance(body, dict) else None
+        if param in _CONTEXT_OVERFLOW_PARAMS:
+            msg = body.get("message", "") if isinstance(body, dict) else ""
+            print(
+                f"[vllm.call_sub_model] CONTEXT OVERFLOW soft-skip "
+                f"param={param} model={model} msg={msg[:200]!r}"
+            )
+            # Mirror the timeout-equivalent contract used by parse_failed
+            # (see vllm.py:355 below) so precache_explores.py:128 and the
+            # eval/method layer's `if result.get('timed_out')` branches
+            # short-circuit this explore as cached-but-skipped.
+            return (
+                {
+                    "timed_out": True,
+                    "context_overflow": True,
+                    "param": param,
+                    "finish_reason": "context_overflow",
                 },
-            }
-            if output_schema
-            else None
-        ),
-        extra_body=extra_body or None,
-        **direct_kwargs,
-    )
+                "",
+                0.0,
+                {"input_tokens": 0, "output_tokens": 0},
+            )
+        raise
 
     text = response.choices[0].message.content or ""
     usage = {
@@ -381,7 +440,6 @@ async def run_tool_conversation(
     effort: str | None = None,
     output_format: dict[str, Any] | None = None,
     writer=None,
-    quiet: bool = True,
     on_structured_output: Callable[[dict], None] | None = None,
     temperature: float | None = None,
     max_output_tokens: int | None = None,
@@ -502,26 +560,23 @@ async def run_tool_conversation(
         # natural unit is tokens (response.usage.completion_tokens), so we use
         # tokens directly instead of mirroring claude.py's char-based check.
         if max_output_tokens is not None and total_usage["output_tokens"] > max_output_tokens:
-            if not quiet:
-                print(
-                    f"[orchestrator] output token cap exceeded "
-                    f"({total_usage['output_tokens']} > {max_output_tokens}), terminating"
-                )
+            print(
+                f"[orchestrator] output token cap exceeded "
+                f"({total_usage['output_tokens']} > {max_output_tokens}), terminating"
+            )
             return _estimate_cost_usd(total_usage, model), total_usage, "cap_exceeded"
 
         # --- Parse <tool_call> from text content ---
         text_content = choice.message.content or ""
         text_calls = parse_tool_calls(text_content) if text_content else []
 
-        if not quiet:
-            print(f"[vllm turn {turn}] finish={choice.finish_reason} tools={len(text_calls)} content_len={len(text_content)}")
+        print(f"[vllm turn {turn}] finish={choice.finish_reason} tools={len(text_calls)} content_len={len(text_content)}")
 
         if writer and text_content:
             writer.write_text(text_content)
 
         if not text_calls:
-            if not quiet:
-                print("[orchestrator] no tool call in response, ending")
+            print("[orchestrator] no tool call in response, ending")
             # Orchestrator emitted text without tool_call; no commit signal.
             return _estimate_cost_usd(total_usage, model), total_usage, "incomplete"
 
@@ -546,11 +601,10 @@ async def run_tool_conversation(
                 # If `required` is empty (no schema declared), skip validation.
                 missing = [k for k in required if k not in args]
                 if missing:
-                    if not quiet:
-                        print(
-                            f"[structured_output_invalid] missing {missing}; "
-                            f"got keys={list(args.keys())}"
-                        )
+                    print(
+                        f"[structured_output_invalid] missing {missing}; "
+                        f"got keys={list(args.keys())}"
+                    )
                     if writer:
                         writer.write_text(
                             f"[StructuredOutput rejected: missing required "
@@ -565,16 +619,14 @@ async def run_tool_conversation(
                         ),
                     })
                     break
-                if not quiet:
-                    print(f"[structured_output] {args}")
+                print(f"[structured_output] {args}")
                 if writer:
                     writer.write_tool_use("StructuredOutput", args)
                 if on_structured_output:
                     on_structured_output(args)
                 return _estimate_cost_usd(total_usage, model), total_usage, "committed"
 
-            if not quiet:
-                print(f"[tool_use] {name}")
+            print(f"[tool_use] {name}")
             if writer:
                 writer.write_tool_use(name, args)
 

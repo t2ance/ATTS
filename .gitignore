@@ -4,6 +4,7 @@ Experiment/core_code/training/training_data/
 
 # analysis/ — track READMEs and small code, ignore the data subdirs
 Experiment/analysis/cache/
+Experiment/analysis/archive/
 Experiment/analysis/run/aime2025/
 Experiment/analysis/run/aime2026/
 Experiment/analysis/run/babyvision/

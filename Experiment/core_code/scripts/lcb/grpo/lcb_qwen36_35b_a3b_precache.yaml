@@ -7,10 +7,12 @@ backend: vllm
 explore_model: qwen36-35b-a3b-fp8
 cache_dir: ../analysis/cache/lcb/qwen36_35b_a3b_fp8
 num_explores: 8
-# 128 client-side asyncio tasks. Under DP=4 vllm queues to ~5-6 in-flight per
-# worker (KV-cache bound for 128K-context); the rest queue. Same value the
-# 3-replica era used (then ~43 per replica via client-side round-robin).
-num_workers: 128
+# 256 client-side asyncio tasks. At num_workers=128, vllm DP=4 cluster ran
+# 32+33+32+31 = 128 in-flight, waiting=0, GPU power 196-209W per card (=~50-57%
+# TDP). Server has capacity, GPU has headroom -> bumped to 256 user-directed
+# 2026-05-02. Risk: KV-cache pressure. Mitigation: monitor for waiting>0 in
+# vllm metrics; if requests start queueing, revert.
+num_workers: 256
 seed: 42
 # MUST match lcb_qwen36_35b_a3b_exp_orch.yaml.sampling exactly.
 sampling:

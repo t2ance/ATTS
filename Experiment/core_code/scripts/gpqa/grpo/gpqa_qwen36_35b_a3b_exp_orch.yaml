@@ -18,6 +18,14 @@ method:
     repetition_penalty: 1.0
     enable_thinking: true
     max_tokens: 32768
-num_workers: 64
+# 128 client-side asyncio tasks. vllm DP=4 server cap is ~83 in-flight at
+# 131K max-model-len (KV pool / 131072 = 20.78x per worker x 4 = 83). At
+# num_workers=64 the server saw 0 waiting, ~64 running -> 19 idle slots.
+# 128 fills the cap and adds a small queue buffer. User-directed 2026-05-02.
+num_workers: 128
 seed: 42
 log_dir: ../analysis/run/gpqa/qwen36_35b_a3b_fp8_exp_orch
+# Resume from the killed-mid-run dir (03:31:04 had 42/198 already). Added
+# 2026-05-02 after num_workers 64->128 restart; salvages those orchestrator
+# rollouts (each costs ~30s thinking-mode + cached explores read).
+resume: ../analysis/run/gpqa/qwen36_35b_a3b_fp8_exp_orch/run_20260502_033104

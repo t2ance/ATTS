@@ -198,7 +198,6 @@ async def _run_orchestrator_effort(
         effort=ctx.effort,
         output_format=output_format,
         writer=ctx.writer,
-        quiet=ctx.quiet,
         on_structured_output=make_structured_output_handler(ctx),
     )
     ctx.cost.add(cost, usage, component="orchestrator")
@@ -239,7 +238,6 @@ async def solve(
         backend=infra.backend,
         cache_dir=infra.cache_dir,
         cache_only=infra.cache_only,
-        quiet=infra.quiet,
         max_iterations=max_iterations,
         timeout=infra.timeout,
         budget_tokens=infra.budget_tokens,
@@ -276,18 +274,16 @@ async def solve(
 
     ectx = EffortSolveContext(ctx=ctx, effort_callers=effort_callers, effort_budgets=effort_budgets)
 
-    if not ctx.quiet:
-        print(f"\nEffort-adaptive TTS Agent [{infra.backend}] -- solving with up to {max_iterations} rounds")
-        print(f"Effort levels: {list(cache_dirs.keys())}")
-        print(f"Problem: {problem[:100]}")
-        print()
+    print(f"\nEffort-adaptive TTS Agent [{infra.backend}] -- solving with up to {max_iterations} rounds")
+    print(f"Effort levels: {list(cache_dirs.keys())}")
+    print(f"Problem: {problem[:100]}")
+    print()
 
     await _run_orchestrator_effort(ectx, orchestrator_model, explore_model, user_message_text)
 
     assert ctx.state.final_answer is not None, "Orchestrator did not submit a final answer"
 
-    if not ctx.quiet:
-        print(f"\nTotal cost: ${ctx.cost.total_cost_usd}"
-              f" (input: {ctx.cost.total_input_tokens}, output: {ctx.cost.total_output_tokens})")
+    print(f"\nTotal cost: ${ctx.cost.total_cost_usd}"
+          f" (input: {ctx.cost.total_input_tokens}, output: {ctx.cost.total_output_tokens})")
 
     return ctx.result(ctx.state.final_answer)

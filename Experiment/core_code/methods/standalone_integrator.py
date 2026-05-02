@@ -43,8 +43,7 @@ async def solve(
     )
 
     if len(candidates) == 0:
-        if not infra.quiet:
-            print(f"  [standalone-integrator] No valid candidates for {question_id}")
+        print(f"  [standalone-integrator] No valid candidates for {question_id}")
         return SolveResult(answer="", cost=CostTracker(), rounds=[], writer=ctx.writer)
 
     ctx.cost.add(explore_cost_total, {}, component="explorer")
@@ -71,8 +70,7 @@ async def solve(
         tool_input={"answer": final_answer, "cost_usd": cost_usd},
     ))
 
-    if not ctx.quiet:
-        print(f"  [standalone-integrator] {len(candidates)} candidates -> "
-              f"answer={final_answer}, cost=${ctx.cost.total_cost_usd:.4f}")
+    print(f"  [standalone-integrator] {len(candidates)} candidates -> "
+          f"answer={final_answer}, cost=${ctx.cost.total_cost_usd:.4f}")
 
     return ctx.result(final_answer)

@@ -56,7 +56,7 @@ async def regrade_one(
         bundle_existed = (explore_dir / "judges" / judge_label_str / "grade.json").exists()
         is_correct, judge_cost = await _grade_with_cache(
             bench, predicted, gold, question, row,
-            backend=backend, grade_dir=explore_dir, quiet=True,
+            backend=backend, grade_dir=explore_dir,
         )
         return {
             "qid": qid,

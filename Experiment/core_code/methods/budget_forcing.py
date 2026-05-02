@@ -62,8 +62,7 @@ async def solve(
         ctx.state.explore = advance(ctx.state.explore)
 
         if result.get("timed_out"):
-            if not ctx.quiet:
-                print(f"  [budget-forcing] Round {i}: TIMED OUT")
+            print(f"  [budget-forcing] Round {i}: TIMED OUT")
             ctx.writer.write_text(f"## Round {i}: TIMED OUT")
             break
 
@@ -91,15 +90,13 @@ async def solve(
             f"- **Cost**: ${r_cost}"
         )
 
-        if not ctx.quiet:
-            print(f"  [budget-forcing] Round {i}: answer={answer}, confidence={result.get('confidence', 'N/A')}")
+        print(f"  [budget-forcing] Round {i}: answer={answer}, confidence={result.get('confidence', 'N/A')}")
 
         prev_trajectory = trajectory_text
 
     final_answer = ctx.state.candidates[-1].answer if ctx.state.candidates else ""
 
-    if not ctx.quiet:
-        print(f"  [budget-forcing] final answer: {final_answer} after {len(ctx.rounds)} rounds")
-        print(f"  [budget-forcing] total cost: ${ctx.cost.total_cost_usd}")
+    print(f"  [budget-forcing] final answer: {final_answer} after {len(ctx.rounds)} rounds")
+    print(f"  [budget-forcing] total cost: ${ctx.cost.total_cost_usd}")
 
     return ctx.result(final_answer)

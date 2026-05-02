@@ -53,7 +53,6 @@ When NOT to reuse:
 | StructuredOutput schema (v3) | SDK via `output_format` | `run_tool_conversation` in `backends/claude.py` |
 | Answer format rules | schema field descriptions | `_ANSWER_DESCRIPTION` in `benchmarks/base.py` |
 | Trajectory writing | backend `writer` param | `run_tool_conversation` in `backends/claude.py` |
-| Console output | backend `quiet` param | `run_tool_conversation` in `backends/claude.py` |
 
 - Do NOT duplicate tool descriptions in system prompts -- the SDK injects them automatically.
 - Do NOT put answer format rules in system prompts -- they belong in the schema field descriptions.
@@ -104,7 +103,6 @@ No command-line arguments. Every path, model name, worker count, and seed is wri
 ### Do
 - Reuse `create_solve_context()` and `load_cached_candidates()` from `base.py` for all new methods.
 - Use `ctx.benchmark.*` polymorphic interfaces for benchmark-specific behavior (prompts, schemas, grading).
-- Gate console output behind `if not ctx.quiet:` with `[method-name]` prefix.
 - Put `from __future__ import annotations` at the top of every file.
 - Lazy-import heavy dependencies (`torch`, `transformers`, `datasets`) inside functions.
 - Precache explores before running downstream methods.

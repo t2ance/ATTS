@@ -230,7 +230,6 @@ async def run_tool_conversation(
     effort: str | None = None,
     output_format: dict[str, Any] | None = None,
     writer=None,
-    quiet: bool = True,
     on_structured_output: Callable[[dict], None] | None = None,
     max_output_tokens: int | None = None,
     temperature: float | None = None,
@@ -239,7 +238,6 @@ async def run_tool_conversation(
 
     tool_handler(name, args) -> (result_text, should_stop)
     writer: if provided, automatically writes all events to the trajectory.
-    quiet: if False, prints events to console.
     output_format: if provided, the model can call the built-in StructuredOutput
         tool to emit structured data (using the same mechanism as call_sub_model).
     on_structured_output: callback for StructuredOutput business logic (state updates).
@@ -306,11 +304,10 @@ async def run_tool_conversation(
                             if "output_tokens" in evt_usage:
                                 _output_tokens = evt_usage["output_tokens"]
                                 if max_output_tokens is not None and _output_tokens > max_output_tokens:
-                                    if not quiet:
-                                        print(
-                                            f"  [orchestrator] output token cap exceeded "
-                                            f"({_output_tokens} > {max_output_tokens}), terminating"
-                                        )
+                                    print(
+                                        f"  [orchestrator] output token cap exceeded "
+                                        f"({_output_tokens} > {max_output_tokens}), terminating"
+                                    )
                                     _exit_reason = "cap_exceeded"
                                     break
 
@@ -325,15 +322,13 @@ async def run_tool_conversation(
                                 if writer:
                                     writer.write_text(f"\n\n<thinking>\n{block.thinking}\n</thinking>\n\n")
                             elif isinstance(block, TextBlock):
-                                if not quiet:
-                                    print(f"[orchestrator] {block.text}")
+                                print(f"[orchestrator] {block.text}")
                                 if writer:
                                     writer.write_text(block.text)
                             elif isinstance(block, ToolUseBlock):
                                 if block.name == "StructuredOutput":
                                     _check_structured_output(block.input)
-                                    if not quiet:
-                                        print(f"[structured_output] {block.input}")
+                                    print(f"[structured_output] {block.input}")
                                     if writer:
                                         writer.write_tool_use("StructuredOutput", block.input)
                                     if on_structured_output:
@@ -341,8 +336,7 @@ async def run_tool_conversation(
                                     _structured_output_emitted = True
                                 elif block.name.startswith(_MCP_PREFIX):
                                     tool_name = block.name.removeprefix(_MCP_PREFIX)
-                                    if not quiet:
-                                        print(f"[tool_use] {tool_name}")
+                                    print(f"[tool_use] {tool_name}")
                                     if writer:
                                         writer.write_tool_use(tool_name, block.input)
 

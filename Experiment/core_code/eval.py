@@ -55,7 +55,6 @@ class EvalConfig(BaseModel):
     judge_max_retries: int = 3
 
     # Run state
-    verbose: bool = False
     resume: str | None = None
     log_dir: str = "logs"
 
@@ -97,7 +96,6 @@ async def _grade_with_cache(
     benchmark: BenchmarkConfig,
     predicted: str, gold: str, question: str, row: dict,
     backend: str, grade_dir: Path,
-    quiet: bool = True,
 ) -> tuple[bool, float]:
     """Grade an answer, caching the bundle under grade_dir/judges/<label>/.
 
@@ -132,8 +130,7 @@ async def _grade_with_cache(
         predicted, gold, question, row,
         backend=backend, out_dir=bundle_dir,
     )
-    if not quiet:
-        print(f"  [sub-model] judge: correct={is_correct}, predicted={str(predicted)[:60]}, gold={str(gold)[:60]}, cost=${judge_cost}")
+    print(f"  [sub-model] judge: correct={is_correct}, predicted={str(predicted)[:60]}, gold={str(gold)[:60]}, cost=${judge_cost}")
     (bundle_dir / "grade.json").write_text(json.dumps({
         "judge_spec": benchmark.judge_spec,
         "is_correct": is_correct,
@@ -150,7 +147,6 @@ async def _grade_cached_explores(
     cache_base: Path,
     backend: str,
     grade_qid_dir: Path,
-    quiet: bool = True,
 ) -> tuple[list[Candidate3], float]:
     """Grade all cached explores for one question from a single cache directory.
 
@@ -173,7 +169,7 @@ async def _grade_cached_explores(
         ans = benchmark.get_answer_from_explore(d)
         is_correct_exp, jc = await _grade_with_cache(
             benchmark, ans, gold_answer, question, row,
-            backend=backend, grade_dir=cache_base / qid / f"explore_{idx}", quiet=quiet,
+            backend=backend, grade_dir=cache_base / qid / f"explore_{idx}",
         )
         candidates.append((benchmark.normalize_answer(ans), is_correct_exp, d.get("cost_usd", 0.0)))
         total_jc += jc
@@ -188,7 +184,6 @@ async def _grade_question_explores(
     cache_dir: Path | None,
     backend: str,
     traj_base_dir: Path,
-    quiet: bool = True,
     rollout_idx: int | None = None,
 ) -> tuple[list[Candidate3], float]:
     """Grade all explores for one question. Returns (candidates, judge_cost)."""
@@ -197,7 +192,7 @@ async def _grade_question_explores(
     if cache_dir is not None:
         return await _grade_cached_explores(
             benchmark, qid, gold_answer, question, row,
-            cache_dir, backend, grade_qid_dir, quiet,
+            cache_dir, backend, grade_qid_dir,
         )
 
     candidates: list[Candidate3] = []
@@ -209,7 +204,7 @@ async def _grade_question_explores(
             explore_seq += 1
             is_correct_exp, jc = await _grade_with_cache(
                 benchmark, ans, gold_answer, question, row,
-                backend=backend, grade_dir=grade_qid_dir / f"explore_{explore_seq}", quiet=quiet,
+                backend=backend, grade_dir=grade_qid_dir / f"explore_{explore_seq}",
             )
             candidates.append((benchmark.normalize_answer(ans), is_correct_exp, r.get("cost_usd", 0.0)))
             total_jc += jc
@@ -222,7 +217,6 @@ async def _grade_question_explores_multi(
     cache_dirs: dict[str, Path],
     backend: str,
     traj_base_dir: Path,
-    quiet: bool = True,
     rollout_idx: int | None = None,
 ) -> tuple[dict[str, list[Candidate3]], float]:
     """Grade all cached explores per model for one question."""
@@ -234,7 +228,6 @@ async def _grade_question_explores_multi(
             benchmark, qid, gold_answer, question, row,
             cache_base, backend,
             grade_qid_dir / model_alias,
-            quiet,
         )
         per_model[model_alias] = cands
         total_jc += jc
@@ -282,7 +275,6 @@ async def evaluate(
     benchmark = infra.benchmark
     cache_dir = infra.cache_dir
     backend = infra.backend
-    quiet = infra.quiet
     num_explores = infra.max_iterations
 
     def _row_key(r: dict) -> tuple[str, int]:
@@ -311,7 +303,6 @@ async def evaluate(
                 "integrate_model": integrate_model,
                 "num_explores": num_explores,
                 "num_workers": num_workers,
-                "quiet": quiet,
                 "cache_dir": str(cache_dir) if cache_dir else None,
                 "cache_only": infra.cache_only,
                 "judge_spec": benchmark.judge_spec,
@@ -521,13 +512,12 @@ async def evaluate(
             grade_dir = _rollout_subpath(logger.run_dir / "grading", qid, rollout_idx)
             is_correct, judge_cost_1 = await _grade_with_cache(
                 benchmark, predicted, gold_answer, question, row,
-                backend=backend, grade_dir=grade_dir, quiet=quiet,
+                backend=backend, grade_dir=grade_dir,
             )
 
             question_cands, qbon_jc = await _grade_question_explores(
                 benchmark, qid, gold_answer, question, row,
                 round_logs, grade_cache_dir, backend, logger.run_dir,
-                quiet=quiet,
                 rollout_idx=rollout_idx,
             )
             # best-of-1 = first cached explore's grade. orchestrator's run_explore
@@ -547,7 +537,6 @@ async def evaluate(
                 pm_cands, pm_jc = await _grade_question_explores_multi(
                     benchmark, qid, gold_answer, question, row,
                     cache_dirs_multi, backend, logger.run_dir,
-                    quiet=quiet,
                     rollout_idx=rollout_idx,
                 )
                 qbon_jc += pm_jc
@@ -761,7 +750,6 @@ async def async_main() -> None:
         effort=backend_block.effort if backend_block else "low",
         timeout=backend_block.timeout if backend_block else 1200.0,
         benchmark=benchmark,
-        quiet=not cfg.verbose,
         logger=None,
         enable_integrate=not getattr(cfg.method, "no_integrate", False),
         max_output_tokens=backend_block.max_output_tokens if backend_block else None,

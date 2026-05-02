@@ -33,7 +33,6 @@ class InfraConfig:
     effort: str | None
     timeout: float | None
     benchmark: Any
-    quiet: bool
     logger: RunLogger | None
     enable_integrate: bool = True
     max_output_tokens: int | None = None
@@ -75,7 +74,6 @@ class SolveContext:
     image_data_url: str | None
     budget_tokens: int
     effort: str | None
-    quiet: bool
     benchmark: Any  # BenchmarkConfig
     # Logging
     logger: RunLogger | None
@@ -380,7 +378,6 @@ def create_solve_context(
         image_data_url=image_data_url,
         budget_tokens=infra.budget_tokens,
         effort=infra.effort,
-        quiet=infra.quiet,
         benchmark=infra.benchmark,
         logger=infra.logger,
         question_id=question_id,

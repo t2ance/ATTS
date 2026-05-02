@@ -240,8 +240,7 @@ async def solve(
         idx += 1
 
     if len(candidates) == 0:
-        if not infra.quiet:
-            print(f"  [rerank] No valid candidates for {question_id} -- returning empty answer")
+        print(f"  [rerank] No valid candidates for {question_id} -- returning empty answer")
         return SolveResult(answer="", cost=CostTracker(), rounds=[], writer=ctx.writer)
 
     # -- Score candidates --
@@ -292,8 +291,7 @@ async def solve(
             },
         ))
 
-    if not ctx.quiet:
-        print(f"  [rerank] {len(candidates)} candidates scored, best=explore_{best['idx']} "
-              f"(score={best['reward_score']:.4f}, answer={best['answer']})")
+    print(f"  [rerank] {len(candidates)} candidates scored, best=explore_{best['idx']} "
+          f"(score={best['reward_score']:.4f}, answer={best['answer']})")
 
     return ctx.result(best["answer"])
