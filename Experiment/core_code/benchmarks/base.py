@@ -384,11 +384,16 @@ class BenchmarkConfig(ABC):
     explorer_base_prompt: str = EXPLORER_BASE_PROMPT
     integrator_base_prompt: str = INTEGRATOR_BASE_PROMPT
 
-    def __init__(self, judge_spec: dict | None = None):
+    def __init__(self, judge_spec: dict | None = None, judge_max_retries: int = 3):
         # judge_spec example: {"name": "claude", "model": "claude-haiku-4-5-20251001"}
         # or {"name": "vllm", "model": "...", "sampling": {...}}.
         # None for benchmarks that grade without an LLM judge.
         self.judge_spec = judge_spec
+        # Operational retry budget for judge_answer; not part of judge identity.
+        # Sourced from EvalConfig.judge_max_retries; rule-based grading paths
+        # (LCB / GPQA / AIME) never reach judge_answer so the value is inert
+        # for them.
+        self.judge_max_retries = judge_max_retries
 
     # -- Dataset --
 

@@ -136,3 +136,45 @@ def test_judge_spec_carried_per_instance():
     assert GPQABenchmark().judge_spec is None
     bench = HLEBenchmark(judge_spec=_HAIKU_SPEC)
     assert bench.judge_spec == _HAIKU_SPEC
+
+
+# ---- judge_max_retries: operational knob, defaulted, not in judge_spec ----
+
+def test_judge_max_retries_default_is_3():
+    """All BenchmarkConfig subclasses default to judge_max_retries=3."""
+    for cls in (LCBBenchmark, AIMEBenchmark, GPQABenchmark,
+                HLEBenchmark, BabyVisionBenchmark, RBenchVBenchmark):
+        assert cls().judge_max_retries == 3, f"{cls.__name__} default != 3"
+
+
+def test_judge_max_retries_overridable_at_construction():
+    bench = HLEBenchmark(judge_spec=_HAIKU_SPEC, judge_max_retries=7)
+    assert bench.judge_max_retries == 7
+
+
+def test_hle_grade_forwards_judge_max_retries_to_judge_answer():
+    """HLEBenchmark.grade() passes self.judge_max_retries as max_retries kwarg."""
+    bench = HLEBenchmark(judge_spec=_HAIKU_SPEC, judge_max_retries=7)
+    fake_row = {"answer_type": "exactMatch"}
+    with patch("benchmarks.hle.judge_answer", new=AsyncMock(return_value=(True, 0.001))) as m:
+        _run(bench.grade("predicted", "gold", "q?", fake_row, backend="claude"))
+    _, kwargs = m.call_args
+    assert kwargs.get("max_retries") == 7
+
+
+def test_babyvision_grade_forwards_judge_max_retries_to_judge_answer():
+    bench = BabyVisionBenchmark(judge_spec=_HAIKU_SPEC, judge_max_retries=5)
+    fake_row = {"ansType": "blank"}
+    with patch("benchmarks.babyvision.judge_answer", new=AsyncMock(return_value=(False, 0.002))) as m:
+        _run(bench.grade("p", "g", "q?", fake_row, backend="claude"))
+    _, kwargs = m.call_args
+    assert kwargs.get("max_retries") == 5
+
+
+def test_rbenchv_grade_forwards_judge_max_retries_to_judge_answer():
+    bench = RBenchVBenchmark(judge_spec=_HAIKU_SPEC, judge_max_retries=4)
+    fake_row = {}
+    with patch("benchmarks.rbenchv.judge_answer", new=AsyncMock(return_value=(True, 0.003))) as m:
+        _run(bench.grade("p", "g", "q?", fake_row, backend="claude"))
+    _, kwargs = m.call_args
+    assert kwargs.get("max_retries") == 4

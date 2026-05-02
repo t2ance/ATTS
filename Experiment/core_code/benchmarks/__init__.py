@@ -32,6 +32,10 @@ BENCHMARKS: dict[str, type[BenchmarkConfig]] = {
 }
 
 
-def get_benchmark(name: str, judge_spec: dict | None = None) -> BenchmarkConfig:
+def get_benchmark(
+    name: str,
+    judge_spec: dict | None = None,
+    judge_max_retries: int = 3,
+) -> BenchmarkConfig:
     assert name in BENCHMARKS, f"Unknown benchmark: {name!r}. Available: {list(BENCHMARKS)}"
-    return BENCHMARKS[name](judge_spec=judge_spec)
+    return BENCHMARKS[name](judge_spec=judge_spec, judge_max_retries=judge_max_retries)

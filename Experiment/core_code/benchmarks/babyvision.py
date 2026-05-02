@@ -101,6 +101,8 @@ If you cannot solve it exactly, give your best estimate and set confidence accor
         if row.get("ansType") == "choice":
             return check_answer(predicted, gold, "multipleChoice"), 0.0
         return await judge_answer(
-            predicted, gold, question, self.judge_spec, out_dir=out_dir,
+            predicted, gold, question, self.judge_spec,
+            max_retries=self.judge_max_retries,
+            out_dir=out_dir,
         )
 

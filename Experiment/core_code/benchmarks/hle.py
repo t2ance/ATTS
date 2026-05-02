@@ -155,6 +155,8 @@ class HLEBenchmark(BenchmarkConfig):
         # `backend` (orchestrator backend) is intentionally ignored here: the
         # judge backend lives entirely in self.judge_spec["name"] per YAML.
         return await judge_answer(
-            predicted, gold, question, self.judge_spec, out_dir=out_dir,
+            predicted, gold, question, self.judge_spec,
+            max_retries=self.judge_max_retries,
+            out_dir=out_dir,
         )
 

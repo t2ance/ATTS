@@ -47,6 +47,13 @@ class EvalConfig(BaseModel):
 
     num_workers: int = 1
 
+    # Judge retry budget for LLM-based grading. Operational knob, not part of
+    # judge identity (find_cached_judge cache key uses only judge_spec dict).
+    # Default 3 — applies to claude/codex/vllm judges; rule-based grading
+    # paths (LCB code exec, GPQA mc, AIME exact match) bypass judge_answer
+    # and are unaffected. Bumping this does NOT invalidate cached bundles.
+    judge_max_retries: int = 3
+
     # Run state
     verbose: bool = False
     resume: str | None = None
@@ -683,7 +690,11 @@ async def async_main() -> None:
     # `judge:`; the remaining benchmarks return judge_spec=None.
     bench_dump = cfg.benchmark.model_dump()
     judge_spec = bench_dump.pop("judge", None)
-    benchmark = get_benchmark(cfg.benchmark.name, judge_spec=judge_spec)
+    benchmark = get_benchmark(
+        cfg.benchmark.name,
+        judge_spec=judge_spec,
+        judge_max_retries=cfg.judge_max_retries,
+    )
     bench_filters = cfg.benchmark.model_dump(exclude={"name", "judge"}, exclude_defaults=True)
 
     method = get_method(cfg.method.name)

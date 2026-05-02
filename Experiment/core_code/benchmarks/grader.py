@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import json
 import re
 from pathlib import Path
@@ -58,13 +57,24 @@ def check_answer(predicted: str, gold: str, answer_type: str) -> bool:
 
 
 _JUDGE_BASE = """\
-Judge whether the following [response] to [question] is correct based on the [correct_answer].
-CRITICAL RULE: DO NOT SOLVE THE PROBLEM BY YOURSELF. YOUR ONLY GOAL IS TO CHECK WHETHER THE ANSWER IS EQUIVALENT TO THE GOLD UNDER THE SPECIFIC QUESTION. YOU ARE LIKELY TO GIVE IT A FALSE IF THE ANSWER IS EMPTY.
+You are an answer-comparator, NOT a problem-solver. The [correct_answer] is GIVEN to you as ground truth. Your only job is to compare [response] against [correct_answer].
 
-Your judgement must follow these criteria:
-- extracted_final_answer: The final exact answer extracted from the [response]. Put "None" if there is no exact final answer to extract.
-- reasoning: Explain why the extracted answer is correct or incorrect based on [correct_answer]. Focus only on whether there are meaningful differences. Do not comment on background, do not argue for any answer different than [correct_answer].
-- correct: true if extracted_final_answer matches [correct_answer], or is within a small margin of error for numerical problems. Consider mathematical equivalence (1/2 = 0.5), notation differences (LaTeX vs Unicode), and formatting differences that don't change meaning. false otherwise."""
+ABSOLUTE RULES (violating any of these is failure):
+1. DO NOT solve the problem yourself. Do NOT re-derive, recompute, or reason about the problem domain.
+2. DO NOT enumerate cases, run through subproblems, or expand the [correct_answer]'s logic. The [correct_answer] is correct by definition; treat it as a fixed string/number/expression to compare against.
+3. Your reasoning must be a direct comparison: take [extracted_final_answer], take [correct_answer], state whether they are equivalent (allowing notation / formatting / mathematical-equivalence differences). Nothing else.
+4. Reasoning MUST be at most 2 short sentences. If you find yourself writing more than 2 sentences, you are violating rule 1.
+5. If [response] has no extractable final answer, set extracted_final_answer="None" and correct=false.
+
+GOOD reasoning examples (do this):
+- "Extracted '1/2' equals correct_answer '0.5' (mathematical equivalence). Match."
+- "Extracted 'A' does not equal correct_answer 'C'. No match."
+- "Extracted '5' does not equal correct_answer '4'. No match."
+
+BAD reasoning examples (NEVER do this):
+- "Let's verify: torus is homogeneous so 1 class, sphere is homogeneous so 1 class..." (re-deriving)
+- "Actually let me reconsider whether 1+1=2 in this ring..." (recomputing)
+- Any chain-of-thought that does NOT explicitly cite [correct_answer]'s value in the first sentence."""
 
 JUDGE_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -94,17 +104,24 @@ def _get_judge_system_prompt(backend: str) -> str:
 
 async def judge_answer(
     predicted: str, gold: str, question: str, judge_spec: dict,
+    *,
+    max_retries: int,
     out_dir: Path | None = None,
 ) -> tuple[bool, float]:
     """Use an LLM to judge if predicted answer matches gold. Returns (correct, cost_usd).
+
+    Retries up to `max_retries` times if the judge returns an invalid verdict
+    (timed_out or parse_failed). max_retries is required (no default) — the
+    caller (BenchmarkConfig subclass) supplies it from EvalConfig.judge_max_retries.
+    All attempts' costs are summed into the returned cost. After all retries
+    exhaust, raises RuntimeError — never silently judges as incorrect.
 
     judge_spec carries `name` (backend: claude/codex/vllm), `model`, and an
     optional `sampling` block (vllm only). When out_dir is set, the bundle
     written there contains:
       - config.json   (full judge_spec dump; identity source-of-truth)
-      - input.md      (judge prompt, written by TrajectoryWriter via call_sub_model)
-      - output.md     (judge raw output, same)
-      - result.json   (judge structured verdict, written by save_sub_model_result)
+      - output.md     (judge raw output of the successful attempt)
+      - result.json   (judge structured verdict of the successful attempt)
     """
     backend = judge_spec["name"]
     model = judge_spec["model"]
@@ -115,8 +132,11 @@ async def judge_answer(
         f"[response]: {predicted}\n"
         f"[correct_answer]: {gold}"
     )
-    writer = TrajectoryWriter.create_simple(out_dir / "output.md") if out_dir else TrajectoryWriter.noop()
-    try:
+    total_cost = 0.0
+    last_result: dict = {}
+    last_trajectory = ""
+    last_usage: dict = {}
+    for attempt in range(1, max_retries + 1):
         result, trajectory_text, cost_usd, usage = await call_sub_model(
             backend=backend,
             system_prompt=judge_prompt,
@@ -124,12 +144,19 @@ async def judge_answer(
             image_data_url=None,
             model=model,
             output_schema=JUDGE_SCHEMA,
-            writer=writer,
+            writer=TrajectoryWriter.noop(),
             sampling=sampling,
         )
-    except asyncio.TimeoutError:
-        print(f"  [judge] SDK timeout after all retries -- treating as incorrect")
-        return False, 0.0
+        total_cost += cost_usd
+        last_result, last_trajectory, last_usage = result, trajectory_text, usage
+        if not (result.get("timed_out") or result.get("parse_failed")):
+            break
+        print(
+            f"  [judge] attempt {attempt}/{max_retries} invalid "
+            f"(timed_out={result.get('timed_out')}, parse_failed={result.get('parse_failed')}, "
+            f"finish_reason={result.get('finish_reason')})"
+            + (" -- retrying" if attempt < max_retries else " -- giving up")
+        )
     if out_dir is not None:
         out_dir.mkdir(parents=True, exist_ok=True)
         # config.json is the identity source-of-truth for find_cached_judge.
@@ -138,19 +165,25 @@ async def judge_answer(
             json.dumps(judge_spec, indent=2, sort_keys=True, ensure_ascii=False),
             encoding="utf-8",
         )
+        (out_dir / "output.md").write_text(last_trajectory, encoding="utf-8")
         save_sub_model_result(
             out_dir=out_dir,
-            result=result,
-            trajectory_text=trajectory_text,
-            cost_usd=cost_usd,
-            usage=usage,
+            result=last_result,
+            trajectory_text=last_trajectory,
+            cost_usd=total_cost,
+            usage=last_usage,
             duration_seconds=0.0,
             model=model,
         )
-    if result.get("timed_out"):
-        print(f"  [judge] timed out -- treating as incorrect")
-        return False, 0.0
-    return result["correct"], cost_usd
+    if last_result.get("timed_out") or last_result.get("parse_failed"):
+        raise RuntimeError(
+            f"judge_answer: {max_retries} attempts all returned invalid verdict "
+            f"(timed_out={last_result.get('timed_out')}, parse_failed={last_result.get('parse_failed')}, "
+            f"finish_reason={last_result.get('finish_reason')}). "
+            f"Backend={backend} model={model}. Refuse to silently judge as incorrect — "
+            f"tighten judge prompt or sampling (e.g. shrink max_tokens, disable thinking) and retry."
+        )
+    return last_result["correct"], total_cost
 
 
 async def grade_answer(

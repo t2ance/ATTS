@@ -89,6 +89,8 @@ If you cannot solve it exactly, give your best estimate and set confidence accor
 
     async def grade(self, predicted, gold, question, row, backend, out_dir=None):
         return await judge_answer(
-            predicted, gold, question, self.judge_spec, out_dir=out_dir,
+            predicted, gold, question, self.judge_spec,
+            max_retries=self.judge_max_retries,
+            out_dir=out_dir,
         )
 

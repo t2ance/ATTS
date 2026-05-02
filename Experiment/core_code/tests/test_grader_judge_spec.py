@@ -70,7 +70,7 @@ def test_judge_answer_writes_config_json(tmp_path):
     fake_call_sub_model = AsyncMock(return_value=(fake_result, "trajectory text", 0.001, {}))
     with patch("benchmarks.grader.call_sub_model", new=fake_call_sub_model):
         is_correct, cost = _run(judge_answer(
-            "x", "y", "q", spec, out_dir=tmp_path,
+            "x", "y", "q", spec, max_retries=3, out_dir=tmp_path,
         ))
     assert is_correct is True
     config_path = tmp_path / "config.json"
@@ -86,7 +86,7 @@ def test_judge_answer_routes_backend_from_spec_name(tmp_path):
     fake_result = {"correct": False, "extracted_final_answer": "", "reasoning": ""}
     fake_call_sub_model = AsyncMock(return_value=(fake_result, "tt", 0.0, {}))
     with patch("benchmarks.grader.call_sub_model", new=fake_call_sub_model):
-        _run(judge_answer("x", "y", "q", spec, out_dir=tmp_path))
+        _run(judge_answer("x", "y", "q", spec, max_retries=3, out_dir=tmp_path))
     _, call_kwargs = fake_call_sub_model.call_args
     assert call_kwargs["backend"] == "vllm"
     assert call_kwargs["model"] == "qwen36-35b-a3b-fp8"
