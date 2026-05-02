@@ -4,14 +4,16 @@ benchmark:
     name: claude
     model: claude-haiku-4-5-20251001
 backend: vllm
-# Explorer = orchestrator: same Qwen3.6-35B-A3B-FP8 alias on :8000-:8002.
-# See hle_qwen36_35b_a3b_precache.yaml for the `_exp_orch` arm rationale.
+# Explorer = orchestrator: same Qwen3.6-35B-A3B-FP8 alias served as a single
+# DP=4 endpoint on :8000 (vllm fans out to 4 GPU workers internally). See
+# hle_qwen36_35b_a3b_precache.yaml for the `_exp_orch` arm rationale.
 explore_model: qwen36-35b-a3b-fp8
 cache_dir: ../analysis/cache/babyvision/qwen36_35b_a3b_fp8
 num_explores: 8
-# 128 across 3 replicas (~43 in-flight each). BabyVision is image-conditioned;
-# vLLM image preprocessing adds CPU overhead per request, but throughput is
-# still compute-bound on 35B-A3B FP8 decode, not preprocessing.
+# 128 client-side asyncio tasks. Under DP=4 vllm queues to ~5-6 in-flight per
+# worker (KV-cache bound for 128K-context); the rest queue. BabyVision is
+# image-conditioned so vit + mm-encoder add CPU overhead per request, but
+# throughput is still memory-bandwidth-bound on 35B-A3B FP8 decode.
 num_workers: 128
 seed: 42
 # MUST match babyvision_qwen36_35b_a3b_exp_orch.yaml.sampling exactly.
