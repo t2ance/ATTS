@@ -1,0 +1,29 @@
+benchmark:
+  name: babyvision
+  judge:
+    name: vllm
+    model: gemma4-26b-a4b-it
+    sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
+      enable_thinking: true
+      max_tokens: 1024
+method:
+  name: tts-agent
+  backend:
+    name: vllm
+  explore_model: gemma4-26b-a4b-it
+  orchestrator_model: gemma4-26b-a4b-it
+  cache_dir: ../analysis/cache/babyvision/gemma4_26b_a4b_it
+  no_integrate: true
+  num_explores: 8
+  sampling:
+    temperature: 1.0
+    top_p: 0.95
+    top_k: 64
+    enable_thinking: true
+    max_tokens: 20000
+num_workers: 128
+seed: 42
+log_dir: ../analysis/run/babyvision/gemma4_26b_a4b_it_gemma_exp_orch

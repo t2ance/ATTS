@@ -1,0 +1,53 @@
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+  # Judge = Gemma-4 served via vLLM (matches exp_orch judge for apples-to-apples
+  # comparison + judge cache reuse).
+  judge:
+    name: vllm
+    model: gemma4-26b-a4b-it
+    sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
+      # enable_thinking=false (judge prompt forbids re-derivation, caps at 2
+      # sentences). Set 2026-05-02 after thinking-mode overflow crash.
+      enable_thinking: false
+      # max_tokens=4096: ample headroom for "extracted_final_answer + reasoning
+      # + correct" JSON. With enable_thinking=false this is a safe ceiling.
+      max_tokens: 4096
+method:
+  name: tts-agent
+  backend:
+    name: vllm
+  # Variant B: Sonnet-cached explorer + Gemma orchestrator. Per
+  # todo_inf_gemma_B_sonnet_orch.md Phase 2 item 07. Smoke (num=2) passed
+  # 2026-05-03 05:05: Gemma emits structured tool_calls, cache reads zero
+  # miss, $0 real API charge.
+  explore_model: claude-sonnet-4-6
+  orchestrator_model: gemma4-26b-a4b-it
+  # cache_dir: read-only Sonnet cache populated by prior Sonnet runs that
+  # produced tab:main-results. 100 qids x 8 explores intact 2026-05-03.
+  cache_dir: ../analysis/cache/hle/sonnet/gold
+  # cache_only is hardcoded True at TTSAgentMethod class level
+  # (methods/registry.py:94), enforced by pre_flight_check + the cache_only
+  # branch in methods/base.py:285. No YAML field needed.
+  no_integrate: true
+  num_explores: 8
+  sampling:
+    temperature: 1.0
+    top_p: 0.95
+    top_k: 64
+    enable_thinking: true
+    # max_tokens=32768: matches Qwen archetype + exp_orch. Variant B uses same
+    # value to keep orchestrator behavior identical between variants.
+    max_tokens: 32768
+num: 100
+# num_workers=16 (override of exp_orch default 128): Gemma DP=1 serve has
+# max_num_batched_tokens=8192 + max_model_len=65536; 128 concurrent in-flight
+# requests would oversubscribe the KV pool and trigger preemption. 16 is
+# conservative; can scale up after first 100Q wall-time observation.
+num_workers: 16
+seed: 42
+log_dir: ../analysis/run/hle/gemma4_26b_a4b_it_sonnet_orch

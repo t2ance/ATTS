@@ -186,8 +186,18 @@ def save_sub_model_result(
         "duration_seconds": duration_seconds,
         "model": model,
     }
+    # errors="surrogatepass" tolerates lone UTF-16 surrogate codepoints
+    # (e.g. \udcba) that some backends emit through token decode quirks.
+    # Without this, write_text raises `UnicodeEncodeError: 'utf-8' codec
+    # can't encode character '\udcba' ... surrogates not allowed` and aborts
+    # mid-precache. Observed 2026-05-03 on gpt-oss-20b HLE precache after 88
+    # successful writes; the lone surrogate came from a tool_call argument
+    # string in the trajectory. WTF-8 serialization (PEP 383) round-trips
+    # the byte exactly so any later reader sees the same string.
     (out_dir / "result.json").write_text(
-        json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8"
+        json.dumps(payload, indent=2, ensure_ascii=False),
+        encoding="utf-8",
+        errors="surrogatepass",
     )
 
 

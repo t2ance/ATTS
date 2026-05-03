@@ -23,8 +23,11 @@ sampling:
   presence_penalty: 1.5
   repetition_penalty: 1.0
   enable_thinking: true
-  # max_tokens=65536: code-generation explores need long output budget.
-  # Mirrors the LCB orchestrator yaml; the orchestrator was bumped 32K→65K
-  # because 14/175 LCB questions hit the 32K cap on long-code problems
-  # (run_20260501_042951). Same bump applied to the explorer for parity.
-  max_tokens: 65536
+  # max_tokens=60000: vllm enforces max_input = max-model-len - max_tokens.
+  # With max-model-len=65536 (set 2026-05-02), max_tokens=65536 leaves 0
+  # input budget which crashes every call. 60000 leaves 5536 input headroom,
+  # plenty for precache single-turn inputs (input p50 = 570 tokens, p99
+  # likely < 2K). Real generation observed on LCB: max=13754, p99=10350,
+  # so 60K is wildly above need; this knob is set near-ceiling on purpose
+  # to match the matched-budget design (see serve_qwen36_35b_a3b_dp4.sh).
+  max_tokens: 60000

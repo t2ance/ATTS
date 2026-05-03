@@ -1,0 +1,48 @@
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+  # Judge = gpt-oss-20b served via vLLM on port 8001 (DP=2 on GPU 2+3).
+  # Same model as orchestrator/explorer — single-model self-consistency setup.
+  judge:
+    name: vllm
+    model: gptoss-20b
+    sampling:
+      temperature: 1.0
+      top_p: 1.0
+      # max_tokens=4096: judge prompt caps reasoning at 2 sentences and forbids
+      # re-derivation (per benchmarks/base.py::_JUDGE_BASE). 4096 is generous
+      # for the JSON `{extracted_final_answer, reasoning, correct}` output.
+      # NOTE: gpt-oss harmony reasoning channel is built-in; for judge we want
+      # it minimal. If finish_reason=length appears post-launch, pin
+      # extra_body.reasoning={"effort":"low"} via SamplingConfig (todo Phase 4).
+      max_tokens: 4096
+backend: vllm
+explore_model: gptoss-20b
+# Cache dir: fresh per-model namespace so explore-cache key matches model id;
+# do NOT reuse Qwen / Gemma cache (different (model, sampling, prompt) → diff
+# cache key by design). Auto-skip via precache_explores.py:89 file-existence.
+cache_dir: ../analysis/cache/hle/gptoss20b/gold
+num_explores: 8
+# num=100 caps to first 100 questions (matches gemma + qwen baseline). Without
+# this, HLE-gold-text-only is 668 questions = 5344 tasks; eval reads only 100.
+num: 100
+# num_workers=64 (override default 128 / gemma's 128): gpt-oss DP=2 on GPU 2+3
+# has 17.38x nominal concurrency per replica → 34.76x total. 64 client workers
+# leaves 2× headroom over server concurrency, prevents queue starvation.
+num_workers: 64
+seed: 42
+# explore_timeout=1200s (matches Qwen + Gemma archetype). gpt-oss harmony
+# reasoning is faster than Gemma's natural thinking but max_tokens=60000 still
+# bounds wall-time; 1200s gives 50 tok/s × 1200s = 60K margin.
+explore_timeout: 1200.0
+sampling:
+  # gpt-oss harmony defaults per OpenAI recipe: T=1.0, top_p=1.0
+  # (no top_p truncation; harmony format does its own constraint internally).
+  # NOT top_k=64 (Gemma-specific) — gpt-oss training did not use top_k filtering.
+  temperature: 1.0
+  top_p: 1.0
+  # max_tokens=60000 — matches Gemma/Qwen precache budget. gpt-oss with reasoning
+  # effort=medium can produce long chains-of-thought; 60K is the conservative
+  # ceiling that fits within max-model-len=131072 (header room for input).
+  max_tokens: 60000

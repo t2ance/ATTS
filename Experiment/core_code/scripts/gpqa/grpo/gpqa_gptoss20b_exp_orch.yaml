@@ -1,0 +1,21 @@
+benchmark:
+  name: gpqa
+  # GPQA grades by multipleChoice string match; GPQASpec rejects judge field
+  # via extra: forbid. No judge block, by design.
+method:
+  name: tts-agent
+  backend:
+    name: vllm
+  explore_model: gptoss-20b
+  orchestrator_model: gptoss-20b
+  cache_dir: ../analysis/cache/gpqa/gptoss20b
+  no_integrate: true
+  num_explores: 8
+  sampling:
+    temperature: 1.0
+    top_p: 1.0
+    # max_tokens=32768: matches Qwen archetype for paper-row comparability.
+    max_tokens: 32768
+num_workers: 64
+seed: 42
+log_dir: ../analysis/run/gpqa/gptoss20b_gptoss_exp_orch

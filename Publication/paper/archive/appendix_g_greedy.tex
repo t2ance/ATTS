@@ -1,0 +1,49 @@
+% Appendix G: greedy-decoding rows + greedy-only paragraphs.
+% Removed from main.tex on 2026-05-03 because the greedy results were not
+% load-bearing under the new "open-weights orchestrator reference" framing.
+% Preserved verbatim here in case the greedy/thinking comparison is needed
+% in a future revision.
+%
+% To re-include in main.tex, restore:
+%   1. The Decoding column in the tabular header (`l l l r r r r r`).
+%   2. The 3 greedy table rows (greedy HLE/GPQA/LCB) above the thinking rows,
+%      separated from the thinking rows by \midrule.
+%   3. The greedy-related sentences in the caption (two-config setup +
+%      HLE judge-bug correction + BabyVision greedy-not-executed note).
+%   4. The two greedy analysis paragraphs ("Where the backbone helps and
+%      where it does not." and "LiveCodeBench is the most extreme case.").
+%   5. Restore the "Thinking-mode lifts" paragraph header (currently
+%      replaced with a non-comparative form in main.tex).
+%
+% Provenance of greedy data:
+%   _baseline variant on disk:
+%     hle/_baseline/run_20260430_210657   (48/100 raw -> 38.00 after manual
+%                                           10-row HLE judge re-grade).
+%     gpqa/_baseline/run_20260430_210820  (141/198 = 71.21).
+%     lcb/_baseline/run_20260430_211002   (77/175  = 44.00).
+
+% --- Table fragment (3 greedy rows). Insert above the thinking rows in the
+%     tabular environment and follow with \midrule before the thinking block. ---
+Qwen3.6-35B-A3B-FP8 & greedy   & HLE-Verified  & 100 & 48.00 & 38.00 & $-10.00$        & 1.38 \\
+Qwen3.6-35B-A3B-FP8 & greedy   & GPQA-Diamond  & 198 & 74.75 & 71.21 & $-3.54$         & 0.29 \\
+Qwen3.6-35B-A3B-FP8 & greedy   & LiveCodeBench & 175 & 77.14 & 44.00 & $-33.14$        & 0.12 \\
+
+% --- Caption fragments dropped from main.tex caption ---
+% (1) Decoding-config-comparison sentence:
+% Two decoding configurations are shown: \texttt{greedy} ($T{=}0$, default sampling) and \texttt{thinking} (Qwen3.6's recommended thinking-mode recipe with $T{=}1.0$, top-$p{=}0.95$, top-$k{=}20$, presence-penalty $1.5$, \texttt{enable\_thinking}{=}true, \texttt{max\_tokens}{=}32{,}768).
+%
+% (2) "Identical Pass@1 across rows" sentence (only meaningful with two configs):
+% it is identical across the two decoding rows of each benchmark because both read the same explorer cache.
+%
+% (3) HLE judge-bug correction note (greedy-specific):
+% The HLE-Verified \texttt{greedy} row reports judge-bug-corrected Acc.: $10$ rows in which the LLM judge graded an \emph{empty} \texttt{predicted\_answer} as correct (by deriving the answer from the question text alone) are reclassified as wrong, dropping raw Acc.\ from $48.00$ to $38.00$; the post-2026-04-30 judge prompt fix prevents this on future runs (the \texttt{thinking} HLE row needs no manual correction --- only $2$ empty rows, both correctly graded wrong). BabyVision is reported only for the \texttt{thinking} configuration (the \texttt{greedy} BabyVision run was not executed under this revision).
+
+% --- Body paragraph 1 (greedy-only analysis) ---
+\paragraph{Where the backbone helps and where it does not.} Under \texttt{greedy} decoding the Qwen orchestrator delivers a \emph{negative} Gain on every benchmark: $-10.00$ on HLE-Verified, $-3.54$ on GPQA-Diamond, and $-33.14$ on LiveCodeBench. Prompting alone does not raise final accuracy above the first cached candidate. The HLE row in Table~\ref{tab:qwen36-baseline} is the judge-bug-corrected number: of the $32$ HLE questions on which the orchestrator returned an empty \texttt{predicted\_answer}, the LLM judge erroneously graded $10$ as correct by independently deriving an answer from the question text alone. Reclassifying those $10$ rows as wrong drops raw Acc.\ from $48.00$ to $38.00$ and Gain from $0.00$ to $-10.00$. The post-2026-04-30 judge-prompt patch (an explicit rule that empty predictions must be graded as incorrect) prevents this on future evaluations, so subsequent re-runs with the patched judge will not require this manual correction. GPQA uses option-letter regex matching with no LLM judge and is therefore unaffected.
+
+% --- Body paragraph 2 (greedy LiveCodeBench bypass diagnosis) ---
+LiveCodeBench is the most extreme case: $-33.14$ Gain. Trajectory inspection shows that on $48\%$ of LiveCodeBench questions the Qwen orchestrator emits free-form chain-of-thought text without ever issuing the \texttt{explore} tool call, terminating before a single Sonnet candidate is consumed (we record this in the per-question \texttt{exit\_reason} field as \texttt{incomplete}). On those questions the final \texttt{predicted\_answer} is empty and the question is graded as wrong, regardless of how good the cached candidates are. The headline failure mode here is that, with no exposure to the orchestration interface during pre-training, the backbone defaults to direct problem-solving on code-generation prompts and bypasses its tool affordances. On HLE-Verified and GPQA the bypass is less severe but the orchestrator still fails to lift Acc.\ above the cache's first candidate.
+
+% --- Original "Thinking-mode lifts" paragraph (kept the comparative numbers
+%     against greedy; main.tex now has a non-comparative replacement) ---
+\paragraph{Thinking-mode lifts the orchestrator into a useful regime.} Switching the same backbone from \texttt{greedy} to Qwen3.6's \texttt{thinking} decoding recipe (lower half of Table~\ref{tab:qwen36-baseline}) raises Gain on every benchmark: $-10.00 \rightarrow +8.00$ on HLE-Verified, $-3.54 \rightarrow +8.58$ on GPQA-Diamond, and $-33.14 \rightarrow -0.57$ on LiveCodeBench. On HLE and GPQA the thinking variant moves Gain into positive territory; on LiveCodeBench it recovers parity with the first cached Sonnet candidate but does not exceed it. The dominant mechanism on LiveCodeBench is bypass repair: empty-prediction rate drops from $52.6\%$ ($92/175$) to $8.6\%$ ($15/175$), recovering most of the $33$-point Acc.\ gap. The residual $8.6\%$ empty rate under thinking is a decode-budget long-tail rather than the original schema-bypass bug --- on the hardest problems the orchestrator generates many internal reasoning tokens before emitting any structured output and exhausts the $32{,}768$-token decode budget, so trajectories terminate without a final \texttt{StructuredOutput} call. A separate transport-level guard prevents these long-tail trajectories from crashing the run: when the orchestrator requests an explore call beyond the precache size of $T{=}8$, the dispatcher returns a quota-exhausted message instead of raising a cache-miss assertion. The pattern shows that a sampling-recipe change alone is sufficient to repair the most catastrophic failure mode (the LiveCodeBench tool-call bypass), but achieving \emph{positive} Gain on a code benchmark --- the orchestrator beating the first cached Sonnet candidate rather than matching it --- remains an open question for an open-weights orchestrator under prompting alone.

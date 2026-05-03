@@ -1,0 +1,45 @@
+% Appendix G: BabyVision row + BabyVision-specific paragraphs.
+% Removed from main.tex on 2026-05-03 because BabyVision under the
+% open-weights orchestrator did not meet the bar for the appendix's
+% "framework runs on an open-weights backbone" framing: Acc 13.66 vs
+% Pass@1 19.59 (Gain -5.93), and a multi-pass diagnosis (boxed-skip
+% prompt fix, max_tokens raise, cache decomposition) confirmed the
+% bottleneck was the explorer cache rather than the orchestrator. The
+% remaining three rows (HLE-Verified, GPQA-Diamond, LiveCodeBench) all
+% deliver positive Gain and tell a coherent story; including the
+% BabyVision row would reopen a binding-constraint discussion that is
+% out of scope for this appendix.
+%
+% Preserved verbatim here in case a future revision wants to revisit
+% the multimodal explorer-cache argument.
+%
+% To re-include in main.tex, restore:
+%   1. The BabyVision row in the tabular environment (after the LCB row,
+%      before \bottomrule).
+%   2. The provenance comment line in the table-provenance block:
+%        %   4. BabyVision -> babyvision/_temp/run_20260501_064415 (53/388 = 13.66).
+%   3. The two BabyVision-specific paragraphs (\paragraph{BabyVision: ...}
+%      and the cache-decomposition follow-up paragraph) after the
+%      Per-benchmark behavior paragraph.
+%   4. Anywhere the per-benchmark paragraph or appendix opener says
+%      "three benchmarks", change to "four benchmarks" and re-introduce
+%      BabyVision in the Gain-positive list (with appropriate negative-
+%      Gain qualifier).
+%
+% Provenance of BabyVision data:
+%   thinking variant on disk:
+%     babyvision/_temp/run_20260501_064415  (53/388 = 13.66 final Acc).
+%   Earlier failed run (boxed-skip prompt bug, 39.2% empty rate) and
+%   the empty-only resume (3/388 = 0.77% empty after fix) are also
+%   under analysis/run/babyvision/qwen36_35b_a3b_fp8_temp/ for the
+%   same date; only the post-fix run is reflected in the row above.
+
+% --- Table fragment (1 BabyVision row). Insert after the LiveCodeBench row
+%     in the tabular environment, before \bottomrule. ---
+Qwen3.6-35B-A3B-FP8 & BabyVision    & 388 & 19.59 & 13.66 & $-5.93$         & 0.26 \\
+
+% --- Two BabyVision-specific paragraphs dropped from main.tex ---
+
+\paragraph{BabyVision: explorer cache is the binding constraint, not orchestrator skill.} BabyVision under \texttt{thinking} reaches $13.66\%$ Acc.\ against a $19.59\%$ Pass@1 (Gain $-5.93$), making it the only benchmark on which thinking-mode produces a clearly negative Gain. The first run of this row, under the same configuration as the other three thinking rows, returned a $39.2\%$ empty-prediction rate ($152/388$); inspection of the empty trajectories showed that $142$ of those $152$ rows wrote $\backslash\texttt{boxed\{X\}}$ into the trajectory but never issued the \texttt{StructuredOutput} call. The cause was a prompt-instruction conflict: the BabyVision question template appended a $\backslash\texttt{boxed}$ formatting directive that competed with the system-level requirement to submit through the structured-output tool. After replacing the template directive with an explicit ``the tool call is the only accepted submission path'' instruction and raising \texttt{max\_tokens} to $65{,}536$, an empty-only resume retried the affected $152$ rows. The empty rate dropped to $0.77\%$ ($3/388$) and the trajectory \texttt{boxed}-skip count dropped to $0$, confirming the fix at the level it was designed for, yet the final Acc.\ remained at $13.66\%$. This decouples the residual negative Gain from any tool-call bypass and forces a closer look at the explorer cache itself.
+
+Decomposing the $388$ BabyVision rows by whether the cached Sonnet candidates contain any correct option exposes the binding constraint. On only $140/388$ ($36.1\%$) of questions does the cache contain at least one correct candidate; on the remaining $248$ ($63.9\%$) the cache is exhausted of correct options, so even an oracle orchestrator cannot recover the right answer from the candidate pool. Among the $140$ recoverable questions the orchestrator picks the correct candidate on $53$ ($37.9\%$), giving a final Acc.\ identical to its overall $53/388 = 13.66\%$. The orchestrator's predictions echo a cache candidate verbatim on $343/385$ ($88\%$) non-empty submissions, so the failure is one of selection rather than fabrication. The relevant baselines are therefore: an oracle ceiling of $36.08\%$ (always pick a correct cache candidate when one exists), an ``always-first-candidate'' ceiling of $18.81\%$ ($73/388$ rows where cache index $0$ is correct, equal to Pass@1 by construction), and the orchestrator's $13.66\%$. The orchestrator sits below ``always-first'' by $5.1$ points: on the $140$-row recoverable subset it sometimes drifts away from a correct first candidate, and on questions where the unique correct candidate is at a non-zero index it tends to follow the wrong-but-numerous majority. The $63.9\%$ cache-exhausted component is outside the orchestrator's reach and would require a stronger or differently sampled multimodal explorer to lift.

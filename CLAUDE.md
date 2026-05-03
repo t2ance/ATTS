@@ -4,6 +4,9 @@ For generic preferences (communication style, coding principles, monitoring, mod
 
 This file holds only the Explain-project-specific facts.
 
+## Writing
+Whenever having modified the main.tex, remember to use compile.sh to re-compile the source file to get the latest pdf.
+
 ## Local box GPU topology
 
 On this physical machine:

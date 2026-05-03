@@ -1,0 +1,18 @@
+benchmark:
+  name: gpqa
+backend: vllm
+explore_model: gemma4-26b-a4b-it
+cache_dir: ../analysis/cache/gpqa/gemma4_26b_a4b_it
+num_explores: 8
+num_workers: 192
+# explore_timeout=600 (10 min) overrides default 1200 (20 min). Mirrors Qwen
+# GPQA precache: GPQA Diamond's hard-tail thinking-mode generations were
+# blocking the queue; 600s caps tail, 6-7 of 8 explores still finish per Q.
+explore_timeout: 600.0
+seed: 42
+sampling:
+  temperature: 1.0
+  top_p: 0.95
+  top_k: 64
+  enable_thinking: true
+  max_tokens: 60000

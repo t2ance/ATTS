@@ -36,7 +36,22 @@ class SamplingConfig(BaseModel):
     presence_penalty: float | None = None
     repetition_penalty: float | None = None
     enable_thinking: bool | None = None
+    # Per-request cap on thinking tokens (vLLM PR #20859, ships in 0.20.0).
+    # Forces `<|/think|>` injection via logits processor when the cap is hit.
+    # Default None: unbounded thinking. Requires the serve to be started with
+    # top-level `--reasoning-parser <name>` (sets up vLLM's ReasoningConfig);
+    # putting `reasoning_parser` only inside `--structured-outputs-config` is
+    # NOT sufficient — see arg_utils.py:2332-2337 + input_processor.py:101-109
+    # which raises HTTP 400 "thinking_token_budget is set but reasoning_config
+    # is not configured" otherwise.
+    thinking_token_budget: int | None = None
     max_tokens: int | None = None
+    # Backend-side flag: when True, drop `response_format=json_schema` and
+    # inject the schema as text instructions in the user message; rely on
+    # the model's natural JSON-emission ability + post-hoc json.loads.
+    # Required for Gemma-4 (vllm#40080: xgrammar guided JSON triggers
+    # deterministic repetition loops). Read by backends/vllm.py:call_sub_model.
+    disable_response_format: bool | None = None
 
 
 class BackendConfig(BaseModel):

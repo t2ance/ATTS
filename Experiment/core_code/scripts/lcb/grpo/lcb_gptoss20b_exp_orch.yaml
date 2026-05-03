@@ -1,0 +1,24 @@
+benchmark:
+  name: lcb
+  # LCB grades via lcb_runner test execution; LCBSpec rejects judge via
+  # extra: forbid. No judge block, by design.
+method:
+  name: tts-agent
+  backend:
+    name: vllm
+  explore_model: gptoss-20b
+  orchestrator_model: gptoss-20b
+  cache_dir: ../analysis/cache/lcb/gptoss20b
+  no_integrate: true
+  num_explores: 8
+  sampling:
+    temperature: 1.0
+    top_p: 1.0
+    # max_tokens=20000: smaller than precache's 60000 because orchestrator
+    # context already carries 8 cached explore tool_responses, each up to
+    # ~10K tokens. 20000 leaves room for synthesis turn without truncation.
+    # Matches Gemma LCB exp_orch budget.
+    max_tokens: 20000
+num_workers: 64
+seed: 42
+log_dir: ../analysis/run/lcb/gptoss20b_gptoss_exp_orch

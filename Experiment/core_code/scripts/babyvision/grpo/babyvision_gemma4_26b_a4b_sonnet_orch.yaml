@@ -1,0 +1,37 @@
+benchmark:
+  name: babyvision
+  # Judge = Gemma-4 (matches exp_orch). BV judge fires only on blank-answer
+  # items; choice items use string match A-E.
+  judge:
+    name: vllm
+    model: gemma4-26b-a4b-it
+    sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
+      enable_thinking: true
+      max_tokens: 1024
+method:
+  name: tts-agent
+  backend:
+    name: vllm
+  # Variant B: Sonnet-cached explorer + Gemma orchestrator.
+  explore_model: claude-sonnet-4-6
+  orchestrator_model: gemma4-26b-a4b-it
+  cache_dir: ../analysis/cache/babyvision/sonnet
+  # cache_only hardcoded True at TTSAgentMethod (methods/registry.py:94).
+  no_integrate: true
+  num_explores: 8
+  sampling:
+    temperature: 1.0
+    top_p: 0.95
+    top_k: 64
+    enable_thinking: true
+    # max_tokens=20000: matches BV exp_orch (BV multimodal has shorter outputs
+    # than HLE; 20000 is the established headroom).
+    max_tokens: 20000
+num: 388
+# num_workers=16: Gemma DP=1 KV pool conservative default.
+num_workers: 16
+seed: 42
+log_dir: ../analysis/run/babyvision/gemma4_26b_a4b_it_sonnet_orch

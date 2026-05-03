@@ -1,0 +1,49 @@
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+  # judge identity must match the production yaml so cache reuse keys are
+  # equivalent if we later promote this smoke to production.
+  judge:
+    name: vllm
+    model: gemma4-26b-a4b-it
+    sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
+      enable_thinking: true
+      max_tokens: 1024
+backend: vllm
+explore_model: gemma4-26b-a4b-it
+# Separate cache_dir so the budget=15000 smoke does NOT contaminate the
+# production gemma4_26b_a4b_it/gold cache (which holds 75 useful + 249
+# timed_out result.json files from the no-budget run).
+cache_dir: ../analysis/cache/hle/gemma4_26b_a4b_it_budget15k_smoke/gold
+num_explores: 8
+# num=2 is intentional: only first 2 HLE-gold-text-only qids at seed=42 → 16
+# explores total. Goal is mechanism verification of thinking_token_budget on
+# the Gemma serve, NOT a quality measurement (that is Phase 4 with num=10).
+num: 2
+num_workers: 16
+seed: 42
+explore_timeout: 1200.0
+sampling:
+  temperature: 1.0
+  top_p: 0.95
+  top_k: 64
+  enable_thinking: true
+  # thinking_token_budget=15000 — the entire point of this smoke. vLLM PR
+  # #20859 (in 0.20.0) injects `<|/think|>` via a logits processor when the
+  # cap is hit, forcing the model to exit the thinking phase and start the
+  # post-think (JSON) output. Requires the serve to have been started with
+  # top-level `--reasoning-parser gemma4` (see
+  # serve_gemma4_26b_a4b_dp2.sh, edited 2026-05-03). PR explicitly tested on
+  # DeepSeek-R1 / Qwen3 / Nemotron-3; gemma4 parser was not in their matrix,
+  # so this smoke verifies max(output_tokens) ≤ ~16500 (15000 budget + ~1500
+  # post-think JSON headroom) on real HLE prompts. Selected 15000 because
+  # prior no-budget run had p99 ≈ 25K and median 11K; 15000 sits between
+  # median and p99, giving signal without crushing answer quality.
+  thinking_token_budget: 15000
+  # max_tokens=60000 stays unchanged from production: the budget caps thinking,
+  # not total output. Post-think JSON still gets full headroom.
+  max_tokens: 60000

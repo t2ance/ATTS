@@ -1,0 +1,18 @@
+benchmark:
+  name: gpqa
+backend: vllm
+explore_model: gptoss-20b
+cache_dir: ../analysis/cache/gpqa/gptoss20b
+num_explores: 8
+num_workers: 64
+# explore_timeout=600s (matches Qwen + Gemma GPQA precache): GPQA Diamond
+# hard-tail thinking-mode generations were blocking the queue; 600s caps tail,
+# 6-7 of 8 explores still finish per Q.
+explore_timeout: 600.0
+seed: 42
+sampling:
+  # gpt-oss harmony defaults: T=1.0, top_p=1.0; NO top_k (training did not
+  # use top_k filtering).
+  temperature: 1.0
+  top_p: 1.0
+  max_tokens: 60000

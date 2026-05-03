@@ -1,0 +1,29 @@
+benchmark:
+  name: gpqa
+  # GPQA grades by multipleChoice string match; GPQASpec rejects judge via
+  # extra: forbid. No judge block here, by design.
+method:
+  name: tts-agent
+  backend:
+    name: vllm
+  # Variant B: Sonnet-cached explorer + Gemma orchestrator.
+  explore_model: claude-sonnet-4-6
+  orchestrator_model: gemma4-26b-a4b-it
+  cache_dir: ../analysis/cache/gpqa/sonnet
+  # cache_only hardcoded True at TTSAgentMethod (methods/registry.py:94).
+  no_integrate: true
+  num_explores: 8
+  sampling:
+    temperature: 1.0
+    top_p: 0.95
+    top_k: 64
+    enable_thinking: true
+    # max_tokens=32768: matches Qwen archetype + exp_orch. Variant B keeps
+    # orchestrator config identical between variants.
+    max_tokens: 32768
+num: 198
+# num_workers=16: Gemma DP=1 KV pool conservative default; see HLE yaml
+# rationale.
+num_workers: 16
+seed: 42
+log_dir: ../analysis/run/gpqa/gemma4_26b_a4b_it_sonnet_orch

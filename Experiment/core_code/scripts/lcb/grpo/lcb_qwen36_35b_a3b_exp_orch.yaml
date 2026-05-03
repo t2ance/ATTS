@@ -17,9 +17,21 @@ method:
     presence_penalty: 1.5
     repetition_penalty: 1.0
     enable_thinking: true
-    max_tokens: 65536
+    # max_tokens=20000: orchestrator multi-turn input grows with each cached
+    # explore tool_response read (~3-5K per explore × up to 8). At 8 turns
+    # accumulated input can hit 30-40K. With max-model-len=65536, leaving
+    # max_tokens=20000 keeps max_input=45000 which absorbs all 8 explores.
+    # Per-call generation rarely exceeds 20K (LCB explorer p99=10350); when
+    # the orchestrator wants to write more, the soft-skip path will catch
+    # context overflow as a timed_out cache entry. Set 2026-05-02.
+    max_tokens: 20000
 # 128 client-side asyncio tasks. See gpqa_qwen36_35b_a3b_exp_orch.yaml for
 # the server cap math. User-directed 2026-05-02.
 num_workers: 128
 seed: 42
 log_dir: ../analysis/run/lcb/qwen36_35b_a3b_fp8_exp_orch
+# Resume: prior run completed 126/175 before httpcore.ReadTimeout crash
+# 2026-05-02 (vllm.py:42 timeout default 600s was too tight for max_tokens=
+# 65536 decode). Bumped client timeout to 1800s + max_tokens to 20000 since;
+# remaining 49 questions resume from this run dir, sharing run_config.
+resume: ../analysis/run/lcb/qwen36_35b_a3b_fp8_exp_orch/run_20260502_053910

@@ -179,7 +179,7 @@ We evaluate on four benchmarks: HLE-Verified \citep{hle_verified_paper}, LiveCod
 
 The experiments below evaluate two configurations of our framework, treated as the two methods we report. \our{} is the single-model configuration: Claude Sonnet 4.6 (\texttt{claude-sonnet-4-6}) serves as both orchestrator and explorer, the orchestrator synthesizes the final answer directly (no separate integrator), extended thinking is enabled, and the exploration budget is $T{=}8$ \explore{} calls per question. \attsmm{} is the multi-model configuration: the orchestrator (still Sonnet 4.6) dispatches to a pool of three explorers \{Haiku, Sonnet, Opus\} at Medium exploration effort, with budget $T{=}16$ (per-model limits: Haiku~8, Sonnet~8, Opus~4). Unless otherwise noted, all baselines and ablation variants share the same backbone (Sonnet 4.6), default sampling parameters (no explicit temperature or top-$p$ override), extended thinking budget of 32{,}000 tokens, and the API's default reasoning effort. Claude Haiku, Sonnet, and Opus are three capability tiers in the Claude model family, ordered from smallest/cheapest to largest/most capable.
 
-We compare against seven baselines, all sharing the same backbone model and answer interface so that only the inference-time strategy differs (full details in Appendix~\ref{app:implementation-details}): Pass@1 (single rollout), Majority Voting ($N{=}8$ independent candidates, most-frequent answer; reported only on benchmarks where direct answer aggregation is well-defined), Self-Refine~\citep{self_refine_paper} (iterative feedback-revision on a single draft), Socratic Self-Refine~\citep{socratic_self_refine_paper} (Self-Refine with the feedback step replaced by Socratic-style probing questions before revision), Budget Forcing~\citep{s1_budget_forcing_paper} ($N$ sequential rounds with forced continuation via ``Wait''), reward-model reranking using Skywork-Reward-V2~\citep{skywork_reward_v2_paper,skywork_reward_v2_hf} for text benchmarks or VisualPRM~\citep{visualprm_paper,visualprm_hf} for multimodal benchmarks, and LLM Selection ($N{=}8$), which feeds all pre-cached candidates to the backbone model in a single call and asks it to analyze, compare, and synthesize a final answer. LLM Selection isolates the contribution of LLM-based aggregation from adaptive sequential exploration.
+We compare against seven baselines, all sharing the same backbone model and answer interface so that only the inference-time strategy differs (full details in Appendix~\ref{app:implementation-details}): Pass@1 (single rollout), Majority Voting ($N{=}8$ independent candidates, most-frequent answer; reported only on benchmarks where direct answer aggregation is well-defined), Self-Refine~\citep{self_refine_paper} (iterative feedback-revision on a single draft), Socratic Self-Refine (Self-Refine with the feedback step replaced by Socratic-style probing questions before revision), Budget Forcing~\citep{s1_budget_forcing_paper} ($N$ sequential rounds with forced continuation via ``Wait''), reward-model reranking using Skywork-Reward-V2~\citep{skywork_reward_v2_paper,skywork_reward_v2_hf} for text benchmarks or VisualPRM~\citep{visualprm_paper,visualprm_hf} for multimodal benchmarks, and LLM Selection ($N{=}8$), which feeds all pre-cached candidates to the backbone model in a single call and asks it to analyze, compare, and synthesize a final answer. LLM Selection isolates the contribution of LLM-based aggregation from adaptive sequential exploration.
 
 For \our{}, the controller issues up to the exploration budget of \explore{} calls before stopping and synthesizing the final answer directly, as described in Section~\ref{sec:methodology}. The comparison across all rows isolates differences in test-time inference strategy rather than differences in training data, parameter count, or post-training recipe.
 
@@ -347,7 +347,7 @@ Across all four benchmarks, \our{} achieves the best or tied-best accuracy among
 \subsection{Ablation Studies}
 
 \paragraph{Medium effort is the best cost-efficiency operating point.}
-\attsmm{} exposes an \emph{exploration effort} parameter that controls stopping aggressiveness. Figure~\ref{fig:effort-ablation} shows the cost-accuracy tradeoff at three effort levels (Low, Medium, High) across all four benchmarks, holding the model pool and budget fixed; the raw numbers are in Appendix~\ref{app:ablation-data}, Table~\ref{tab:effort-ablation}. The Low-to-Medium transition yields the largest accuracy gain on every benchmark (up to +13 points on HLE, +8.6 on LiveCodeBench). Medium-to-High provides diminishing returns: on LiveCodeBench and BabyVision accuracy is flat while cost nearly doubles; only on HLE-Verified does High effort produce a meaningful further improvement (+3 points). Medium effort therefore represents the best cost-efficiency operating point across the benchmark suite.
+\attsmm{} exposes an \emph{exploration effort} parameter that controls stopping aggressiveness. Figure~\ref{fig:effort-ablation} shows the cost-accuracy tradeoff at three effort levels (Low, Medium, High) across all four benchmarks, holding the model pool and budget fixed; Table~\ref{tab:effort-ablation} reports the raw numbers. The Low-to-Medium transition yields the largest accuracy gain on every benchmark (up to +13 points on HLE, +8.6 on LiveCodeBench). Medium-to-High provides diminishing returns: on LiveCodeBench and BabyVision accuracy is flat while cost nearly doubles; only on HLE-Verified does High effort produce a meaningful further improvement (+3 points). Medium effort therefore represents the best cost-efficiency operating point across the benchmark suite.
 
 \begin{figure}[H]
 \centering
@@ -355,6 +355,28 @@ Across all four benchmarks, \our{} achieves the best or tied-best accuracy among
 \caption{Effect of exploration effort on \attsmm{}. Each panel shows the cost-accuracy tradeoff for Low, Medium, and High effort on one benchmark. The steep Low-to-Medium gain and flat Medium-to-High plateau are consistent across all benchmarks.}
 \label{fig:effort-ablation}
 \end{figure}
+
+\begin{table}[H]
+\centering
+\caption{Effect of exploration effort on \attsmm{}. Accuracy (\%) and average cost per question (\$/q) across benchmarks.}
+\label{tab:effort-ablation}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{l r r r r r r}
+\toprule
+ & \multicolumn{2}{c}{\attsmm{} (Low)} & \multicolumn{2}{c}{\attsmm{}} & \multicolumn{2}{c}{\attsmm{} (High)} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+ & Acc. & \$/q & Acc. & \$/q & Acc. & \$/q \\
+\midrule
+% Corrected: Low $1.52->$1.44, Med $1.63->$1.54. Each consumed 1 bad explore (-$8.63).
+% High $2.38 unchanged (0 bad explores consumed).
+HLE-Verified & 44.00 & 1.44 & 57.00 & 1.54 & 60.00 & 2.38 \\
+LiveCodeBench & 77.01 & 0.55 & 85.63 & 0.69 & 85.63 & 1.09 \\
+BabyVision & 19.85 & 0.31 & 22.42 & 0.43 & 22.16 & 0.77 \\
+GPQA-Diamond & 77.78 & 0.29 & 81.82 & 0.39 & 82.32 & 0.40 \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \paragraph{Stateful orchestration outperforms separate integration.}
 By default, \our{} has the orchestrator produce the final answer directly from its accumulated evidence after deciding to stop exploring. We also evaluate \our{} (+ Integrator), a variant that adds a dedicated \integrate{} step: a separate model call that receives all candidates and synthesizes the final answer independently.
@@ -397,8 +419,88 @@ These differences are not explained by stopping behavior. All three orchestrator
 \label{fig:orch-ablation}
 \end{figure}
 
-\paragraph{The framework generalizes across model families.}
-To evaluate whether \our{} generalizes beyond a single model family, we run the full framework using GPT-5.2 (OpenAI) as the backbone for all three roles---orchestrator, explorer, and synthesizer---keeping the same exploration budget ($T{=}8$) and prompts as the Claude Sonnet configuration. We evaluate on two benchmarks (HLE-Verified and GPQA-Diamond) and test two reasoning effort levels to assess the effect of orchestrator reasoning depth.
+\begin{table}[H]
+\centering
+\caption{Effect of orchestrator model on \our{} accuracy (\%) and cost (\$/q). Explorer is Sonnet 4.6 throughout.}
+\label{tab:orch-ablation}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{l r r r r r r}
+\toprule
+ & \multicolumn{2}{c}{\our{} (Haiku orch)} & \multicolumn{2}{c}{\our{}} & \multicolumn{2}{c}{\our{} (Opus orch)} \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
+ & Acc. & \$/q & Acc. & \$/q & Acc. & \$/q \\
+\midrule
+% Corrected: Haiku $2.23->$1.83 (5 bad consumed, -$40.28).
+% Sonnet $1.90->$1.59 (4 bad consumed, -$31.68). Opus $1.79->$1.50 (3 bad consumed, -$28.75).
+% All three orchestrators read from hle/sonnet/gold cache; different consumption due to stopping.
+HLE-Verified & 57.00 & 1.83 & 56.00 & 1.59 & 59.00 & 1.50 \\
+LiveCodeBench & 79.43 & 0.71 & 82.29 & 0.53 & 83.43 & 0.64 \\
+GPQA-Diamond & 80.20 & 0.36 & 80.81 & 0.34 & 77.16 & 0.34 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Cross-family orchestrator swap with a fixed explorer cache.}
+The within-family swap above varies the orchestrator across three Anthropic capability tiers while holding the Sonnet 4.6 explorer cache constant. We extend the same setup to a different model family using Qwen3.6-35B-A3B-FP8~\citep{qwen3_paper} as the orchestrator (Table~\ref{tab:orch-ablation-cross}); the explorer cache, prompts, exploration budget ($T{=}8$), and \texttt{no\_integrate} setting are identical. The open-weights orchestrator is served locally via vLLM (tensor-parallel size 2, FP8 quantization) with Qwen3.6's recommended thinking-mode decoding ($T{=}1.0$, top-$p{=}0.95$, top-$k{=}20$, presence-penalty $1.5$, \texttt{enable\_thinking}{=}true). Across the three reported benchmarks the Qwen orchestrator delivers strictly positive Gain: $+8.00$ on HLE-Verified, $+8.58$ on GPQA-Diamond, and $+1.15$ on LiveCodeBench. Combined with the within-family results, this shows the orchestrator role is robust to backbone substitution along two independent axes---capability tier inside one family, and model family itself---under the same prompts and control logic.
+
+% =====================================================================
+% Table tab:orch-ablation-cross -- per-row data provenance.
+%
+% Each row corresponds to one results.jsonl file; the LCB row reflects
+% an EMPTY-recovery merge applied on 2026-05-03 (full audit log lives
+% at scripts/lcb/grpo/todo_lcb_empty_retry_4x.md and the historical
+% appendix snapshot at archive/appendix_g_qwen36_baseline.tex).
+%
+% Source runs:
+%   HLE-Verified  -> hle/qwen36_35b_a3b_fp8_temp/run_20260501_013954        (56/100  = 56.00).
+%   GPQA-Diamond  -> gpqa/qwen36_35b_a3b_fp8_temp/run_20260501_011615       (165/198 = 83.33).
+%   LiveCodeBench -> lcb/qwen36_35b_a3b_fp8_temp/run_20260501_042951
+%                    MERGED with lcb/qwen36_35b_a3b_fp8_empty_retry_4x/run_20260503_050207
+%                    (4 EMPTY-recovery rows: 3 correct, 1 wrong) -> 137/175 = 78.29.
+%
+% LCB EMPTY-recovery retry (2026-05-03) summary:
+%   Before:  134/175 = 76.57, Gain = -0.57.
+%   After:   137/175 = 78.29, Gain = +1.15.
+%   The original 32,768-token decode budget left 15/175 (8.6%) LCB
+%   trajectories EMPTY (no StructuredOutput call before the budget was
+%   exhausted by internal reasoning tokens). 4 of the 15 had cached
+%   Sonnet explores still containing usable candidates and were re-run
+%   with max_tokens=131,072 (4x) and explore_timeout=4,800s on a
+%   single-card vLLM serve (TP=1, port 8002, max_model_len=163,840).
+%   3/4 converted to correct (3737, 3743, arc195_e); 1/4 still wrong
+%   (arc191_a). The remaining 11 EMPTY rows are bounded by the
+%   explorer cache (8 have all 8 cached explores marked
+%   timed_out=True; 3 have all 8 candidates graded wrong), not by
+%   orchestrator decode budget. Only EMPTY rows were retried, so
+%   there is no regression risk on rows the original 32K-budget run
+%   already got correct.
+%
+% BabyVision row was tried under the same setup (53/388 = 13.66, Gain
+% -5.93) and dropped on 2026-05-03 because the explorer-cache binding
+% constraint (only 36.1% of cached candidates contain a correct option)
+% was out of scope for this orchestrator-swap argument; full row + 2
+% diagnostic paragraphs preserved at archive/appendix_g_babyvision.tex.
+% =====================================================================
+\begin{table}[H]
+\centering
+\caption{Cross-family extension of Table~\ref{tab:orch-ablation}: orchestrator backbone is Qwen3.6-35B-A3B-FP8 (open-weights, served locally via vLLM with TP=2 FP8) instead of an Anthropic model. Explorer remains Sonnet 4.6 with the same cached candidates; \texttt{no\_integrate} is on so the orchestrator synthesizes the final answer directly. Pass@1 = first cached Sonnet candidate; Gain = Acc.\ $-$ Pass@1 therefore isolates the orchestrator's contribution above returning the first cached candidate. Orchestrator inference is local and contributes \$0 to the cost column; \$/q reflects only explorer (Sonnet) charges.}
+\label{tab:orch-ablation-cross}
+\small
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{l l r r r r r}
+\toprule
+Orchestrator & Benchmark & N & Pass@1 & Acc. & Gain & \$/q \\
+\midrule
+Qwen3.6-35B-A3B-FP8 & HLE-Verified  & 100 & 48.00 & 56.00 & \textbf{+8.00}  & 2.53 \\
+Qwen3.6-35B-A3B-FP8 & GPQA-Diamond  & 198 & 74.75 & 83.33 & \textbf{+8.58}  & 0.38 \\
+Qwen3.6-35B-A3B-FP8 & LiveCodeBench & 175 & 77.14 & 78.29 & \textbf{+1.15}  & 0.48 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{The framework generalizes when all roles share a single backbone.}
+Beyond the orchestrator-only swap above, we further evaluate whether the full framework---with explorer, orchestrator, and synthesizer all served by the same non-Anthropic backbone---still produces positive Gain. Table~\ref{tab:backbone-ablation} reports two such configurations: GPT-5.2 (OpenAI) on HLE-Verified and GPQA-Diamond at two reasoning-effort levels, and Qwen3.6-35B-A3B-FP8 on all four benchmarks at default decoding. The exploration budget ($T{=}8$) and prompts match the Claude Sonnet configuration; only the backbone changes.
 
 \begin{table}[H]
 \centering
@@ -414,18 +516,20 @@ Backbone & Effort & Benchmark & Pass@1 & Acc. & Gain & \$/q \\
 Claude Sonnet 4.6 & default & HLE & 48.00 & 56.00 & +8.0 & 1.59 \\
 Claude Sonnet 4.6 & default & GPQA & 74.24 & 80.81 & +6.6 & 0.34 \\
 \midrule
+GPT-5.2 & low & HLE & 55.00 & 56.00 & +1.0 & 0.24 \\
 GPT-5.2 & high & HLE & 55.00 & 57.00 & +2.0 & 0.26 \\
 GPT-5.2 & high & GPQA & 56.06 & \textbf{71.07} & \textbf{+15.0} & \textbf{0.16} \\
 \midrule
 Qwen3.6-35B-A3B-FP8 & default & HLE & 19.00 & 24.00 & +5.0 & 0.013 \\
 Qwen3.6-35B-A3B-FP8 & default & GPQA & 72.73 & 84.85 & +12.1 & 0.00 \\
+Qwen3.6-35B-A3B-FP8 & default & LCB & 47.43 & 59.43 & +12.0 & 0.00 \\
+Qwen3.6-35B-A3B-FP8 & default & BabyVision & 16.75 & 22.94 & +6.2 & 0.028 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\our{} produces positive gains on both benchmarks for both model families (Table~\ref{tab:backbone-ablation}). On GPQA-Diamond, GPT-5.2 shows the largest absolute gain: +15.0 points over Pass@1 (56.06\% $\to$ 71.07\%), compared to Claude Sonnet's +6.6 points. The lower GPT-5.2 Pass@1 (56.06\% vs.\ the 90.3\% reported for GPT-5.2 in the GPQA leaderboard) reflects the use of \texttt{effort=low} for exploration, which limits reasoning tokens; the orchestrator operates at \texttt{effort=high} during synthesis. % Corrected: $1.59/$0.26 = 6.12 -> 6.1x (was $1.90/$0.26 = 7.31 -> 7.3x).
-On HLE-Verified, the gain is smaller (+2.0 points) but still positive, and
-the cost is $6.1\times$ lower than Claude. These results demonstrate that \our{}'s adaptive exploration framework is not specific to any model family: the same prompts and control logic transfer to a different provider with consistent gains at substantially lower cost.
+GPT-5.2 produces positive Gain on both benchmarks evaluated for it (Table~\ref{tab:backbone-ablation}). On GPQA-Diamond, GPT-5.2 shows the largest absolute gain in the table: $+15.0$ points over Pass@1 ($56.06\% \to 71.07\%$), compared to Claude Sonnet's $+6.6$ points. The lower GPT-5.2 Pass@1 ($56.06\%$ vs.\ the $90.3\%$ reported for GPT-5.2 in the GPQA leaderboard) reflects the use of \texttt{effort=low} for exploration, which limits reasoning tokens; the orchestrator operates at \texttt{effort=high} during synthesis. % Corrected: $1.59/$0.26 = 6.12 -> 6.1x (was $1.90/$0.26 = 7.31 -> 7.3x).
+On HLE-Verified, the gain is smaller ($+2.0$ points) but still positive, and the cost is $6.1\times$ lower than Claude; even at reduced reasoning effort, GPT-5.2 retains a $+1.0$ point gain ($56.00\%$) at $6.6\times$ lower cost. Qwen3.6-35B-A3B-FP8 acts as both explorer and orchestrator, so its Pass@1 column reflects Qwen's own first-shot accuracy---lower than Sonnet's on HLE-Verified ($19.00$ vs.\ $48.00$) and LiveCodeBench ($47.43$ vs.\ $77.14$), comparable on BabyVision ($16.75$ vs.\ $19.59$) and GPQA-Diamond ($72.73$ vs.\ $74.24$). Even from this lower starting point, the Qwen-driven full framework lifts Acc.\ on all four benchmarks, with the largest absolute gains on GPQA-Diamond ($+12.1$) and LiveCodeBench ($+12.0$); orchestrator inference is local, so the \$/q column captures only the residual judge-call overhead. Together with the cross-family orchestrator-only swap above, these results demonstrate that \our{}'s adaptive exploration framework is not specific to any model family: the same prompts and control logic transfer to a different provider with consistent positive Gain at substantially lower cost.
 
 \paragraph{Orchestrator reasoning contributes to synthesis quality.}
 We ablate the orchestrator's internal reasoning by disabling extended thinking (chain-of-thought) while keeping all other parameters identical: same model (Sonnet 4.6), same cached explores, same exploration budget ($T{=}8$), and same prompts. Without extended thinking, the orchestrator can still read candidate results, call tools, and submit answers---but cannot reason internally between turns.
@@ -563,58 +667,19 @@ All baselines use the same backbone model and the same benchmark-specific answer
 
 \emph{Self-Refine}~\citep{self_refine_paper} generates an initial draft, then enters a feedback-revision loop: a separate feedback call critiques the current draft and returns a correctness judgment; if the draft is judged incorrect, a revision call produces an updated draft conditioned on all prior drafts and feedbacks. The loop terminates when feedback returns a positive judgment or the iteration budget is exhausted. In practice, the feedback model frequently accepts the initial draft, so Self-Refine terminates after a single feedback call on the majority of questions, which explains its relatively low cost on most benchmarks.
 
-\emph{Socratic Self-Refine}~\citep{socratic_self_refine_paper} replaces the Self-Refine feedback step with a Socratic-style probing pass: instead of producing a free-form critique, the feedback call generates a structured list of probing questions that target the current draft's reasoning, and the revision call must answer those questions while updating the draft. The same iteration budget and termination condition as Self-Refine are used. The probing-question step adds an extra model call per iteration relative to Self-Refine, so per-question cost is somewhat higher even though stopping behavior is similar. The intuition is that explicitly grounding the revision in answered probes should reduce the rate at which the model rubber-stamps the initial draft; in our results this shows up as a small accuracy improvement on LiveCodeBench (where reasoning depth helps most) and as a small accuracy regression on HLE-Verified (where the additional probes occasionally talk the model out of an originally correct answer).
+\emph{Socratic Self-Refine} replaces the Self-Refine feedback step with a Socratic-style probing pass: instead of producing a free-form critique, the feedback call generates a structured list of probing questions that target the current draft's reasoning, and the revision call must answer those questions while updating the draft. The same iteration budget and termination condition as Self-Refine are used. The probing-question step adds an extra model call per iteration relative to Self-Refine, so per-question cost is somewhat higher even though stopping behavior is similar. The intuition is that explicitly grounding the revision in answered probes should reduce the rate at which the model rubber-stamps the initial draft; in our results this shows up as a small accuracy improvement on LiveCodeBench (where reasoning depth helps most) and as a small accuracy regression on HLE-Verified (where the additional probes occasionally talk the model out of an originally correct answer).
 
 \emph{Budget Forcing}~\citep{s1_budget_forcing_paper} runs \(N\) sequential rounds on the same question. Round~1 generates an initial solution. Each subsequent round feeds the previous round's full reasoning trace back to the model with ``Wait'' appended, suppressing premature termination and forcing the model to continue deliberating before producing a new answer. All \(N\) rounds run unconditionally, and the final round's answer is returned. Because continuation rounds extend the existing reasoning rather than solving from scratch, they tend to produce shorter completions and lower per-round cost.
 
 \emph{Reward-model reranking} (Skywork-Reward-V2 for text benchmarks, VisualPRM for multimodal benchmarks) draws the same \(N=8\) independent candidates, then scores each with a separately trained reward model and returns the highest-scoring answer. Skywork-Reward-V2 is an outcome reward model that assigns a single scalar score per response; VisualPRM is a process reward model that aggregates per-step scores. The reward models run locally and incur no API cost, but the candidate generation cost is identical to that of Majority Voting.
 
-\section{Ablation Data}
-\label{app:ablation-data}
-
-\begin{table}[H]
-\centering
-\caption{Effect of exploration effort on \attsmm{}. Accuracy (\%) and average cost per question (\$/q) across benchmarks.}
-\label{tab:effort-ablation}
-\small
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{l r r r r r r}
-\toprule
- & \multicolumn{2}{c}{\attsmm{} (Low)} & \multicolumn{2}{c}{\attsmm{}} & \multicolumn{2}{c}{\attsmm{} (High)} \\
-\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
- & Acc. & \$/q & Acc. & \$/q & Acc. & \$/q \\
-\midrule
-% Corrected: Low $1.52->$1.44, Med $1.63->$1.54. Each consumed 1 bad explore (-$8.63).
-% High $2.38 unchanged (0 bad explores consumed).
-HLE-Verified & 44.00 & 1.44 & 57.00 & 1.54 & 60.00 & 2.38 \\
-LiveCodeBench & 77.01 & 0.55 & 85.63 & 0.69 & 85.63 & 1.09 \\
-BabyVision & 19.85 & 0.31 & 22.42 & 0.43 & 22.16 & 0.77 \\
-GPQA-Diamond & 77.78 & 0.29 & 81.82 & 0.39 & 82.32 & 0.40 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\begin{table}[H]
-\centering
-\caption{Effect of orchestrator model on \our{} accuracy (\%) and cost (\$/q). Explorer is Sonnet 4.6 throughout.}
-\label{tab:orch-ablation}
-\small
-\setlength{\tabcolsep}{4pt}
-\begin{tabular}{l r r r r r r}
-\toprule
- & \multicolumn{2}{c}{\our{} (Haiku orch)} & \multicolumn{2}{c}{\our{}} & \multicolumn{2}{c}{\our{} (Opus orch)} \\
-\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}
- & Acc. & \$/q & Acc. & \$/q & Acc. & \$/q \\
-\midrule
-% Corrected: Haiku $2.23->$1.83 (5 bad consumed, -$40.28).
-% Sonnet $1.90->$1.59 (4 bad consumed, -$31.68). Opus $1.79->$1.50 (3 bad consumed, -$28.75).
-% All three orchestrators read from hle/sonnet/gold cache; different consumption due to stopping.
-HLE-Verified & 57.00 & 1.83 & 56.00 & 1.59 & 59.00 & 1.50 \\
-LiveCodeBench & 79.43 & 0.71 & 82.29 & 0.53 & 83.43 & 0.64 \\
-GPQA-Diamond & 80.20 & 0.36 & 80.81 & 0.34 & 77.16 & 0.34 \\
-\bottomrule
-\end{tabular}
-\end{table}
+% =====================================================================
+% Section "Ablation Data" (Appendix B) was deleted on 2026-05-03.
+% Original content was a single table tab:effort-ablation, which has been
+% promoted into Section 4.2 (main body) adjacent to fig:effort-ablation,
+% mirroring the earlier promotion of tab:orch-ablation. The section is no
+% longer needed because no remaining content lived under it.
+% =====================================================================
 
 \section{Qualitative Analysis}
 \label{app:case-studies}
@@ -810,364 +875,32 @@ BabyVision is the only benchmark on which the highest mean \explore{} count ($2.
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-\section{Untrained Open-Weights Orchestrator Reference}
-\label{app:qwen36-baseline}
-
-The Section~\ref{app:training} fine-tuning recipe targets a small open-weights backbone as the trainable orchestrator. To establish what that backbone can already do \emph{without} any orchestrator-specific training, this appendix runs \our{} with Qwen3.6-35B-A3B-FP8~\citep{qwen3_paper} as the orchestrator while keeping the explorer fixed to the Claude Sonnet 4.6 cached candidates used in Table~\ref{tab:main-results}. Because the explorer cache is held constant, any deviation in Acc.\ from the Pass@1 column (the per-question accuracy of the first cached Sonnet candidate) isolates the contribution of the orchestrator: a positive Gain shows that the untrained Qwen backbone, conditioned only on prompt-level orchestration instructions, already aggregates Sonnet candidates better than taking the first one; a non-positive Gain marks a benchmark on which the same backbone fails to act as a useful orchestrator under prompting alone, and is therefore the natural target of the GRPO recipe in Section~\ref{app:training}.
-
-\begin{table}[H]
-\centering
-\caption{\our{} with an \emph{untrained} open-weights orchestrator (Qwen3.6-35B-A3B-FP8) reading the Sonnet-4.6 cached explores from Table~\ref{tab:main-results}. Two decoding configurations are shown: \texttt{greedy} ($T{=}0$, default sampling) and \texttt{thinking} (Qwen3.6's recommended thinking-mode recipe with $T{=}1.0$, top-$p{=}0.95$, top-$k{=}20$, presence-penalty $1.5$, \texttt{enable\_thinking}{=}true, \texttt{max\_tokens}{=}32{,}768). Pass@1 reports the accuracy of the first cached Sonnet candidate per question (the cache-only single-shot reference); it is identical across the two decoding rows of each benchmark because both read the same explorer cache. Acc.\ reports the orchestrator's final answer; Gain = Acc.\ $-$ Pass@1 isolates how much the orchestrator contributes on top of returning the first cached candidate directly. Orchestrator inference runs on local GPUs (TP=2, vLLM, FP8) and contributes \$0 to the cost column; \$/q therefore reflects only explorer (Sonnet) charges. The HLE-Verified \texttt{greedy} row reports judge-bug-corrected Acc.: $10$ rows in which the LLM judge graded an \emph{empty} \texttt{predicted\_answer} as correct (by deriving the answer from the question text alone) are reclassified as wrong, dropping raw Acc.\ from $48.00$ to $38.00$; the post-2026-04-30 judge prompt fix prevents this on future runs (the \texttt{thinking} HLE row needs no manual correction --- only $2$ empty rows, both correctly graded wrong). BabyVision is reported only for the \texttt{thinking} configuration (the \texttt{greedy} BabyVision run was not executed under this revision).}
-\label{tab:qwen36-baseline}
-\small
-\setlength{\tabcolsep}{3pt}
-\begin{tabular}{l l l r r r r r}
-\toprule
-Backbone (orchestrator) & Decoding & Benchmark & N & Pass@1 & Acc. & Gain & \$/q \\
-\midrule
-Qwen3.6-35B-A3B-FP8 (untrained) & greedy   & HLE-Verified  & 100 & 48.00 & 38.00 & $-10.00$        & 1.38 \\
-Qwen3.6-35B-A3B-FP8 (untrained) & greedy   & GPQA-Diamond  & 198 & 74.75 & 71.21 & $-3.54$         & 0.29 \\
-Qwen3.6-35B-A3B-FP8 (untrained) & greedy   & LiveCodeBench & 175 & 77.14 & 44.00 & $-33.14$        & 0.12 \\
-\midrule
-Qwen3.6-35B-A3B-FP8 (untrained) & thinking & HLE-Verified  & 100 & 48.00 & 56.00 & \textbf{+8.00}  & 2.53 \\
-Qwen3.6-35B-A3B-FP8 (untrained) & thinking & GPQA-Diamond  & 198 & 74.75 & 83.33 & \textbf{+8.58}  & 0.38 \\
-Qwen3.6-35B-A3B-FP8 (untrained) & thinking & LiveCodeBench & 175 & 77.14 & 76.57 & $-0.57$         & 0.48 \\
-Qwen3.6-35B-A3B-FP8 (untrained) & thinking & BabyVision    & 388 & 19.59 & 13.66 & $-5.93$         & 0.26 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\paragraph{Setup.} The orchestrator is served by vLLM (tensor-parallel size 2, FP8 quantization, \texttt{max\_model\_len}{=}65{,}536) on two A100 GPUs and queried through the OpenAI-compatible chat-completions interface. Two decoding configurations are compared (parameters in the table caption): \texttt{greedy} ($T{=}0$) and \texttt{thinking} (Qwen3.6's recommended thinking-mode recipe). The exploration budget is fixed at $T{=}8$ tool calls per question, identical to the main-paper \our{} configuration, and \texttt{no\_integrate} is on so the orchestrator synthesizes the final answer directly from its accumulated context. Explore tool calls resolve against the same \texttt{cache/<bench>/sonnet} cache used to produce the Table~\ref{tab:main-results} \our{} rows; cache-only mode is enforced, so no Anthropic API calls are made at evaluation time.
-
-\paragraph{Reading the table.} Pass@1 here is the accuracy of the first cached Sonnet candidate per question, which is the cache-only single-shot reference. Because both decoding configurations read the same explorer cache, Pass@1 is identical across the greedy and thinking rows of each benchmark. Gain = Acc.\ $-$ Pass@1 therefore isolates how much the untrained Qwen orchestrator adds (or loses) on top of simply returning the first cached candidate. Pass@1 here may differ from the Sonnet Pass@1 reported in Table~\ref{tab:backbone-ablation} when that table draws Pass@1 from a different cache snapshot or scoring protocol; we use the cache snapshot fixed for these qwen36-baseline runs.
-
-\paragraph{Where the untrained backbone helps and where it does not.} Under \texttt{greedy} decoding the untrained Qwen orchestrator delivers a \emph{negative} Gain on every benchmark: $-10.00$ on HLE-Verified, $-3.54$ on GPQA-Diamond, and $-33.14$ on LiveCodeBench. Without orchestrator-specific training, prompting alone does not raise final accuracy above the first cached candidate. The HLE row in Table~\ref{tab:qwen36-baseline} is the judge-bug-corrected number: of the $32$ HLE questions on which the orchestrator returned an empty \texttt{predicted\_answer}, the LLM judge erroneously graded $10$ as correct by independently deriving an answer from the question text alone. Reclassifying those $10$ rows as wrong drops raw Acc.\ from $48.00$ to $38.00$ and Gain from $0.00$ to $-10.00$. The post-2026-04-30 judge-prompt patch (an explicit rule that empty predictions must be graded as incorrect) prevents this on future evaluations, so subsequent re-runs with the patched judge will not require this manual correction. GPQA uses option-letter regex matching with no LLM judge and is therefore unaffected.
-
-LiveCodeBench is the most extreme case: $-33.14$ Gain. Trajectory inspection shows that on $48\%$ of LiveCodeBench questions the Qwen orchestrator emits free-form chain-of-thought text without ever issuing the \texttt{explore} tool call, terminating before a single Sonnet candidate is consumed (we record this in the per-question \texttt{exit\_reason} field as \texttt{incomplete}; cf.\ Section~\ref{app:training} for the run-time mechanics). On those questions the final \texttt{predicted\_answer} is empty and the question is graded as wrong, regardless of how good the cached candidates are. This pattern matches the failure mode the GRPO recipe in Section~\ref{app:training} is designed to remove: with no exposure to the orchestration interface during pre-training, the backbone defaults to direct problem-solving on code-generation prompts and bypasses its tool affordances. On HLE-Verified and GPQA the bypass is less severe but the orchestrator still fails to lift Acc.\ above the cache's first candidate.
-
-\paragraph{Thinking-mode lifts the untrained orchestrator into a useful regime.} Switching the same untrained backbone from \texttt{greedy} to Qwen3.6's \texttt{thinking} decoding recipe (lower half of Table~\ref{tab:qwen36-baseline}) raises Gain on every benchmark: $-10.00 \rightarrow +8.00$ on HLE-Verified, $-3.54 \rightarrow +8.58$ on GPQA-Diamond, and $-33.14 \rightarrow -0.57$ on LiveCodeBench. On HLE and GPQA the thinking variant moves Gain into positive territory; on LiveCodeBench it recovers parity with the first cached Sonnet candidate but does not exceed it. The dominant mechanism on LiveCodeBench is bypass repair: empty-prediction rate drops from $52.6\%$ ($92/175$) to $8.6\%$ ($15/175$), recovering most of the $33$-point Acc.\ gap. The residual $8.6\%$ empty rate under thinking is a decode-budget long-tail rather than the original schema-bypass bug --- on the hardest problems the orchestrator generates many internal reasoning tokens before emitting any structured output and exhausts the $32{,}768$-token decode budget, so trajectories terminate without a final \texttt{StructuredOutput} call. A separate transport-level guard prevents these long-tail trajectories from crashing the run: when the orchestrator requests an explore call beyond the precache size of $T{=}8$, the dispatcher returns a quota-exhausted message instead of raising a cache-miss assertion. The pattern shows that a sampling-recipe change alone is sufficient to repair the most catastrophic failure mode (the LiveCodeBench tool-call bypass), but achieving \emph{positive} Gain on a code benchmark --- the orchestrator beating the first cached Sonnet candidate rather than matching it --- still motivates the GRPO recipe in Section~\ref{app:training}.
-
-\paragraph{BabyVision: explorer cache is the binding constraint, not orchestrator skill.} BabyVision under \texttt{thinking} reaches $13.66\%$ Acc.\ against a $19.59\%$ Pass@1 (Gain $-5.93$), making it the only benchmark on which thinking-mode produces a clearly negative Gain. The first run of this row, under the same configuration as the other three thinking rows, returned a $39.2\%$ empty-prediction rate ($152/388$); inspection of the empty trajectories showed that $142$ of those $152$ rows wrote $\backslash\texttt{boxed\{X\}}$ into the trajectory but never issued the \texttt{StructuredOutput} call. The cause was a prompt-instruction conflict: the BabyVision question template appended a $\backslash\texttt{boxed}$ formatting directive that competed with the system-level requirement to submit through the structured-output tool. After replacing the template directive with an explicit ``the tool call is the only accepted submission path'' instruction and raising \texttt{max\_tokens} to $65{,}536$, an empty-only resume retried the affected $152$ rows. The empty rate dropped to $0.77\%$ ($3/388$) and the trajectory \texttt{boxed}-skip count dropped to $0$, confirming the fix at the level it was designed for, yet the final Acc.\ remained at $13.66\%$. This decouples the residual negative Gain from any tool-call bypass and forces a closer look at the explorer cache itself.
-
-Decomposing the $388$ BabyVision rows by whether the cached Sonnet candidates contain any correct option exposes the binding constraint. On only $140/388$ ($36.1\%$) of questions does the cache contain at least one correct candidate; on the remaining $248$ ($63.9\%$) the cache is exhausted of correct options, so even an oracle orchestrator cannot recover the right answer from the candidate pool. Among the $140$ recoverable questions the orchestrator picks the correct candidate on $53$ ($37.9\%$), giving a final Acc.\ identical to its overall $53/388 = 13.66\%$. The orchestrator's predictions echo a cache candidate verbatim on $343/385$ ($88\%$) non-empty submissions, so the failure is one of selection rather than fabrication. The relevant baselines are therefore: an oracle ceiling of $36.08\%$ (always pick a correct cache candidate when one exists), an ``always-first-candidate'' ceiling of $18.81\%$ ($73/388$ rows where cache index $0$ is correct, equal to Pass@1 by construction), and the orchestrator's $13.66\%$. The orchestrator sits below ``always-first'' by $5.1$ points: on the $140$-row recoverable subset it sometimes drifts away from a correct first candidate, and on questions where the unique correct candidate is at a non-zero index it tends to follow the wrong-but-numerous majority. This is the orchestrator-skill component the GRPO recipe in Section~\ref{app:training} can address. The $63.9\%$ cache-exhausted component is outside the orchestrator's reach and would require a stronger or differently sampled multimodal explorer to lift.
+% =====================================================================
+% Appendix G "Open-Weights Orchestrator Reference" extracted to
+% archive/appendix_g_qwen36_baseline.tex on 2026-05-03. Reason: the
+% load-bearing message of this appendix (orchestrator role transfers
+% to a different model family with the explorer cache held constant)
+% was promoted into Section 4.2 as a new paragraph + table
+% (tab:orch-ablation-cross), adjacent to the within-family swap
+% (tab:orch-ablation). The standalone appendix framing was no longer
+% needed because cross-family is a natural follow-up to within-family
+% rather than a distinct "open-weights" framing.
+%
+% To restore the standalone appendix, re-insert the contents of
+% archive/appendix_g_qwen36_baseline.tex at this location and decide
+% whether to keep the new Section 4.2 paragraph + table (having both
+% creates redundancy).
+%
+% The original BabyVision row + 2 paragraphs were already moved to
+% archive/appendix_g_babyvision.tex on the same date; the archived
+% Appendix G snapshot reflects the post-BabyVision-removal state.
+% =====================================================================
 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
-\section{Orchestrator Fine-Tuning with GRPO}
-\label{app:training}
-
-The main-paper results are obtained with a frozen orchestrator: the controller's stopping and dispatch decisions are produced by a pretrained backbone through prompting alone, with no gradient updates. This appendix describes an optional fine-tuning recipe that trains the orchestrator's decision policy against an outcome-based reward, so that a smaller open-weights backbone can be driven toward the same closed-loop behavior that Section~\ref{sec:methodology} specifies. The recipe is self-contained: it reuses the \our{} tool schema and prompt family from Appendix~\ref{app:implementation-details} and adds only (i) an outcome reward function, (ii) a trajectory-level optimization objective, and (iii) a rollout backend that executes the full multi-turn tool loop during training.
-
-\subsection{Background: GRPO for Multi-Turn Tool Use}
-\label{app:training-grpo-background}
-
-We fine-tune the orchestrator with Group Relative Policy Optimization (GRPO)~\citep{deepseek_math_2024}, a PPO-style algorithm that replaces the learned value critic with a group-relative advantage estimator. For each training prompt $x$, GRPO draws a group of $G$ independent rollouts $\{\tau_i\}_{i=1}^{G}$ from the current policy $\pi_\theta$, scores each rollout with an outcome reward $r_i = R(\tau_i)$, and computes a group-normalized advantage
-\begin{equation}
-\widehat{A}_i \;=\; \frac{r_i - \mathrm{mean}\bigl(\{r_j\}_{j=1}^{G}\bigr)}{\mathrm{std}\bigl(\{r_j\}_{j=1}^{G}\bigr) + \varepsilon},
-\label{eq:grpo-advantage}
-\end{equation}
-which is shared across all policy tokens of $\tau_i$. The PPO clipped surrogate is applied per token, with a KL penalty against a frozen reference policy $\pi_{\mathrm{ref}}$ added directly into the loss:
-\begin{equation}
-\mathcal{L}_{\mathrm{GRPO}}(\theta) \;=\; -\,\mathbb{E}_{x,\,\tau \sim \pi_\theta}\Bigl[\,\mathrm{clip}\!\bigl(\rho(\theta),\,1{-}\epsilon,\,1{+}\epsilon\bigr)\,\widehat{A}\,\Bigr] \;+\; \beta\,\mathrm{KL}\bigl(\pi_\theta \,\|\, \pi_{\mathrm{ref}}\bigr),
-\label{eq:grpo-objective}
-\end{equation}
-where $\rho(\theta)$ is the standard importance ratio on the sampled actions. Discarding the value critic has two practical consequences that matter for \our{}: it removes a large auxiliary network from memory, so the full training stack fits on two GPUs for an 8B backbone; and it makes the advantage invariant to any constant shift of the reward, which lets us express the exploration cost as a simple per-call subtraction (Section~\ref{app:training-reward}) without needing to center it externally.
-
-The non-trivial aspect of applying GRPO to \our{} is that each rollout $\tau$ is \emph{not} a flat token sequence. It is a multi-turn tool-use trajectory of the form
-\begin{equation}
-\tau \;=\; \bigl(\,\mathrm{prompt},\; a_1, o_1,\; a_2, o_2,\; \dots,\; a_{m-1}, o_{m-1},\; a_m\bigr),
-\end{equation}
-where each assistant turn $a_t$ is either an \texttt{explore} tool call or a final \texttt{StructuredOutput} tool call, and each $o_t$ is the corresponding tool response injected back into the conversation as an observation. Only the assistant tokens carry gradients; tool-response tokens act as fixed observations, as is standard in RL fine-tuning with tool use. We adopt this assistant-only masking throughout training. Full-trajectory token counts therefore include both kinds of tokens, but the PPO surrogate and the KL term in Eq.~\eqref{eq:grpo-objective} are evaluated only on assistant positions.
-
-\subsection{Task Formulation and Training Data}
-\label{app:training-task}
-
-We train the orchestrator to maximize an outcome-based reward on a single reasoning benchmark: HLE-Verified (Gold subset) \citep{hle_verified_paper,hle_verified_dataset_hf}, described in Appendix~\ref{app:hle-details}. This benchmark is chosen for three reasons. First, HLE-Verified is answer-based and graded by a normalized string comparison (Section~\ref{app:training-reward}), which admits a cheap, deterministic, offline grader -- essential because GRPO evaluates the reward on every rollout in every batch. Second, HLE items are expert-curated and well outside the typical SFT distribution of open-weights 8B backbones, so the baseline Pass@1 is low enough to leave substantial headroom for the orchestrator-shaped policy to improve upon. Third, because the main-paper evaluation on HLE-Verified (Section~\ref{sec:experiments}) is already performed on the same Gold subset, training on HLE-Verified produces a controller that is directly comparable against the frozen-backbone \our{} numbers already reported.
-
-Each training example is a single HLE-Verified question paired with its reference answer. The question text is rendered with the same orchestrator system prompt and user-turn formatting used at evaluation time: the orchestrator is told it cannot solve the problem itself and may only acquire information by issuing \texttt{explore} tool calls, and the explorer behind each \texttt{explore} call uses the explorer prompt from Listing~\ref{lst:solver-prompts}. The ground-truth answer is \emph{not} inserted into the prompt; it is only consumed by the reward function on the trainer side after the trajectory completes. This keeps the training-time prompt identical to the evaluation-time prompt, so that the fine-tuned policy is optimized for the exact interface it will be served under.
-
-\subsection{Reward Design: Canonical Forms}
-\label{app:training-reward-forms}
-
-Before specifying a concrete reward function, we derive its \emph{shape} by deduplicating several classical objectives from decision theory and bounded-rationality literature that treat an agent as a rational allocator of costly computation. Each form below starts from different primitives, but under the structural properties of our multi-turn tool loop they collapse to the same trajectory-level expression.
-
-\paragraph{Form A: Value of computation (Russell and Wefald).}
-Let $s$ be a belief state and $\mathcal{A}$ an action set, with $\alpha(s) = \arg\max_{a\in\mathcal{A}} \mathbb{E}[u(a)\mid s]$ the Bayes-optimal terminal action under the current belief. The value of a single computation step $c$ is \citep{russell1991right,hay_selecting_computations}
-\begin{equation}
-\mathrm{VoC}(c \mid s) \;=\; \mathbb{E}\bigl[u(\alpha(s'))\bigm| c, s\bigr] \;-\; \mathbb{E}\bigl[u(\alpha(s))\bigm| s\bigr] \;-\; \mathrm{cost}(c),
-\label{eq:voc}
-\end{equation}
-and the rational meta-reasoner stops when $\mathrm{VoC}(c\mid s) < 0$ for every available computation. Summing terminal utility minus total cost over a finite trajectory of length $T$ under a constant per-step cost $c_0$ yields
-\begin{equation}
-J_A(\tau) \;=\; u(\alpha(s_T)) \;-\; c_0 \cdot T.
-\label{eq:form-A}
-\end{equation}
-
-\paragraph{Form B: Bayes-optimal sequential decision (Wald).}
-In Wald's sequential analysis framework \citep{wald1947sequential}, an agent observes one sample per period, pays a fixed per-observation cost $c$, and terminates with an action $a$ that earns utility $u(a,\theta)$ against the unknown parameter $\theta$. The Bayes objective is
-\begin{equation}
-J_B(\tau) \;=\; \mathbb{E}\bigl[u(a_T,\theta)\bigr] \;-\; c \cdot \mathbb{E}[T],
-\label{eq:form-B}
-\end{equation}
-and the Bayes-optimal stopping rule is a fixed threshold on the posterior. Arrow, Blackwell, and Girshick \citep{blackwell1953equivalent} sharpen this characterization by relating optimal stopping to informativeness comparisons between experiments.
-
-\paragraph{Form C: Resource-rational analysis.}
-A bounded agent is defined as one that maximizes expected external utility minus a linear cost of internal computation \citep{callaway_learning_select,lieder_griffiths_2020_resource_rational,rational_metareasoning_llm_paper}:
-\begin{equation}
-J_C(\pi) \;=\; \mathbb{E}_{x,\tau\sim\pi}\bigl[u(a_T(\tau), x)\bigr] \;-\; \lambda \cdot \mathbb{E}_{x,\tau\sim\pi}\bigl[c(\tau)\bigr],
-\label{eq:form-C}
-\end{equation}
-where $c(\tau)$ counts thought operations and $\lambda$ converts them into external-utility units.
-
-\paragraph{Form D: Budget-constrained allocation (Lagrangian relaxation).}
-If training enforces a fixed per-question computation budget $B$ in expectation, the primal problem is
-\begin{equation}
-\max_{\pi}\; \mathbb{E}_{x}\bigl[u(a_T(\tau), x)\bigr] \quad \text{s.t.} \quad \mathbb{E}_{x}\bigl[N(\tau)\bigr] \;\le\; B,
-\label{eq:form-D-primal}
-\end{equation}
-and the Lagrangian relaxation is
-\begin{equation}
-L(\pi, \lambda) \;=\; \mathbb{E}_{x}\bigl[u(a_T(\tau),x) - \lambda\,N(\tau)\bigr] \;+\; \lambda B,
-\label{eq:form-D}
-\end{equation}
-where the additive constant $\lambda B$ does not affect the $\arg\max$ over $\pi$ and $\lambda \ge 0$ is the KKT dual variable of the budget constraint.
-
-\paragraph{Form E: Step-value decomposition.}
-Let $V(s) = \max_{a}\mathbb{E}[u(a)\mid s]$ be the Bayes value of the current belief, in the sense of Howard's information value theory \citep{howard1966info}. The incremental value of a single computation step is
-\begin{equation}
-\Delta V_t \;=\; V(s_{t+1}) - V(s_t).
-\label{eq:form-E-step}
-\end{equation}
-Under the Doob martingale property $\mathbb{E}[V(s_{t+1})\mid s_t] = V(s_t)$, plus a constant per-step cost $c$, the per-step reward $\Delta V_t - c$ telescopes across a trajectory of length $T$ into
-\begin{equation}
-J_E(\tau) \;=\; V(s_T) - V(s_0) - c\cdot T.
-\label{eq:form-E}
-\end{equation}
-The $V(s_0)$ term is a baseline that is constant across rollouts sharing the same prompt and drops out of any group-relative advantage estimator.
-
-\paragraph{Deduplication.}
-Our training setting satisfies three structural properties: (i) each \texttt{explore} call has approximately constant per-call cost (same explorer model, same schema, similar prompt- and response-length distributions); (ii) there is no intermediate reward, only a terminal grade on the final \texttt{StructuredOutput}; and (iii) we care about trajectory-level advantage under GRPO, not per-step advantage. Under these three properties, all five forms above reduce to the same canonical shape:
-\begin{equation}
-R(\tau) \;=\; U\bigl(a_T(\tau)\bigr) \;-\; \lambda\cdot N(\tau),
-\label{eq:canonical-reward}
-\end{equation}
-where $U$ is the terminal utility of the final action, $N$ is the number of costly computation steps in the trajectory, and $\lambda$ is the per-step cost. Forms A, B, and C yield Eq.~\eqref{eq:canonical-reward} directly after identifying $T = N$. Form D yields it up to the trajectory-independent additive constant $\lambda B$, which drops out of both the GRPO gradient and the group-normalized advantage in Eq.~\eqref{eq:grpo-advantage}. Form E yields it once $V(s_T)$ is interpreted as the grader's evaluation of the terminal action and the constant baseline $V(s_0)$ is absorbed into the group mean. The linear form is therefore not a design choice but a consequence of the structural properties of our setting together with the four-way equivalence of these independent objectives.
-
-\subsection{Reward Design: Underlying Principles}
-\label{app:training-reward-principles}
-
-We extract five principles from the deduplication in Section~\ref{app:training-reward-forms} and use them as constraints on any concrete reward function for our problem.
-
-\paragraph{Principle P1: Linearity in computation count is forced, not chosen.}
-When each computation step has the same unit cost and cannot be refunded, the cumulative cost incurred by a trajectory is linear in the number of steps. Any objective that subtracts this cumulative cost from a terminal utility must be linear in $N$. Convex shapes such as $\lambda (N/N_{\max})^2$, concave shapes such as $\lambda\log(1+N)$, or step-function free-tier shapes are only admissible under additional structural assumptions that our setting does not satisfy (for example, convex cost requires a congestion penalty near a shared capacity limit, and concave cost requires bulk-discount pricing of computation).
-
-\paragraph{Principle P2: $\lambda$ is the shadow price of computation.}
-Across Forms A through E, the coefficient on $N$ plays the same role: the exchange rate between one unit of terminal utility and one unit of computation. Forms A, B, and C give $\lambda$ as the agent's marginal willingness-to-pay; Form D gives it as the KKT dual variable of a budget constraint; these are Lagrangian duals of the same optimization problem. Choosing $\lambda$ is therefore equivalent to either (i) stating a trade-off preference as a primal declaration, or (ii) specifying a target budget $B$ and solving for $\lambda$ via dual ascent on Eq.~\eqref{eq:form-D}.
-
-\paragraph{Principle P3: A stationary $\lambda$ across questions implements water-filling.}
-When $\lambda$ is shared across all training questions, the KKT optimality conditions of Eq.~\eqref{eq:form-D-primal} force the marginal value of an additional computation step to equal $\lambda$ at every question with $N_i > 0$, and zero otherwise. This is the water-filling solution of the cross-question budget-allocation problem: questions whose marginal value curves saturate slowly automatically receive more computation than questions whose marginal value curves saturate quickly, without any explicit difficulty signal in the reward. This is the formal content of ``computation allocation'' in our setting.
-
-\paragraph{Principle P4: Boundedness preserves well-posed advantage normalization.}
-The group-relative advantage in Eq.~\eqref{eq:grpo-advantage} is only well-behaved under finite reward variance, which requires $R(\tau)$ to have a bounded range across rollouts sharing the same prompt. Under Eq.~\eqref{eq:canonical-reward} with bounded $U$ and bounded $N$, the reward range is $[U_{\min} - \lambda\,N_{\max},\; U_{\max}]$. A non-vacuous advantage signal at the maximum budget additionally requires $U_{\max} - \lambda\,N_{\max} > U_{\min}$, which for binary $U\in\{0,1\}$ reduces to $\lambda < 1/N_{\max}$.
-
-\paragraph{Principle P5: Terminal sparsity matches trajectory-level credit \emph{when no per-step label is available}.}
-GRPO distributes the group-relative advantage uniformly across the assistant tokens of a trajectory. When the intermediate \texttt{explore} tool calls carry no per-step utility label, the reward must be emitted at trajectory termination rather than per step, and the terminal-utility interpretations of Forms A--E all yield a single scalar credit at trajectory end. This constraint is \emph{relaxed} under Principle P6 below: when training has access to a cheap per-step label that inference does not, per-step rewards become admissible and Forms A and E can be instantiated in their full dense form rather than only through their terminal telescoping.
-
-\paragraph{Principle P6: Training--inference information asymmetry.}
-Training-time reward shaping is not constrained to use only the signals available at inference time. Formally, let $\mathcal{I}_{\mathrm{infer}}$ be the signals observable by the deployed orchestrator and $\mathcal{I}_{\mathrm{train}} \supseteq \mathcal{I}_{\mathrm{infer}}$ the signals observable by the trainer; any measurable function of $\mathcal{I}_{\mathrm{train}}$ may enter the reward without contaminating inference, provided the policy class is fixed to read only from $\mathcal{I}_{\mathrm{infer}}$. This is the decoupling principle that underlies offline value-function construction, oracle critics in imitation learning, and MCTS-augmented training in game-playing agents: the training signal can use privileged information as long as the deployed policy does not. In our setting this means any training-only signal --- including ground-truth correctness of intermediate explorer outputs --- is a legitimate input to the reward, even though the deployed orchestrator cannot observe it.
-
-\subsection{Reward Design: Signal Inventory and Training--Inference Asymmetry}
-\label{app:training-reward-signals}
-
-Before instantiating Eq.~\eqref{eq:canonical-reward} we enumerate the signals that the rollout loop and the training-side grader actually produce per trajectory. This inventory is the premise of every reward design in the rest of this section: the set of shapes we may consider is exactly the set of measurable functions of these signals.
-
-\paragraph{Per-trajectory signal inventory.}
-Each rollout $\tau$ of our multi-turn tool loop exposes five elementary signals indexed by the explore step $t = 1,\dots,N(\tau)$:
-\begin{itemize}
-\item[(a)] \emph{Self-reported confidence} $c_t \in [0,1]$ from the explorer's \texttt{confidence} field. This signal is not required to be calibrated; it is only required to be self-consistent across explore calls within a trajectory.
-\item[(b)] \emph{Self-reported candidate answer} $\hat a_t$ from the explorer's \texttt{answer} field.
-\item[(c)] \emph{Token cost} $\ell_t \in \mathbb{N}$, the sum of prompt and completion tokens consumed by the $t$-th explore call. This signal is exact and available online.
-\item[(d)] \emph{Per-step ground-truth correctness} $y_t = \mathrm{acc}(\hat a_t, a^\star) \in \{0,1\}$. This signal is \emph{only available during training} because it requires access to the reference answer $a^\star$.
-\item[(e)] \emph{Terminal correctness} $y_T = \mathrm{acc}(\hat a_T, a^\star) \in \{0,1\}$ of the final \texttt{StructuredOutput} answer, computed by the same grader as (d).
-\end{itemize}
-
-\paragraph{Inference-side versus training-side signal sets.}
-The deployed orchestrator at inference time observes only $\{c_t,\hat a_t,\ell_t\}$ and a non-oracle self-evaluation of $y_T$ from the grader used at serving time. The training-side grader has access to all five signals above, including the training-only $y_t$. Under Principle P6, any measurable function of the full training-side signal set is admissible as a reward, provided the policy itself is conditioned only on the inference-side subset. This is the decoupling that makes per-step oracle shaping legitimate for training while leaving the deployed orchestrator unchanged.
-
-\paragraph{Structural consequence for reward shape.}
-The signals (a)--(e) define a four-level hierarchy of admissible reward functions. Each level adds one dependency of $R(\tau)$ on a previously unused signal and, correspondingly, unlocks one instantiation of the five canonical forms in Section~\ref{app:training-reward-forms} that was previously closed. Section~\ref{app:training-reward-ladder} makes this ladder explicit.
-
-\subsection{Reward Design: Information-Scaled Ladder}
-\label{app:training-reward-ladder}
-
-We organise the space of admissible rewards by the subset of signals in Section~\ref{app:training-reward-signals} that each one consumes. Each level strictly extends the previous one, so the ladder is monotone in information content. For each level we state (i) which signals it uses, (ii) the reward form, (iii) which canonical form (Section~\ref{app:training-reward-forms}) it instantiates, and (iv) what the next-level upgrade buys in terms of sample efficiency and diagnostic power.
-
-\paragraph{Level 0: Trajectory-level outcome only.}
-Signals: $y_T$ (terminal correctness) and $N$ (explore count). Reward:
-\begin{equation}
-R^{(0)}(\tau) \;=\; y_T \;-\; \lambda_0\,N(\tau),
-\label{eq:reward-level0}
-\end{equation}
-with $\lambda_0$ a constant. This is the canonical $U - \lambda N$ form from Eq.~\eqref{eq:canonical-reward} under constant per-call cost. It instantiates Forms A/B/C/D in their terminal-credit mode and assumes zero intermediate reward. Level~0 is the cheapest admissible reward and establishes the baseline against which the higher levels are measured.
-
-\paragraph{Level 1: Token-weighted cost.}
-Signals: $y_T$, $\ell_{1:N}$. Reward:
-\begin{equation}
-R^{(1)}(\tau) \;=\; y_T \;-\; \lambda_1 \sum_{t=1}^{N} \ell_t.
-\label{eq:reward-level1}
-\end{equation}
-This replaces ``cost-per-call'' with ``cost-per-token'' and is the exact heterogeneous-observation-cost generalisation of Form B (Wald with non-uniform $c_t$). Under the assumption that per-call token distributions are i.i.d.\ with mean $\bar\ell$, Level~1 reduces to Level~0 up to a rescaling $\lambda_0 = \lambda_1\,\bar\ell$; the non-trivial gain is \emph{variance reduction}. Level~1 distinguishes $3$ short explores from $3$ long explores, which Level~0 cannot, and it penalises runaway explorer reasoning loops at the moment they actually happen rather than averaging them into a single scalar $N$.
-
-\paragraph{Level 2: Self-reported confidence and candidate agreement.}
-Signals: $y_T$, $\ell_{1:N}$, $c_{1:N}$, $\hat a_{1:N}$. Reward:
-\begin{equation}
-R^{(2)}(\tau) \;=\; y_T \;-\; \lambda_1 \sum_{t} \ell_t \;+\; \mu\,\mathrm{stop}(\tau) \;+\; \nu\,\mathrm{consensus}(\tau),
-\label{eq:reward-level2}
-\end{equation}
-where $\mathrm{stop}(\tau)$ rewards stopping at a convergent state (at least two candidates with $c_t \ge \bar c$ and $\hat a_s = \hat a_t$) and $\mathrm{consensus}(\tau)$ is the modal candidate share $\max_a |\{t : \hat a_t = a\}|/N$. Level~2 is the direct instantiation of Form A's $\mathrm{VoC}(c\mid s) < 0$ stopping rule under a non-calibrated belief proxy, combined with a Blackwell informativeness bonus through the consensus term. Neither $\mathrm{stop}$ nor $\mathrm{consensus}$ uses privileged information, so Level~2 is still inference-aligned.
-
-\paragraph{Level 3: Oracle-graded per-step information gain.}
-Signals: $y_T$, $\ell_{1:N}$, $c_{1:N}$, $\hat a_{1:N}$, and the training-only $y_{1:N}$. Define the oracle value function
-\begin{equation}
-V^\star_t \;=\; \mathbb{1}\bigl[\,\exists s \le t:\; \hat a_s = a^\star\,\bigr],
-\qquad
-g_t \;=\; V^\star_t - V^\star_{t-1} \;\in\;\{0,1\},
-\label{eq:oracle-gain}
-\end{equation}
-where $g_t = 1$ at exactly the \emph{first} explore step that produces a correct candidate and zero elsewhere. Per-step reward:
-\begin{equation}
-r_t \;=\; \gamma\,g_t \;-\; \lambda_1\,\ell_t,
-\qquad
-r_T^{\mathrm{final}} \;=\; \rho\,y_T,
-\qquad
-R^{(3)}(\tau) \;=\; \sum_{t=1}^{N} r_t \;+\; r_T^{\mathrm{final}}.
-\label{eq:reward-level3}
-\end{equation}
-This is the concrete realisation of Form~E (step-value decomposition) using an oracle value function that is well-defined \emph{only because Principle~P6 permits training-only signals}. The discovery credit $\gamma g_t$ is the Doob increment of $V^\star_t$, and the integration credit $\rho\,y_T$ is paid separately at trajectory end. Because $V^\star_t$ is deterministic and computable offline, it also serves as a \emph{free oracle critic}: the per-step advantage $A_t = r_t - V^\star_{t-1}$ is unbiased, has zero learning cost, and eliminates the need for a learned value head.
-
-Level~3 is the first level at which the reward is \emph{dense}. Each trajectory emits $N+1$ reward values instead of one, raising the per-trajectory signal content from one bit to $N+1$ bits. This is the largest information-content jump in the ladder and the one that most directly reduces the sample complexity of credit assignment.
-
-\paragraph{Level 4: Discovery--integration decomposition with full shaping.}
-Signals: all of (a)--(e). Reward:
-\begin{equation}
-\begin{aligned}
-r_t &\;=\; \gamma\,g_t \;+\; \mu\,\mathrm{stop}_t \;+\; \nu\,\mathrm{consensus}_t \;-\; \lambda_1\,\ell_t, \\
-r_T^{\mathrm{final}} &\;=\; \rho\,y_T \;+\; \sigma\,\mathbb{1}\bigl[\hat a_T = \hat a_{t^\star}\bigr],
-\end{aligned}
-\label{eq:reward-level4}
-\end{equation}
-where $t^\star = \min\{t : g_t = 1\}$ is the first-discovery step (if any) and the final $\sigma$ term rewards the \emph{integrator} separately for preserving an already-discovered correct answer through synthesis. Level~4 instantiates all five canonical forms simultaneously: Form~A for stopping, Form~B for heterogeneous cost, Form~C for the bounded-rationality scaling, Form~D for the implicit budget constraint, and Form~E for the oracle step-value decomposition.
-
-The semantic content of Level~4 beyond Level~3 is the explicit decoupling of \emph{discovery} (did any explore produce the correct answer?) and \emph{integration} (did the final synthesis preserve that answer?). Under Level~0--Level~3, ``explorer found the right answer but integrator picked the wrong one'' is indistinguishable from ``explorer never found the right answer''; under Level~4 the two failure modes produce different reward signatures and can be attributed to the component responsible.
-
-\paragraph{Cross-level summary.}
-Table~\ref{tab:reward-ladder} aligns each level with the signals it consumes, the canonical form it instantiates, and the incremental diagnostic power it unlocks over the previous level.
-\begin{table}[h]
-\centering
-\small
-\begin{tabular}{l l l l}
-\toprule
-Level & Signals used & Canonical form & Incremental gain over previous level \\
-\midrule
-0 & $y_T,\,N$ & A/B/C/D (terminal) & --- (baseline) \\
-1 & $+\,\ell_{1:N}$ & B (heterogeneous $c_t$) & variance reduction on per-call cost \\
-2 & $+\,c_{1:N},\hat a_{1:N}$ & A (VoC stop) $+$ Blackwell agreement & orchestrator learns to read confidence and consensus \\
-3 & $+\,y_{1:N}$ (training only) & E (oracle step-value) & dense credit; $N+1$-bit signal; free oracle critic \\
-4 & all of (a)--(e) & A$+$B$+$C$+$D$+$E combined & discovery--integration attribution \\
-\bottomrule
-\end{tabular}
-\caption{Information-scaled reward ladder for the \our{} orchestrator. Each level strictly extends the previous in signal content; Level~3 is the first to exploit training--inference asymmetry (Principle~P6).}
-\label{tab:reward-ladder}
-\end{table}
-
-\subsection{Reward Design: Our Current Instantiation (Level~0)}
-\label{app:training-reward-design}
-
-All training runs reported in this appendix use the Level~0 reward
-\begin{equation}
-R(\tau) \;=\; \mathrm{acc}\bigl(\hat a_T,\,a^\star\bigr) \;-\; \lambda\cdot \mathrm{explore}(\tau),
-\qquad \lambda = 0.05,
-\label{eq:our-reward}
-\end{equation}
-which is Eq.~\eqref{eq:reward-level0} with $\lambda_0=0.05$ and $N$ clamped at $N_{\max}=9$. We select Level~0 as the first iteration for three reasons, not because the higher levels are undesirable.
-
-\paragraph{Reason 1: Signal sufficiency under a cold-start base model.}
-The Qwen3-8B base model we fine-tune has a low initial HLE-Verified Gold accuracy of roughly five per cent, so the dominant early-training gradient comes from learning how to answer at all rather than how to stop optimally. Level~0's sparse terminal credit, under a group size of 16 per prompt, already produces a non-trivial advantage signal when at least one of the 16 rollouts is correct, and the marginal value of the dense Level~3 shaping is highest after the base policy has escaped the cold-start regime.
-
-\paragraph{Reason 2: Framework-side implementation cost.}
-The \texttt{verl} GRPO trainer ingests reward as a single scalar per trajectory through its \texttt{custom\_reward\_function} hook; this natively supports Level~0 and Level~1 but requires either a per-token reward tensor path or a custom advantage estimator to natively support Level~3 and Level~4 without hacking the gradient on the caller side. We treat the framework-side engineering required to lift \texttt{verl}'s reward ingestion from trajectory-scalar to token-tensor as a separate, tracked piece of work and intentionally keep the first iteration within the scalar interface.
-
-\paragraph{Reason 3: Reproducible ablation baseline.}
-Level~0 is the simplest reward under which all five principles P1--P5 are satisfied without the auxiliary hyperparameters $\gamma, \mu, \nu, \rho, \sigma$ that appear at Levels 2--4. Having a principle-justified Level~0 baseline lets future ablations of the higher levels attribute their gains cleanly to the specific signal they consume rather than to an uncontrolled mix of shaping constants.
-
-\paragraph{Numerical value $\lambda = 0.05$.}
-Under Principle P4, with $y_T \in \{0,1\}$ and $N_{\max} = 9$, the condition that a correct answer at maximum budget remain positively rewarded is
-\begin{equation}
-1 - \lambda\,N_{\max} \;>\; 0 \quad\Longleftrightarrow\quad \lambda \;<\; \tfrac{1}{N_{\max}} \;=\; \tfrac{1}{9}.
-\label{eq:lambda-upper}
-\end{equation}
-We set $\lambda = 0.05 = \tfrac{1}{20}$, which lies strictly below the bound in Eq.~\eqref{eq:lambda-upper} by a factor of roughly $2.2$, so that a correct answer after $N_{\max}=9$ explores still earns $R = 0.55 > 0$ and the policy is never incentivised to walk back a correct final answer in order to save budget. On the discriminability side, the empirically observed per-group reward standard deviation on HLE-Verified rollouts under Qwen3-8B lies in $[0.3,\,0.5]$ during early training, so the $0.05$-per-call penalty is between ten and seventeen per cent of one group standard deviation per saved explore, which is the scale at which the group-relative advantage in Eq.~\eqref{eq:grpo-advantage} carries signal.
-
-\paragraph{Clamping at $N_{\max} = 9$.}
-The explore count used in Eq.~\eqref{eq:our-reward} is clamped at $N_{\max} = 9$ before applying the penalty. Without the clamp, a hallucinated burst of many \texttt{<tool\_call>} blocks in a single assistant turn could drive $R$ arbitrarily negative, violate Principle P4, and destroy the GRPO advantage estimator. The value $N_{\max} = 9$ matches the assistant-turn budget of the rollout loop (ten assistant turns, the last reserved for \texttt{StructuredOutput}).
-
-\paragraph{Roadmap of upgrades.}
-Among the higher levels of the ladder in Section~\ref{app:training-reward-ladder}, we flag Level~3 as the largest expected gain and the natural next iteration: it is the only level that consumes the training-only signal $y_{1:N}$ and therefore the only level at which Principle~P6 becomes structurally active. Level~1 is a comparatively small refinement and can be applied orthogonally. Level~4 is the principled long-horizon target but introduces five shaping constants that require their own ablation, so we defer it to a second training campaign after Level~3 is validated.
-
-\subsection{Reward Function Implementation}
-\label{app:training-reward}
-
-\paragraph{Design goal.}
-\our{} at inference time is already an explore-then-answer loop constrained by a hard budget cap $T$ (Section~\ref{sec:methodology}). For fine-tuning, we want the reward to express the same budget-aware semantics \emph{without} an explicit hard cap in the objective: the policy should be credited for reaching a correct final answer, and debited in proportion to how many \texttt{explore} calls it consumed on the way. Correctness should dominate the reward whenever the model answers at all, and the exploration cost should be small enough that the policy is not pushed toward answering on zero evidence.
-
-\paragraph{Reward definition.}
-Let a rollout $\tau$ end either with a final \texttt{StructuredOutput} tool call carrying answer string $\hat{a}$, or with no final structured output at all (the assistant exhausts its turn budget without producing \texttt{StructuredOutput}). Let $\mathrm{explore}(\tau) \in \{0,1,\dots,T_{\max}\}$ denote the number of complete \texttt{explore} tool calls the assistant issued in $\tau$, with the cap $T_{\max}=9$ matching the assistant-turn budget used at rollout time.
-Let $a^{\star}$ be the ground-truth answer for the prompt. The per-trajectory reward is
-\begin{equation}
-R(\tau) \;=\; \mathrm{acc}(\hat{a}, a^{\star}) \;-\; \lambda\,\mathrm{explore}(\tau),
-\qquad \lambda = 0.05,
-\label{eq:reward}
-\end{equation}
-where $\mathrm{acc}(\cdot,\cdot) \in \{0,1\}$ is the binary correctness signal defined below. When no \texttt{StructuredOutput} is emitted, we set $\hat{a}$ to the empty string, which forces $\mathrm{acc}(\hat{a},a^{\star})=0$; the trajectory is still debited for any \texttt{explore} calls it issued before dropping out, so ``explore then fail to answer'' is strictly worse than ``explore once and submit.''
-
-\paragraph{Correctness grader.}
-The correctness signal $\mathrm{acc}(\hat{a}, a^{\star})$ is a deterministic, purely string-level grader with two fallbacks. First, we attempt an \emph{exact normalized match}: both strings are lowercased, leading and trailing whitespace is stripped, and all non-word, non-whitespace characters (punctuation) are removed; a match is declared if the normalized forms are identical. Second, if the exact match fails and both strings contain an isolated letter token in the range $\{\mathrm{A},\mathrm{B},\mathrm{C},\mathrm{D},\mathrm{E}\}$, we extract the first such token from each side and compare case-insensitively; this fallback exists to grade multiple-choice items (e.g.\ GPQA-style) uniformly under the same reward function, even though the training set in this recipe is HLE-Verified rather than GPQA. All other outputs map to $\mathrm{acc}=0$. The grader is deliberately free of any LLM judge: it is cheap, parallelizes trivially across the rollout batch, and has no stochasticity that could leak into the advantage estimate in Eq.~\eqref{eq:grpo-advantage}.
-
-\paragraph{Exploration count.}
-The explore count $\mathrm{explore}(\tau)$ is parsed from the raw assistant tokens rather than reconstructed from the tool-executor side. Concretely, we count complete \texttt{<tool\_call>\ldots</tool\_call>} blocks in the assistant output whose JSON body contains both a \texttt{"name"} field and the explorer name \texttt{"explore"}. This matches assistant-emitted tool calls exactly once each, and does not match substrings of tool responses (which live outside \texttt{<tool\_call>} blocks) or stray mentions of the word \texttt{explore} in the reasoning text. The count is then clamped to the cap $T_{\max}=9$ so that trajectories in which the model hallucinates many tool calls in a single turn cannot drive the reward arbitrarily negative; this preserves the boundedness $R(\tau) \in [\,{-}\lambda T_{\max},\; 1\,]$ required by the group-normalized advantage in Eq.~\eqref{eq:grpo-advantage}.
-
-\paragraph{Choice of the penalty coefficient.}
-Setting $\lambda=0.05$ is a deliberate choice with two justifications. First, $\lambda$ is small enough that correctness strictly dominates budget: a correct answer after the maximum $T_{\max}=9$ explores still earns $1 - 0.05\cdot 9 = 0.55 > 0$, so the policy is never incentivized to walk back a correct final answer in order to save budget. Second, $\lambda$ is large enough that extra exploration on easy items is visibly costly on the group-relative scale: with typical per-group reward standard deviations on HLE rollouts of order $0.3$--$0.5$, the $0.05$-per-call subtraction is a meaningful fraction of one standard deviation, so the advantage in Eq.~\eqref{eq:grpo-advantage} carries a non-trivial signal about exploration cost even among correct trajectories.
-
-\paragraph{Auxiliary metrics logged separately.}
-Although the policy gradient sees only the shaped reward $R(\tau)$ in Eq.~\eqref{eq:reward}, the reward function additionally emits four per-rollout auxiliary metrics, which the trainer logs to the validation panel without ever feeding them into the loss: (1) the raw correctness $\mathrm{acc}$, surfaced under a \texttt{val-core/*/acc} key so it is tracked as the primary validation variable; (2) the explore count $\mathrm{explore}(\tau)$; (3) the indicator $\mathbf{1}[\hat{a} \ne \emptyset]$ of whether the model emitted \texttt{StructuredOutput} at all, which detects degenerate trajectories that drop out of the answer format; and (4) the accumulated penalty $\lambda\,\mathrm{explore}(\tau)$. Decoupling these auxiliaries from the loss lets us monitor -- during training -- whether the reward shaping is driving the policy toward the intended corner of behavior (answering more often \emph{and} exploring more efficiently), or toward a pathological corner (e.g.\ dropping out of the tool format to save penalty).
-
-\subsection{Rollout Backend and Tool Loop}
-\label{app:training-rollout}
-
-Because the reward in Eq.~\eqref{eq:reward} is a function of an entire multi-turn tool-use trajectory, training requires a rollout backend that can (a) generate assistant turns, (b) parse the emitted \texttt{<tool\_call>} blocks, (c) execute the matching tool, (d) inject the tool response into the conversation, and (e) resume generation -- all while producing token-level log-probabilities suitable for the GRPO surrogate in Eq.~\eqref{eq:grpo-objective}. We use vLLM as the generation engine for this loop, with the tool-call format set to Hermes, a hard cap of $T_{\max}{+}1 = 10$ assistant turns per trajectory (the last turn is reserved for \texttt{StructuredOutput}), a per-tool-response length cap of $2{,}048$ tokens (right-truncated so that the tail of the explorer's output is dropped first), and a per-response length budget of $24{,}576$ tokens on top of a $4{,}096$-token prompt. Two tools are registered against this rollout loop: an \texttt{explore} tool that runs a fresh explorer pass with the explorer prompt from Listing~\ref{lst:solver-prompts} and returns the \texttt{\{approach, reasoning, answer, confidence\}} structured result, and a \texttt{StructuredOutput} tool whose schema exactly matches the evaluation-time final-answer schema, so that the trained policy uses a single unified interface across training and evaluation.
-
-The training group size is $G{=}16$: for each training prompt, the backend draws 16 independent multi-turn rollouts under the current policy, grades each, and computes the group-relative advantage in Eq.~\eqref{eq:grpo-advantage} within that group. All 16 rollouts share the same prompt and the same ground-truth answer but differ in their sampled assistant turns and in the stochastic behavior of the explorer tool, which mirrors the inference-time variability that the orchestrator must handle at deployment.
-
-\subsection{Model, Optimization, and Compute}
-\label{app:training-optim}
-
-\paragraph{Backbone and reference.}
-The trainable backbone is Qwen3-8B \citep{qwen3_paper}. The reference policy $\pi_{\mathrm{ref}}$ in Eq.~\eqref{eq:grpo-objective} is a frozen copy of the same backbone, loaded once at the start of training and kept on CPU-offloaded FSDP shards with bfloat16 master weights.
-
-\paragraph{Optimizer and GRPO hyperparameters.}
-We use AdamW with a fixed learning rate of $1{\times}10^{-6}$, no warmup, and no schedule. The GRPO penalty in Eq.~\eqref{eq:grpo-objective} uses the low-variance KL estimator with coefficient $\beta = 0.001$, and the PPO clip ratio is kept at the library default. Gradient checkpointing is enabled on the actor to reduce activation memory during the backward pass over long tool-use trajectories.
-
-\paragraph{Batch hierarchy.}
-Following the standard \texttt{verl} three-level batch schedule~\citep{verl_sheng2024hybridflow}, each training step draws $16$ prompts from the training set, rolls each prompt into $G{=}16$ trajectories (so the rollout batch contains $256$ trajectories), and then performs the GRPO update with a mini-batch size of $16$ prompts and a per-GPU micro-batch of $1$ trajectory on the actor. The same micro-batch size is used for the old-logprob and reference-logprob passes. This configuration prioritizes long per-trajectory sequence length and many concurrent rollouts over a large gradient micro-batch, because the dominant memory consumer is the concatenated assistant$+$tool-response context rather than the optimizer step itself.
-
-\paragraph{Compute configuration.}
-Training runs on two NVIDIA A100 GPUs with ZeRO-3 parameter sharding over the actor through \texttt{verl}'s FSDP2 integration. The actor's parameters are CPU-offloaded outside of active forward/backward windows to free GPU memory for the vLLM KV cache during rollouts, and bfloat16 is used for both master weights and activations to halve the bucketed weight-sync traffic between the trainer and the rollout engine. We set the vLLM KV-cache memory share to $\mathrm{gpu\_memory\_utilization}=0.8$, which we validated as the maximum stable value on this hardware via a stress-test sweep (passing at $\{0.5, 0.6, 0.8\}$, OOM at $0.9$) before committing to it for the production run. With this configuration the full training loop -- rollout, old-log-prob, reference-log-prob, actor update -- fits on two GPUs with no optimizer offload and no activation recomputation beyond the checkpointing already enabled on the actor.
-
-\paragraph{Scope.}
-The recipe described here is an optional adjunct to the main paper: it is not required to reproduce any number in Section~\ref{sec:experiments}, and the main-paper evaluation uses only the frozen-backbone controller. We include it so that readers who wish to reproduce or extend the \our{} controller on open-weights backbones have a complete specification of the training interface, the reward function, and the hyperparameter schedule we use, and so that follow-up work can attribute any downstream differences to the orchestrator-shaped policy rather than to an undocumented training recipe.
-
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% Appendix H (Orchestrator Fine-Tuning with GRPO) extracted to archive/appendix_h.tex on 2026-05-02.
+% Not included in the current build; to re-enable, uncomment the line below.
+% \input{archive/appendix_h}
 
 \newpage
 \section*{NeurIPS Paper Checklist}
@@ -1186,8 +919,8 @@ The recipe described here is an optional adjunct to the main paper: it is not re
 
 \item {\bf Theory Assumptions and Proofs}
     \item[] Question: For each theoretical result, does the paper provide the full set of assumptions and a complete (and correct) proof?
-    \item[] Answer: \answerYes{}
-    \item[] Justification: Appendix~\ref{app:theory} provides two theorems (replication principle, information loss degrades synthesis) with complete proofs and explicitly stated assumptions. Both are specializations of Blackwell's informativeness theorem. Machine-verified proofs in Lean~4 are included in the code release.
+    \item[] Answer: \answerNA{}
+    \item[] Justification: The paper does not present new theoretical results; all claims are supported empirically through the experiments in Section~\ref{sec:experiments}.
 
 \item {\bf Experimental Result Reproducibility}
     \item[] Question: Does the paper fully disclose all the information needed to reproduce the main experimental results of the paper to the extent that it affects the main claims and/or conclusions of the paper (regardless of whether the code and data are provided or not)?

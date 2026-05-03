@@ -1,0 +1,34 @@
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+  judge:
+    name: vllm
+    model: gptoss-20b
+    sampling:
+      temperature: 1.0
+      top_p: 1.0
+      max_tokens: 4096
+method:
+  name: tts-agent
+  backend:
+    name: vllm
+  explore_model: gptoss-20b
+  orchestrator_model: gptoss-20b
+  cache_dir: ../analysis/cache/hle/gptoss20b/gold
+  no_integrate: true
+  num_explores: 8
+  sampling:
+    # temperature=0.7 (override of yaml-archetype 1.0): test commit-rate stability
+    # vs production 1.0. v1/v2 smoke (T=1.0): 0/2 commits (sampling stochasticity).
+    # v3 (T=1.0): 1/1 commit. Need a 10-question batch at lower T to estimate
+    # commit-rate distribution.
+    temperature: 0.7
+    top_p: 1.0
+    max_tokens: 32768
+num: 10
+# num_workers=10: 10 questions concurrent so we get the full batch in ~1 min;
+# does not affect per-question commit decision (stochasticity is per-question).
+num_workers: 10
+seed: 42
+log_dir: ../analysis/run/hle/gptoss20b_smoke10_t07

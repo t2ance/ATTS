@@ -1,0 +1,54 @@
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+  # judge is required by HLESpec even at precache (precache doesn't grade,
+  # but BenchmarkSpec is shared between precache and eval). Same Gemma block
+  # as the eval YAML; identity must match for cache reuse.
+  judge:
+    name: vllm
+    model: gemma4-26b-a4b-it
+    sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
+      enable_thinking: true
+      max_tokens: 1024
+backend: vllm
+explore_model: gemma4-26b-a4b-it
+cache_dir: ../analysis/cache/hle/gemma4_26b_a4b_it/gold
+num_explores: 8
+# num=100 caps to first 100 questions (matches eval YAML's num=100). Without
+# this, HLE-gold-text-only is 668 questions = 5344 tasks; eval reads only 100,
+# so the other 568 are wasted compute. Set 2026-05-02 mid-run to fit budget.
+num: 100
+num_workers: 128
+seed: 42
+# explore_timeout: 1200.0 — match Qwen archetype exactly. Prior value 300.0
+# was a compromise that caused 92.9% (743/800) explores to time out and 62/100
+# questions ended up with 0 usable cached explores; cache + paper row archived
+# 2026-05-02 to analysis/archive/gemma_failed_2026-05-02/. No discount on budget.
+explore_timeout: 1200.0
+# Sampling: Gemma-standard block (user-pinned 2026-05-02). Differs from Qwen's
+# top_k=20; do NOT cross-paste the Qwen sampling block here.
+sampling:
+  temperature: 1.0
+  top_p: 0.95
+  top_k: 64
+  enable_thinking: true
+  # max_tokens=60000 — restored from short-lived 16384 attempt (2026-05-02 22:14)
+  # which exposed that 16384 is too tight for hard HLE physics/math problems
+  # (e.g. Kaluza-Klein modes on 5D compactification): even at single-request
+  # level (no DP=4 contention) the model didn't close the JSON in 16384 tokens.
+  # Per user directive 2026-05-02: forbidden fallbacks include shrinking
+  # max_tokens, dropping thinking, restructuring prompt, removing the row, or
+  # multi-step chunking. Only A (raise max_tokens) is approved. Headroom math:
+  # max_model_len=65536, HLE prompt <3K input, max_tokens=60000 leaves ~2.5K
+  # headroom — tight but workable. At ~60 tok/s/req under 16 in flight,
+  # 60000 tokens takes ~17 min; explore_timeout=1200s gives 3 min margin.
+  # The earlier blanket failure at 60000 was because xgrammar without
+  # reasoning_parser=gemma4 was constraining the thinking phase, not because
+  # 60000 was wrong. With reasoning_parser=gemma4 set on the serve side
+  # (serve_gemma4_26b_a4b_dp2.sh `--reasoning-parser gemma4 --structured-outputs-config '{"backend":"xgrammar"}'`),
+  # the thinking is unconstrained and the JSON is constrained correctly.
+  max_tokens: 60000

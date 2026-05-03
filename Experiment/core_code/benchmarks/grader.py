@@ -68,6 +68,7 @@ ABSOLUTE RULES (violating any of these is failure):
 3. Your reasoning must be a direct comparison: take [extracted_final_answer], take [correct_answer], state whether they are equivalent (allowing notation / formatting / mathematical-equivalence differences). Nothing else.
 4. Reasoning MUST be at most 2 short sentences. If you find yourself writing more than 2 sentences, you are violating rule 1.
 5. If [response] has no extractable final answer, set extracted_final_answer="None" and correct=false.
+6. You MUST mark an extracted_final_answer of None, and mark it as incorrect, if an empty answer is provided. DO NOT SOLVE THE PROBLEM IN THIS CASE.
 
 GOOD reasoning examples (do this):
 - "Extracted '1/2' equals correct_answer '0.5' (mathematical equivalence). Match."

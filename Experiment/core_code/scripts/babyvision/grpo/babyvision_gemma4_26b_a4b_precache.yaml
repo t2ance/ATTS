@@ -1,0 +1,23 @@
+benchmark:
+  name: babyvision
+  judge:
+    name: vllm
+    model: gemma4-26b-a4b-it
+    sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
+      enable_thinking: true
+      max_tokens: 1024
+backend: vllm
+explore_model: gemma4-26b-a4b-it
+cache_dir: ../analysis/cache/babyvision/gemma4_26b_a4b_it
+num_explores: 8
+num_workers: 128
+seed: 42
+sampling:
+  temperature: 1.0
+  top_p: 0.95
+  top_k: 64
+  enable_thinking: true
+  max_tokens: 60000

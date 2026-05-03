@@ -11,7 +11,6 @@ Uses text-based <tool_call> parsing (no --enable-auto-tool-choice needed).
 
 from __future__ import annotations
 
-import itertools
 import json
 import logging
 import re
@@ -34,38 +33,77 @@ _CONTEXT_OVERFLOW_PARAMS = ("input_tokens", "input_text")
 # Configuration
 # ---------------------------------------------------------------------------
 
-# Single-process vLLM DP=4 serve (2026-05-02): one `vllm serve --data-parallel-
-# size 4` process exposes a single HTTP endpoint on port 8000 and internally
-# manages 4 engine workers, one per GPU (CUDA_VISIBLE_DEVICES=0,1,2,3). vllm
-# does request load-balancing and continuous-batching across the 4 workers
-# itself, so the client only needs one base URL. The list+round-robin
-# scaffolding below is preserved (single-entry list) for compatibility with
-# pre-DP=4 multi-replica setups; restore those URLs if running independent
-# replicas instead. TP=3/DP=3 are categorically blocked at the model layer
-# (intermediate_size=8192 not divisible by 3); DP=4 is allowed because
-# 8192 % 4 == 0.
-VLLM_BASE_URLS = [
-    "http://localhost:8000/v1",
-]
-_clients: list[AsyncOpenAI] | None = None
-_client_cycle = None
+# Per-model serve URL routing (2026-05-03):
+# Multiple vLLM serves can run concurrently on different ports — currently
+#   - port 8000: gemma4-26b-a4b-it (DP=2 on GPU 0+1)
+#   - port 8001: gptoss-20b        (DP=2 on GPU 2+3)
+# Earlier single-port DP=4 setup is now retired; each model gets its own
+# port to avoid collisions when running multiple model evals in parallel.
+# DEFAULT_VLLM_BASE_URL is the fallback when the model alias is not in the
+# routing table (preserves backward compat for callers that pass an unknown
+# model name; they hit port 8000).
+DEFAULT_VLLM_BASE_URL = "http://localhost:8000/v1"
+MODEL_TO_BASE_URL: dict[str, str] = {
+    "gemma4-26b-a4b-it": "http://localhost:8000/v1",
+    "gptoss-20b":        "http://localhost:8001/v1",
+    # Add new model aliases here as new serves come online. Default is 8000.
+}
+# Pre-DP=4 multi-replica scaffolding kept conceptually via the model-routing
+# dict — restore independent-replica round-robin only if a single model is
+# served by N independent processes on N ports (rare; co-located DP handles
+# load-balancing internally).
+_clients: dict[str, AsyncOpenAI] = {}
 
 
-def _get_client() -> AsyncOpenAI:
-    global _clients, _client_cycle
-    if _clients is None:
+# Regex stripping the harmony channel-token leak that vllm#32587 produces in
+# gpt-oss tool_call.function.name. Observed leak shapes (2026-05-03 field log):
+#   "explore<|channel|>commentary"   - full marker + suffix
+#   "explorecommentary"              - marker stripped by parser, suffix remains
+#   "StructuredOutput<|channel|>final"
+#   "explore<|channel|>json"
+#   "explore<|channel|>"              - bare dangling marker, NO suffix (q43 crash)
+# Strategy: kill everything from the first `<|` onwards, then strip any of the
+# four harmony channel keywords (commentary / analysis / final / json) that
+# remain as a suffix after the marker is gone. Tool names are alphanumeric by
+# convention; `<|` cannot legally appear in any registered name.
+_HARMONY_LEAK_RE = re.compile(r"<\|.*$|(?:commentary|analysis|final|json)$")
+
+# Models served via vLLM that REQUIRE the `/v1/responses` (Harmony) endpoint
+# for tool calling, NOT `/v1/chat/completions`. vLLM maintainers explicitly
+# wontfix the chat/completions tool-calling path for these models (vllm#22578
+# closed "not planned"); harmony channel tokens leak both forward (into tool
+# name field, vllm#32587) and backward (into next-turn HTTP 500 message-header
+# parse rejection). The Responses API is OpenAI's officially recommended path
+# for harmony-format models and is the only path where vLLM's tool-call
+# extraction is maintained.
+#
+# Add a new model alias here when it serves harmony format (`--reasoning-parser
+# openai_gptoss` or similar harmony-channel parser). The dispatch in
+# `run_tool_conversation` routes these models to `_run_tool_conversation_responses`.
+HARMONY_MODELS: set[str] = {"gptoss-20b"}
+
+
+def _get_client(model: str | None = None) -> AsyncOpenAI:
+    """Return an AsyncOpenAI client whose base_url matches the model's serve.
+
+    Args:
+        model: vLLM `--served-model-name` alias (e.g. `gemma4-26b-a4b-it`,
+               `gptoss-20b`). When None or not in MODEL_TO_BASE_URL,
+               DEFAULT_VLLM_BASE_URL (port 8000) is used.
+
+    Clients are cached per base_url so repeated calls reuse the same
+    AsyncOpenAI instance and its connection pool.
+    """
+    base_url = MODEL_TO_BASE_URL.get(model, DEFAULT_VLLM_BASE_URL) if model else DEFAULT_VLLM_BASE_URL
+    if base_url not in _clients:
         # timeout=1800.0 (30 min): openai client default is 600s. LCB eval with
         # max_tokens=65536 + thinking-mode decode hits >10min single-call wall
         # time on long-tail problems, which triggers httpcore.ReadTimeout and
         # crashes the eval (no try/except in eval.py per fail-fast policy).
         # Set 2026-05-02 after LCB eval crashed at [126/175] mid-decode.
         # 1800s covers up to ~36 tok/s × 1800 = 65k token decode comfortably.
-        _clients = [
-            AsyncOpenAI(base_url=u, api_key="not-needed", timeout=1800.0)
-            for u in VLLM_BASE_URLS
-        ]
-        _client_cycle = itertools.cycle(_clients)
-    return next(_client_cycle)
+        _clients[base_url] = AsyncOpenAI(base_url=base_url, api_key="not-needed", timeout=1800.0)
+    return _clients[base_url]
 
 
 # Cost estimation ($/1M tokens) -- configurable for reporting
@@ -108,156 +146,43 @@ def _split_sampling_kwargs(s: dict | None) -> tuple[dict, dict]:
     for k in ("temperature", "top_p", "presence_penalty", "max_tokens"):
         if s.get(k) is not None:
             direct[k] = s[k]
-    for k in ("top_k", "min_p", "repetition_penalty"):
+    for k in ("top_k", "min_p", "repetition_penalty", "thinking_token_budget"):
         if s.get(k) is not None:
             extra[k] = s[k]
     if s.get("enable_thinking") is not None:
         extra["chat_template_kwargs"] = {"enable_thinking": s["enable_thinking"]}
+    # `disable_response_format` is a backend-side flag (NOT sent to vLLM); the
+    # caller in `call_sub_model` reads it to decide whether to skip
+    # `response_format=json_schema`. See vllm#40080: Gemma-4 + xgrammar guided
+    # JSON deterministically loops; for those models we drop the schema
+    # constraint and inject the schema as text instructions in user_message,
+    # then post-hoc json.loads the response. The flag stays out of `direct`
+    # and `extra` so vLLM never receives an unknown sampling parameter.
     return direct, extra
 
 
 # ---------------------------------------------------------------------------
-# <tool_call> parsing (text-mode tool calling)
+# Tool-call parsing
+#
+# Removed 2026-05-02: client-side tool-call parsing (regex over message.content)
+# fully replaced by vLLM's server-side `--enable-auto-tool-choice
+# --tool-call-parser <X>` path. The OpenAI response now carries structured
+# `message.tool_calls=[{id, type, function:{name, arguments}}]` directly;
+# `run_tool_conversation` reads that field instead of regex-parsing text.
+#
+# Why the switch: keeping client-side parsers meant vendoring + dispatching one
+# parser per model family (Qwen3-8B JSON, Qwen3.6 XML, Gemma-4 call:NAME{...}).
+# Each new model added a parser to maintain. vLLM ships 25+ tool parsers
+# upstream (Hermes/qwen3xml/gemma4/llama3_json/...) and now serves them safely
+# under DP after the thread-safety race (vllm#34932 "RuntimeError: Already
+# borrowed") was fixed in vllm#40059 — parsers use vocab.get() instead of
+# tokenizer.encode(), eliminating the HF Rust borrow conflict. Fix shipped in
+# vllm 0.20.0 (2026-04-24).
+#
+# Each `serve_<model>.sh` MUST pass `--enable-auto-tool-choice
+# --tool-call-parser <name>`, picking the parser for that model's chat
+# template (gemma4 / qwen3xml / qwen3coder / hermes / mistral / ...).
 # ---------------------------------------------------------------------------
-
-_TOOL_CALL_RE = re.compile(
-    r"<tool_call>\s*(.*?)\s*</tool_call>",
-    re.DOTALL,
-)
-
-# History reconstruction policy (additive extraction, 2026-05-01):
-# After an assistant turn, only the <tool_call>...</tool_call> blocks are
-# kept in the multi-turn history; all surrounding text (reasoning / chatter /
-# free-form CoT) is dropped before the next request. Rationale: the prior
-# subtractive design (strip text before </think>) silently no-oped on outputs
-# without a </think> boundary -- LCB orchestrator emitted free-form CoT with
-# zero </think> tags, so prior reasoning leaked back into messages and input
-# crossed max_model_len=65536 at run_20260501_022727 q90 (input=32769 vs
-# cap=32768). The fix below defines what to KEEP, not what to REMOVE; missing
-# boundaries can no longer cause leaks. Trajectory file keeps the full
-# unstripped text for offline analysis.
-_TOOL_CALL_BLOCK_RE = re.compile(r"<tool_call>.*?</tool_call>", re.DOTALL)
-
-# Qwen3.6+ chat_template emits XML body inside <tool_call>:
-#   <function=NAME>
-#     <parameter=KEY>VAL</parameter>
-#     ...
-#   </function>
-# (chat_template.jinja line 53; Qwen3-8B uses JSON body instead.)
-_TOOL_FUNCTION_RE = re.compile(
-    r"<function=([^>\s]+)\s*>(.*?)</function>",
-    re.DOTALL,
-)
-_TOOL_PARAMETER_RE = re.compile(
-    r"<parameter=([^>\s]+)\s*>(.*?)</parameter>",
-    re.DOTALL,
-)
-
-
-def parse_tool_calls(text: str) -> list[tuple[str, dict]]:
-    """Parse all ``<tool_call>`` blocks from generated text.
-
-    Returns list of (tool_name, arguments_dict).
-    Tries JSON body first (Qwen3-8B chat_template format), then XML body
-    (Qwen3.6+ chat_template format with ``<function=...><parameter=...>``).
-    Handles double-escaped JSON from vLLM responses.
-    Skips blocks with malformed bodies in both formats.
-    """
-    results = []
-    for m in _TOOL_CALL_RE.finditer(text):
-        raw = m.group(1).strip()
-        # Path A: JSON body (Qwen3-8B style)
-        call = _try_parse_tool_json(raw)
-        if call is None:
-            # vLLM sometimes double-escapes: \\" -> ", \\u -> \u
-            unescaped = raw.replace('\\\\"', '\x00QUOTE\x00').replace('\\"', '"').replace('\x00QUOTE\x00', '\\"')
-            call = _try_parse_tool_json(unescaped)
-        # Path B: XML body (Qwen3.6+ style)
-        if call is None:
-            call = _try_parse_tool_xml(raw)
-        if call is None:
-            continue
-        name = call.get("name", "")
-        args = call.get("arguments", {})
-        results.append((name, args))
-    return results
-
-
-def _try_parse_tool_xml(raw: str) -> dict | None:
-    """Try to parse a Qwen3.6-style XML tool-call body.
-
-    Body shape: ``<function=NAME>(<parameter=KEY>VAL</parameter>)*</function>``.
-    Each parameter value is JSON-decoded if possible (so ``0.85`` → float, ``"x"``
-    → ``x``); otherwise kept as the trimmed raw string. This matches what the
-    chat_template.jinja serializer does in reverse (jinja: ``v|tojson if v is not
-    string``), so a round-trip through JSON values + string passthrough recovers
-    the original Python types.
-    """
-    fn = _TOOL_FUNCTION_RE.search(raw)
-    if fn is None:
-        return None
-    name = fn.group(1).strip()
-    body = fn.group(2)
-    args: dict = {}
-    for pm in _TOOL_PARAMETER_RE.finditer(body):
-        key = pm.group(1).strip()
-        val_raw = pm.group(2).strip()
-        try:
-            args[key] = json.loads(val_raw)
-        except (json.JSONDecodeError, ValueError):
-            args[key] = val_raw
-    return {"name": name, "arguments": args}
-
-
-_INVALID_UNICODE_RE = re.compile(r"\\u([0-9a-fA-F]{0,3}[^0-9a-fA-F])")
-
-
-_BAD_ESCAPE_RE = re.compile(r"\\(?![\"\\\/bfnrt]|u[0-9a-fA-F]{4})")
-
-
-def _fix_json_string(raw: str) -> str:
-    """Fix common JSON string issues from LLM output.
-
-    - Invalid \\uXXXX escapes (e.g. \\u208i)
-    - Unescaped control characters
-    """
-    # Remove invalid \uXXXX (non-hex chars after \u)
-    fixed = _INVALID_UNICODE_RE.sub(lambda m: "u" + m.group(1), raw)
-    # Escape any remaining invalid backslash sequences
-    fixed = _BAD_ESCAPE_RE.sub(lambda m: "\\\\" + m.group(0)[1:], fixed)
-    return fixed
-
-
-def _try_parse_tool_json(raw: str) -> dict | None:
-    """Try to parse a tool call JSON string, with progressive fixing."""
-    for attempt_raw in [raw, _fix_json_string(raw)]:
-        try:
-            return json.loads(attempt_raw)
-        except json.JSONDecodeError:
-            continue
-    # Last resort: extract name and try to build a minimal result
-    name_match = re.search(r'"name"\s*:\s*"([^"]+)"', raw)
-    args_match = re.search(r'"arguments"\s*:\s*\{(.*)\}\s*\}', raw, re.DOTALL)
-    if name_match and args_match:
-        # Try parsing just the arguments with fixes
-        args_raw = "{" + args_match.group(1) + "}"
-        args_fixed = _fix_json_string(args_raw)
-        try:
-            args = json.loads(args_fixed)
-            return {"name": name_match.group(1), "arguments": args}
-        except json.JSONDecodeError:
-            # Extract individual fields with regex
-            answer = re.search(r'"answer"\s*:\s*"([^"]*)"', raw)
-            if answer and name_match.group(1) == "StructuredOutput":
-                return {
-                    "name": "StructuredOutput",
-                    "arguments": {
-                        "answer": answer.group(1),
-                        "reasoning": "parsed from malformed JSON",
-                        "confidence": 0.5,
-                    },
-                }
-    return None
 
 
 # ---------------------------------------------------------------------------
@@ -298,11 +223,27 @@ async def call_sub_model(
     whenever a cache miss occurs, breaking the like-for-like guarantee that
     the cache-only assertion in make_sub_model_caller exists to enforce.
     """
-    client = _get_client()
+    client = _get_client(model)
+
+    # Gemma-4 + xgrammar guided JSON deterministically loops (vllm#40080,
+    # gemma#622, gemma#610, ollama#15502). Workaround: drop response_format
+    # and inject the schema as text instructions; rely on the model's own
+    # JSON-emission ability + post-hoc json.loads. Caller opts in via
+    # `sampling: {disable_response_format: true}` in YAML.
+    disable_rf = bool((sampling or {}).get("disable_response_format"))
+    user_text = user_message
+    if disable_rf and output_schema:
+        import json as _json
+        user_text = (
+            f"{user_message}\n\n"
+            "Respond with ONLY a valid JSON object matching this schema. "
+            "No prose, no markdown fences, no commentary — just the JSON object.\n"
+            f"Schema:\n```json\n{_json.dumps(output_schema, indent=2)}\n```"
+        )
 
     messages = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": _build_user_content(user_message, image_data_url)},
+        {"role": "user", "content": _build_user_content(user_text, image_data_url)},
     ]
 
     direct_kwargs, extra_body = _split_sampling_kwargs(sampling)
@@ -336,7 +277,7 @@ async def call_sub_model(
                         "strict": True,
                     },
                 }
-                if output_schema
+                if (output_schema and not disable_rf)
                 else None
             ),
             extra_body=extra_body or None,
@@ -379,16 +320,15 @@ async def call_sub_model(
     }
     cost = _estimate_cost_usd(usage, model)
 
-    # Parse structured output -- try direct JSON, then <tool_call>, then regex
+    # Parse structured output: rely on `response_format=json_schema` enforced
+    # at the server. Output is direct JSON in `message.content`. No tool-call
+    # parsing fallback — single-shot calls do not pass `tools=...`, so the
+    # server-side auto-tool-choice path is not exercised here.
     result: dict = {}
     try:
         result = json.loads(text)
     except json.JSONDecodeError:
-        calls = parse_tool_calls(text)
-        for name, args in calls:
-            if name == "StructuredOutput":
-                result = args
-                break
+        pass
 
     # Soft-fail on unparseable output. Prior to 2026-05-01 this branch raised
     # AssertionError, which propagated through `await asyncio.gather(...)` in
@@ -451,7 +391,11 @@ async def run_tool_conversation(
 ) -> tuple[float, dict[str, Any], bool]:
     """Run a multi-turn tool-calling conversation via vLLM.
 
-    Uses text-based <tool_call> tag parsing (no hermes parser needed).
+    Uses vLLM's server-side `--enable-auto-tool-choice --tool-call-parser <X>`
+    path. The OpenAI response carries structured `message.tool_calls=[...]`
+    and `content=null` when the model fires a tool. No client-side text
+    parsing. Each `serve_*.sh` MUST pass the matching `--tool-call-parser`
+    name (gemma4 / qwen3xml / hermes / ...) for its model family.
 
     Sampling-knob precedence (per call to client.chat.completions.create):
       1. `sampling` dict (full Pydantic SamplingConfig from yaml).
@@ -464,6 +408,24 @@ async def run_tool_conversation(
     `max_output_tokens` is the cumulative output-token CAP across turns
     (different concept from per-turn `max_tokens`).
     """
+    # Harmony-format models (gpt-oss family) cannot use chat/completions for
+    # tool calling — vllm#22578 wontfix. Route to the Responses API adapter.
+    if model in HARMONY_MODELS:
+        return await _run_tool_conversation_responses(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            image_data_url=image_data_url,
+            model=model,
+            tools=tools,
+            max_turns=max_turns,
+            tool_handler=tool_handler,
+            output_format=output_format,
+            writer=writer,
+            on_structured_output=on_structured_output,
+            temperature=temperature,
+            sampling=sampling,
+        )
+
     direct_kwargs, extra_body = _split_sampling_kwargs(sampling)
     # Per-row temperature override (rejection sampling path); only honored when
     # `sampling` did not already pin temperature.
@@ -474,7 +436,7 @@ async def run_tool_conversation(
     assert 0.0 <= direct_kwargs["temperature"] <= 2.0, (
         f"temperature out of range: {direct_kwargs['temperature']}"
     )
-    client = _get_client()
+    client = _get_client(model)
 
     # Append StructuredOutput schema to system prompt; also expose the
     # benchmark's `required` keys to the StructuredOutput-arg validator below
@@ -515,12 +477,12 @@ async def run_tool_conversation(
         {"role": "user", "content": _build_user_content(user_message, image_data_url)},
     ]
 
-    # Build OpenAI-compatible tools list so Qwen3 chat template's {%- if tools %}
-    # branch triggers and injects the <tools> XML block + <tool_call> format
-    # instructions. We pass tool_choice="none" so vllm does NOT require
-    # --enable-auto-tool-choice (verified against vllm 0.17.1 source:
-    # protocol.py::check_tool_usage + docs/features/tool_calling.md). Output stays
-    # in message.content as raw text and is parsed by the existing <tool_call> regex.
+    # Build OpenAI-compatible tools list. With `tool_choice="auto"` and the
+    # server-side `--enable-auto-tool-choice --tool-call-parser <X>` flags,
+    # vLLM populates structured `message.tool_calls=[...]` and leaves
+    # `message.content=None` on tool turns. The vLLM 0.x thread-safety race
+    # in tool-parser tokenizer.encode (vllm#34932) was fixed in vllm#40059
+    # (merged 2026-04-24, included in 0.20.0); parsers now use vocab.get(...).
     openai_tools: list[dict[str, Any]] = [
         {
             "type": "function",
@@ -560,7 +522,7 @@ async def run_tool_conversation(
                 model=model,
                 messages=messages,
                 tools=openai_tools,
-                tool_choice="none",
+                tool_choice="auto",
                 extra_body=extra_body or None,
                 **direct_kwargs,
             )
@@ -591,11 +553,57 @@ async def run_tool_conversation(
             )
             return _estimate_cost_usd(total_usage, model), total_usage, "cap_exceeded"
 
-        # --- Parse <tool_call> from text content ---
+        # --- Read structured tool_calls (server-side parser populated) ---
         text_content = choice.message.content or ""
-        text_calls = parse_tool_calls(text_content) if text_content else []
+        raw_tool_calls = choice.message.tool_calls or []
+        # Decode each tool_call.function.arguments (JSON string) into a dict.
+        # OpenAI/vLLM contract: arguments is always a JSON-encoded string.
+        # Skip individual calls that fail to decode (server-side parser bug
+        # OR truncated args) so one bad call doesn't poison the whole turn.
+        text_calls: list[tuple[str, dict]] = []
+        # cleaned_tool_calls mirrors raw_tool_calls but with sanitized
+        # function.name. Used for the assistant-message history append below
+        # so the polluted name does not feed back into the next turn.
+        cleaned_tool_calls: list[dict] = []
+        for tc in raw_tool_calls:
+            try:
+                args_dict = json.loads(tc.function.arguments) if tc.function.arguments else {}
+            except json.JSONDecodeError as e:
+                logger.warning(
+                    f"[vllm turn {turn}] tool_call arguments JSON decode failed: "
+                    f"name={tc.function.name!r} args_raw={tc.function.arguments!r} err={e}"
+                )
+                continue
+            # vllm#32587 (OPEN, no upstream fix as of 2026-05-03): gpt-oss
+            # openai tool_call_parser fails to terminate the function name at
+            # the harmony channel marker. Two leak shapes seen empirically:
+            #   1. with separator:    "explore<|channel|>commentary"
+            #   2. without separator: "explorecommentary"  (parser dropped
+            #      the `<|channel|>` marker but kept the channel keyword)
+            # Regex strips both shapes: optional `<|...|>` + harmony channel
+            # keyword suffix (commentary | analysis | final | json). Other
+            # parsers (Gemma, Qwen) emit clean names so this is a no-op.
+            clean_name = _HARMONY_LEAK_RE.sub("", tc.function.name)
+            if clean_name != tc.function.name:
+                logger.warning(
+                    f"[vllm turn {turn}] tool_name special-token leak "
+                    f"stripped: {tc.function.name!r} -> {clean_name!r} "
+                    f"(vllm#32587)"
+                )
+            text_calls.append((clean_name, args_dict))
+            cleaned_tool_calls.append({
+                "id": tc.id,
+                "type": tc.type,
+                "function": {
+                    "name": clean_name,
+                    "arguments": tc.function.arguments,
+                },
+            })
 
-        logger.info(f"[vllm turn {turn}] finish={choice.finish_reason} tools={len(text_calls)} content_len={len(text_content)}")
+        logger.info(
+            f"[vllm turn {turn}] finish={choice.finish_reason} "
+            f"tools={len(text_calls)} content_len={len(text_content)}"
+        )
 
         if writer and text_content:
             writer.write_text(text_content)
@@ -605,16 +613,24 @@ async def run_tool_conversation(
             # Orchestrator emitted text without tool_call; no commit signal.
             return _estimate_cost_usd(total_usage, model), total_usage, "incomplete"
 
-        # Append assistant message once. Reconstruct history additively:
-        # extract just the <tool_call>...</tool_call> blocks and drop all
-        # surrounding text. See _TOOL_CALL_BLOCK_RE comment for rationale.
-        # Reaching this line guarantees text_calls is non-empty (the early
-        # return at "no tool call in response" handles the empty case), so
-        # at least one block is always retained.
-        history_content = "\n".join(_TOOL_CALL_BLOCK_RE.findall(text_content))
-        messages.append({"role": "assistant", "content": history_content})
+        # Append assistant message with structured tool_calls (OpenAI standard
+        # multi-turn format). The chat_template's tool-rendering branch
+        # serializes message.tool_calls back into the model's native format
+        # (Gemma `<|tool_call>call:NAME{...}<tool_call|>`, Qwen `<tool_call>
+        # ...</tool_call>`, etc.), so model sees its own prior calls in the
+        # native syntax it was trained on. Drop assistant `content` (free-text
+        # reasoning) — historically dropped too, this preserves history budget.
+        messages.append({
+            "role": "assistant",
+            "content": None,
+            # cleaned_tool_calls (built above) carries sanitized function.name
+            # — see vllm#32587 strip block. Using raw_tool_calls here would
+            # feed the polluted name back into the model on the next turn,
+            # which compounds the bug.
+            "tool_calls": cleaned_tool_calls,
+        })
 
-        for name, args in text_calls:
+        for tc, (name, args) in zip(raw_tool_calls, text_calls):
             if name == "StructuredOutput":
                 # Schema-aware required-field check: derived from
                 # output_format.schema.required (set above). Each benchmark
@@ -635,12 +651,15 @@ async def run_tool_conversation(
                             f"[StructuredOutput rejected: missing required "
                             f"fields {missing}; got keys={list(args.keys())}]"
                         )
+                    # Inject corrective `tool` reply so chat history stays valid
+                    # (every assistant.tool_call MUST have a matching tool reply).
                     messages.append({
-                        "role": "user",
+                        "role": "tool",
+                        "tool_call_id": tc.id,
                         "content": (
-                            f"Your last StructuredOutput call was missing required "
-                            f"fields: {missing}. Call StructuredOutput again with "
-                            f"ALL required fields filled per the schema."
+                            f"StructuredOutput rejected: missing required "
+                            f"fields {missing}. Call StructuredOutput again "
+                            f"with ALL required fields filled per the schema."
                         ),
                     })
                     break
@@ -659,10 +678,15 @@ async def run_tool_conversation(
             if writer:
                 writer.write_tool_result(result_text)
 
-            # Inject tool result as user message (Qwen convention)
+            # Inject tool result as `role="tool"` message keyed by tool_call_id
+            # (OpenAI standard). The chat_template's tool_response branch
+            # renders this in the model's native format
+            # (Gemma `<|tool_response>response:NAME{value:...}<tool_response|>`,
+            # Qwen `<tool_response>...</tool_response>`).
             messages.append({
-                "role": "user",
-                "content": f"<tool_response>\n{result_text}\n</tool_response>",
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": result_text,
             })
 
             if should_stop:
@@ -671,4 +695,324 @@ async def run_tool_conversation(
                 return _estimate_cost_usd(total_usage, model), total_usage, "committed"
 
     # for-loop walked all max_turns without commitment.
+    return _estimate_cost_usd(total_usage, model), total_usage, "incomplete"
+
+
+async def _run_tool_conversation_responses(
+    *,
+    system_prompt: str,
+    user_message: str,
+    image_data_url: str | None,
+    model: str,
+    tools: list[dict[str, Any]],
+    max_turns: int,
+    tool_handler: Callable[[str, dict], Awaitable[tuple[str, bool]]],
+    output_format: dict[str, Any] | None = None,
+    writer=None,
+    on_structured_output: Callable[[dict], None] | None = None,
+    temperature: float | None = None,
+    sampling: dict | None = None,
+) -> tuple[float, dict[str, Any], str]:
+    """Multi-turn tool-calling via vLLM `/v1/responses` (Harmony) endpoint.
+
+    Mirrors the contract of `run_tool_conversation` (same return tuple, same
+    tool_handler / on_structured_output callbacks) but uses the OpenAI SDK's
+    Responses API (`client.responses.create`) instead of Chat Completions.
+
+    Why a separate adapter:
+    - Harmony-format models (gpt-oss-20b, gpt-oss-120b) leak channel tokens
+      (`<|channel|>commentary` etc.) into chat/completions tool_call.name
+      AND into next-turn message headers (vllm#32587 OPEN, vllm#22578 wontfix).
+    - The Responses API is OpenAI's officially recommended path for these
+      models and the path vLLM maintainers actually maintain for tool calling.
+    - Responses API uses different shapes:
+      - tools: `[{type:function, name, description, parameters}]` — NOT
+        nested under `function` key like chat/completions
+      - input items: messages + function_call + function_call_output
+      - response.output: list of items (function_call, message, reasoning)
+      - multi-turn via `previous_response_id` (server-stateful) — next call
+        sends only the new function_call_output items, not full history
+
+    Limitations of this adapter (raise loudly rather than silently degrade):
+    - image_data_url unsupported (HLE-Verified text_only is the smoke target;
+      multimodal Responses API tool-calling shape needs separate validation)
+
+    References:
+    - vLLM Recipes GPT-OSS: https://docs.vllm.ai/projects/recipes/en/latest/OpenAI/GPT-OSS.html
+    - OpenAI Cookbook: https://developers.openai.com/cookbook/articles/gpt-oss/run-vllm
+    - Responses API tool-call shape: Azure docs (mirrors openai-python SDK)
+    """
+    if image_data_url is not None:
+        raise NotImplementedError(
+            "Responses-API adapter does not yet handle image inputs. "
+            "Implement multimodal tool-calling shape before enabling for "
+            "BabyVision/RBenchV. Current scope: text_only HLE/GPQA/LCB."
+        )
+
+    # --- Sampling: Responses API takes temperature / top_p / max_output_tokens
+    # at top level; vLLM-specific knobs go via `extra_body`. ---
+    direct_kwargs, extra_body = _split_sampling_kwargs(sampling)
+    if "temperature" not in direct_kwargs and temperature is not None:
+        direct_kwargs["temperature"] = temperature
+    direct_kwargs.setdefault("temperature", 0.0)
+    # Responses API uses `max_output_tokens` (per-turn cap), NOT `max_tokens`.
+    if "max_tokens" in direct_kwargs:
+        direct_kwargs["max_output_tokens"] = direct_kwargs.pop("max_tokens")
+    direct_kwargs.setdefault("max_output_tokens", 8192)
+    assert 0.0 <= direct_kwargs["temperature"] <= 2.0, (
+        f"temperature out of range: {direct_kwargs['temperature']}"
+    )
+    client = _get_client(model)
+
+    # --- StructuredOutput tool injection (parallel to chat/completions branch,
+    # but with gpt-oss / harmony-format-specific reinforcements). The earlier
+    # version mirrored chat/completions' protocol block. Smoke run on 2026-05-03
+    # (run_20260503_071121) showed gpt-oss-20b finishing reasoning with "So
+    # answer is B" in its `<|channel|>analysis` reasoning channel and exiting
+    # without calling StructuredOutput. The harmony format trains the model to
+    # treat reasoning as the answer surface; the prompt must explicitly forbid
+    # that and require StructuredOutput as the LAST action of every turn.
+    required: list[str] = []
+    augmented_system = system_prompt
+    if output_format and output_format.get("schema"):
+        schema_json = json.dumps(output_format["schema"], indent=2)
+        required = output_format["schema"].get("required", [])
+        augmented_system = (
+            system_prompt
+            + "\n\n=== EXTREMELY IMPORTANT --- FINAL ANSWER SUBMISSION PROTOCOL ===\n"
+            "WHEN YOUR REASONING IS COMPLETE, YOU MUST SUBMIT YOUR FINAL ANSWER BY CALLING THE `StructuredOutput` TOOL.\n"
+            "THIS IS THE ONLY ACCEPTED SUBMISSION PATH. NOTHING ELSE COUNTS AS A SUBMISSION.\n"
+            "\n"
+            "THE FOLLOWING ARE NOT VALID SUBMISSIONS AND WILL BE GRADED AS 0:\n"
+            "  - Stating the answer in your private analysis / reasoning / chain-of-thought channel.\n"
+            "  - Writing the answer in free-form text or final message (e.g. `\\boxed{X}`, `Answer: X`, `The answer is X`).\n"
+            "  - Saying 'So the answer is X' anywhere except inside the `StructuredOutput` tool arguments.\n"
+            "  - Ending the conversation without a `StructuredOutput` tool call.\n"
+            "\n"
+            "MANDATORY FORMAT: Your VERY LAST action in the conversation MUST be a `StructuredOutput` tool call.\n"
+            "If you have arrived at an answer in your reasoning, you have NOT submitted yet — you must still emit the tool call.\n"
+            "Even if the answer feels obvious, even if you are certain, even if it is a single character — call `StructuredOutput`.\n"
+            "\n"
+            "Use strict JSON format for the tool arguments. "
+            f"All of these fields are required and must each be a separate JSON key: {', '.join(required)}.\n"
+            f"Schema:\n```json\n{schema_json}\n```\n"
+        )
+
+    # --- Build Responses-API tools list (flat shape, no `function` nesting) ---
+    responses_tools: list[dict[str, Any]] = [
+        {
+            "type": "function",
+            "name": t["name"],
+            "description": t["description"],
+            "parameters": t["parameters"],
+        }
+        for t in tools
+    ]
+    if output_format and output_format.get("schema"):
+        responses_tools.append({
+            "type": "function",
+            "name": "StructuredOutput",
+            "description": "Submit the final structured answer.",
+            "parameters": output_format["schema"],
+        })
+
+    # --- Conversation history kept CLIENT-SIDE (vLLM `/v1/responses` is
+    # stateless — `previous_response_id` returns 404 because vLLM does not
+    # implement a response store). Each turn we re-send the full input list
+    # including prior function_call items and function_call_output items.
+    # The model gets identical context each iteration; vLLM rebuilds harmony
+    # state from the input items every call. ---
+    full_input: list[dict[str, Any]] = [
+        {"role": "system", "content": augmented_system},
+        {"role": "user", "content": user_message},
+    ]
+    total_usage = {"input_tokens": 0, "output_tokens": 0}
+
+    for turn in range(max_turns):
+        try:
+            create_kwargs: dict[str, Any] = {
+                "model": model,
+                "input": full_input,
+                "tools": responses_tools,
+                **direct_kwargs,
+            }
+            if extra_body:
+                create_kwargs["extra_body"] = extra_body
+            response = await client.responses.create(**create_kwargs)
+        except BadRequestError as e:
+            body = e.body if isinstance(e.body, dict) else {}
+            param = body.get("param") if isinstance(body, dict) else None
+            if param in _CONTEXT_OVERFLOW_PARAMS:
+                msg = body.get("message", "") if isinstance(body, dict) else ""
+                logger.info(
+                    f"[orchestrator-responses] CONTEXT OVERFLOW soft-skip turn={turn} "
+                    f"param={param} model={model} msg={msg[:200]!r}"
+                )
+                return _estimate_cost_usd(total_usage, model), total_usage, "context_overflow"
+            raise
+
+        if getattr(response, "usage", None):
+            total_usage["input_tokens"] += getattr(response.usage, "input_tokens", 0)
+            total_usage["output_tokens"] += getattr(response.usage, "output_tokens", 0)
+
+        # Walk response.output[] for function_call items. message / reasoning
+        # items get written to trajectory so we can debug "why did the model
+        # decide not to call any tool" — gpt-oss in particular tends to emit
+        # only function_call items and skip the message channel entirely; the
+        # reasoning channel is then the only place where its decision logic is
+        # visible. Without writing reasoning to trajectory, the trajectory.md
+        # for an "incomplete" exit (no commit, no tool calls) is empty and
+        # diagnosis is impossible.
+        function_calls: list[Any] = []
+        text_messages: list[str] = []
+        reasoning_messages: list[str] = []
+        # ROOT-CAUSE FIX 2026-05-03 (vllm#33089 + vLLM Responses-API harmony
+        # spec): the harmony format requires conversation history to include
+        # reasoning items AND assistant message items, not just function_calls.
+        # vLLM's response_input_to_harmony() expects 4 item kinds in input:
+        # messages, reasoning items, function_call, function_call_output.
+        # Earlier code dropped reasoning + assistant message items between
+        # turns, breaking the model's chain-of-thought continuity. Symptom:
+        # gpt-oss in multi-turn ATTS commits StructuredOutput only ~20% of
+        # the time at T=1.0 / T=0.7 because each turn it "forgets" why it
+        # called explore previously and arbitrarily decides to stop. Keep
+        # the raw items so we can roundtrip them back into next-turn input.
+        all_items_for_history: list[Any] = []
+        for item in response.output:
+            item_type = getattr(item, "type", None)
+            all_items_for_history.append(item)
+            # gpt-oss with `--reasoning-parser openai_gptoss` returns
+            # tool calls as `mcp_call` items (server_label="functions") rather
+            # than the plain `function_call` items emitted on the chat/completions
+            # path. Both carry .name and .arguments and dispatch identically.
+            # Verified empirically 2026-05-03: with reasoning-parser flag enabled
+            # 100% of explore dispatches arrived as mcp_call; without the flag
+            # they arrived as function_call. Accept both.
+            if item_type in ("function_call", "mcp_call"):
+                function_calls.append(item)
+            elif item_type == "message":
+                for content in getattr(item, "content", []) or []:
+                    if getattr(content, "type", None) == "output_text":
+                        text_messages.append(getattr(content, "text", "") or "")
+            elif item_type == "reasoning":
+                # gpt-oss / harmony-format models emit analysis-channel CoT
+                # here. Concatenate any reasoning_text content blocks for
+                # trajectory.md AND keep the raw item for next-turn history.
+                for content in getattr(item, "content", []) or []:
+                    if getattr(content, "type", None) == "reasoning_text":
+                        reasoning_messages.append(getattr(content, "text", "") or "")
+
+        text_content = "\n".join(text_messages)
+        reasoning_content = "\n".join(reasoning_messages)
+        logger.info(
+            f"[vllm-responses turn {turn}] tools={len(function_calls)} "
+            f"content_len={len(text_content)} reasoning_len={len(reasoning_content)}"
+        )
+        if writer and reasoning_content:
+            writer.write_text(f"[reasoning]\n{reasoning_content}")
+        if writer and text_content:
+            writer.write_text(text_content)
+
+        # No tool calls — model emitted a final message OR ran out of turns
+        if not function_calls:
+            # DEBUG 2026-05-03: dump every output item raw shape to diagnose
+            # whether the model actually emitted a function_call item that we
+            # dropped, or genuinely emitted no function_call.
+            try:
+                debug_items = [item.model_dump(exclude_none=True) for item in response.output]
+                logger.info(
+                    f"[vllm-responses INCOMPLETE_DEBUG turn={turn}] "
+                    f"output_items_count={len(response.output)} "
+                    f"item_types={[getattr(it, 'type', '?') for it in response.output]} "
+                    f"raw_dump={json.dumps(debug_items)[:2000]}"
+                )
+            except Exception as _e:
+                logger.info(f"[vllm-responses INCOMPLETE_DEBUG turn={turn}] dump failed: {_e}")
+            return _estimate_cost_usd(total_usage, model), total_usage, "incomplete"
+
+        # Dispatch each function_call → collect function_call_output items for next turn
+        next_input: list[dict[str, Any]] = []
+        for fc in function_calls:
+            # vllm#32587 strip applies to Responses API too — empirically the
+            # harmony channel-token leak surfaces in `fc.name` ("explore<|channel|>json")
+            # on the responses path as well, not just chat/completions. Same
+            # regex defensive layer.
+            raw_name = fc.name
+            name = _HARMONY_LEAK_RE.sub("", raw_name)
+            if name != raw_name:
+                logger.warning(
+                    f"[vllm-responses turn {turn}] tool_name special-token "
+                    f"leak stripped: {raw_name!r} -> {name!r} (vllm#32587)"
+                )
+                # Mutate fc.name so downstream history append uses clean name
+                fc.name = name
+            try:
+                args = json.loads(fc.arguments) if fc.arguments else {}
+            except json.JSONDecodeError as e:
+                logger.warning(
+                    f"[vllm-responses turn {turn}] function_call arguments "
+                    f"JSON decode failed: name={name!r} args_raw={fc.arguments!r} err={e}"
+                )
+                continue
+
+            if name == "StructuredOutput":
+                missing = [k for k in required if k not in args]
+                if missing:
+                    logger.info(
+                        f"[structured_output_invalid] missing {missing}; "
+                        f"got keys={list(args.keys())}"
+                    )
+                    if writer:
+                        writer.write_text(
+                            f"[StructuredOutput rejected: missing required "
+                            f"fields {missing}; got keys={list(args.keys())}]"
+                        )
+                    next_input.append({
+                        "type": "function_call_output",
+                        # mcp_call items lack call_id — fall back to id.
+                        # function_call items always carry both.
+                        "call_id": getattr(fc, "call_id", None) or fc.id,
+                        "output": (
+                            f"StructuredOutput rejected: missing required "
+                            f"fields {missing}. Call StructuredOutput again "
+                            f"with ALL required fields filled per the schema."
+                        ),
+                    })
+                    continue
+                logger.info(f"[structured_output] {args}")
+                if writer:
+                    writer.write_tool_use("StructuredOutput", args)
+                if on_structured_output:
+                    on_structured_output(args)
+                return _estimate_cost_usd(total_usage, model), total_usage, "committed"
+
+            logger.info(f"[tool_use] {name}")
+            if writer:
+                writer.write_tool_use(name, args)
+
+            result_text, should_stop = await tool_handler(name, args)
+            if writer:
+                writer.write_tool_result(result_text)
+
+            next_input.append({
+                "type": "function_call_output",
+                "call_id": getattr(fc, "call_id", None) or fc.id,
+                "output": result_text,
+            })
+
+            if should_stop:
+                return _estimate_cost_usd(total_usage, model), total_usage, "committed"
+
+        # Append ALL of this turn's output items (reasoning, message, function_call)
+        # plus our function_call_output items to the running history. Per
+        # vllm#33089 + harmony spec, multi-turn Responses API requires the
+        # full set of item kinds to be roundtripped back as input — dropping
+        # reasoning items breaks the model's chain-of-thought continuity and
+        # the model behaves as if each turn starts fresh. model_dump() with
+        # exclude_none=False ensures id/status are preserved (required by
+        # vLLM's strict Pydantic validation for ResponseOutputMessageParam).
+        for item in all_items_for_history:
+            full_input.append(item.model_dump(exclude_none=True))
+        full_input.extend(next_input)
+
     return _estimate_cost_usd(total_usage, model), total_usage, "incomplete"
