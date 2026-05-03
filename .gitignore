@@ -54,7 +54,6 @@ Experiment/core_code/wandb/
 Experiment/core_code/outputs/
 outputs/
 wandb/
-Experiment/analysis/orch_evidence/
 Experiment/analysis/archive/
 
 # Downloaded paper sources

@@ -35,6 +35,31 @@ This file scopes **Method A only**. Method B/C will only be funded if Method A's
   - Paper-ready copies: `Publication/paper/figures/orch_evidence_{gap,heatmap,curve}.pdf`
 - **Scripts:** new directory `scripts/orch_evidence/` with `build_pool_state_table.py`, `compute_stop_statistics.py`, `plot_orch_evidence.py`. All scripts run in `explain` conda env per project rule.
 
+## Reproducibility Index — every analysis with its script, output, and key numbers
+
+This section is the entry point for any agent (human or LLM) picking up this work. Every analysis below has: (i) a 1-line conclusion, (ii) the script that produced it, (iii) the output artifact path, (iv) the key numerical results that downstream conclusions cite. Run order: 01 → 02 → 03 → 04-08 (parallelizable) → 10 → 13 → 14.
+
+| # | Analysis | Conclusion (1 line) | Script | Output artifact | Key numbers |
+|---|---|---|---|---|---|
+| 01 | Verify 5 GPQA stability runs | All 5 paths exist with 198 rows; Acc 80.20%±0.55% (matches paper line 188) | inline python in `tmp/orch_ev_schema_check.log` | log file | 5 runs × 198 = 990 trajectories; mean explore = 2.13 |
+| 02 | Schema validation on `explore_candidates` | 100% of clean cells have `is_correct` + `normalized_answer`; 3 anomalous qids excluded (precache failures) | inline python in `tmp/orch_ev_schema_check_item02_v2.log` | log file | 975/990 clean (98.48%); 3 excluded qids: `recK9F5aqdaybl8bb`, `recRgabRzMaEoBRcM`, `recZ13cwgDQf9jRd9` |
+| 03 | Build per-(run, qid, k) pool-state table for GPQA | letter-level majority via `_extract_mc_letter` (grader function); 12 columns | `scripts/orch_evidence/build_pool_state_table.py` | `analysis/orch_evidence/gpqa_sonnet/pool_state.parquet` | 7800 rows, 195 qids, 975 trajectories |
+| 04+05 | gap distribution + H2-vs-H3 contrast (clean version at first-emergence) | C1 strong (median_gap=0, 89% exact); C2 borderline (89.9% vs 84.4%, +5.4pp, CI [-0.7, +12.2] crosses 0) | `scripts/orch_evidence/compute_stop_statistics.py --analysis all` | `analysis/orch_evidence/gpqa_sonnet/stats.json` | uniform null median = +2; ATTS observed = 0; bootstrap CI on diff = [-0.7pp, +12.2pp] |
+| 06+07+08 | 3 GPQA figures: gap histogram, H2-vs-H3 bars, 2D heatmap | Visual confirmation of C1; heatmap shows 688/790 trajectories at (t*=2, fcm=2) on diagonal | `scripts/orch_evidence/plot_orch_evidence.py` | `analysis/orch_evidence/gpqa_sonnet/fig{1,2,3}.{pdf,png}` | 688 (87%) trajectories at single cell (2,2) |
+| 10 | Extend Method A to HLE/LCB/BV (benchmark-agnostic majority) | Same pool-state machinery on 4 benchmarks; total 1613 trajectories | `scripts/orch_evidence/build_pool_state_all_benchmarks.py` | 4 parquets in `analysis/orch_evidence/{gpqa,hle,lcb,babyvision}_sonnet/` | GPQA 975, HLE 100, LCB 151, BV 387 trajectories |
+| 11 | Cross-benchmark difficulty stratification (fcm-based, ORIGINAL) | 4 mechanism patterns observed; "easy" 100% acc on all 4 benchmarks | inline python (4-panel matplotlib) | `analysis/orch_evidence/fig4_cross_benchmark_difficulty.{pdf,png}` | (see fig4 + table in item 11 evidence below) |
+| 12 | Trajectory taxonomy on GPQA (rescue analysis) | Pure rescue is rare (1/135 wrong-first-majority); minority extraction is broader pattern (87/975 = 8.9%) | inline python in `tmp/orch_ev_diagnose.log` | log file | 7 categories; 1 rescue case `run5/rec2fsnzUuvNtUYK8` |
+| 13 | Multi-model ATTS rescue investigation | Multi rescues 100% within hard+undefined cohorts of single-model failures; Opus contributes to 44% of GPQA rescues | inline python (4-panel matplotlib) | `analysis/orch_evidence/fig5_multi_rescue.{pdf,png}` + log | GPQA net +4 rescue, BV net -3; rescues land in hard+undefined |
+| 14 | n_correct/8 bucketing (objective alternative to fcm) | More precise than fcm; reveals fcm-medium ME of 80% was inflated → real ~36% on 4-6/8 bucket | `scripts/orch_evidence/analyze_n_correct_bucketing.py` | `analysis/orch_evidence/stats_n_correct_bucketing.json` + `fig6_n_correct_difficulty.{pdf,png}` | (see item 14 evidence below) |
+
+**File layout (for any agent picking up)**:
+- Scripts: `scripts/orch_evidence/{build_pool_state_table.py, build_pool_state_all_benchmarks.py, compute_stop_statistics.py, plot_orch_evidence.py, analyze_n_correct_bucketing.py}` — 5 files total
+- Cached results: `analysis/orch_evidence/{gpqa,hle,lcb,babyvision}_sonnet/pool_state.parquet` (4 files) + `gpqa_sonnet/stats.json` + `stats_n_correct_bucketing.json`
+- Figures: `analysis/orch_evidence/{gpqa_sonnet/fig1_gap_histogram, gpqa_sonnet/fig2_h2_h3_at_emergence, gpqa_sonnet/fig3_heatmap, fig4_cross_benchmark_difficulty, fig5_multi_rescue, fig6_n_correct_difficulty}.{pdf,png}` — 6 figures
+- Logs: `tmp/orch_ev_*.log` (one per analysis)
+
+**To reproduce from scratch**: run scripts 03 → 10 → 13 → 14 (the others are inline checks). Total wall time < 30 seconds. No GPU, no API calls, fully offline.
+
 ## Statistical claim hierarchy (what each phase proves)
 
 Phases 2-3 produce three increasingly sharp claims; the paper subsection should report all three:

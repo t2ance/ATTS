@@ -57,16 +57,36 @@ _clients: dict[str, AsyncOpenAI] = {}
 
 # Regex stripping the harmony channel-token leak that vllm#32587 produces in
 # gpt-oss tool_call.function.name. Observed leak shapes (2026-05-03 field log):
-#   "explore<|channel|>commentary"   - full marker + suffix
-#   "explorecommentary"              - marker stripped by parser, suffix remains
-#   "StructuredOutput<|channel|>final"
-#   "explore<|channel|>json"
-#   "explore<|channel|>"              - bare dangling marker, NO suffix (q43 crash)
-# Strategy: kill everything from the first `<|` onwards, then strip any of the
-# four harmony channel keywords (commentary / analysis / final / json) that
-# remain as a suffix after the marker is gone. Tool names are alphanumeric by
-# convention; `<|` cannot legally appear in any registered name.
-_HARMONY_LEAK_RE = re.compile(r"<\|.*$|(?:commentary|analysis|final|json)$")
+#   trailing only:
+#     "explore<|channel|>commentary"   - full marker + suffix
+#     "explorecommentary"              - marker stripped by parser, suffix remains
+#     "StructuredOutput<|channel|>final"
+#     "explore<|channel|>json"
+#     "explore<|channel|>"             - bare dangling marker, NO suffix
+#   leading + trailing:
+#     "<|constrain|>StructuredOutput<|channel|>commentary"
+#     "<|constrain|>explore<|channel|>commentary"
+# Strategy: TWO passes — (1) kill leading `<|...|>` markers; (2) kill from the
+# next `<|` onwards (handles trailing channel marker) AND any of the four
+# harmony channel keywords as a bare suffix.
+_HARMONY_LEAK_LEADING_RE = re.compile(r"^(?:<\|[^|]*\|>)+")
+_HARMONY_LEAK_TRAILING_RE = re.compile(r"<\|.*$|(?:commentary|analysis|final|json)$")
+
+
+def _strip_harmony_leak(raw_name: str) -> str:
+    """Strip harmony channel-token leak from a tool-call name string.
+
+    Returns the cleaned name. If the leak ate the entire name (defensive),
+    returns the original to surface the AssertionError downstream rather
+    than dispatch a phantom tool with empty name.
+    """
+    s = _HARMONY_LEAK_LEADING_RE.sub("", raw_name)
+    s = _HARMONY_LEAK_TRAILING_RE.sub("", s)
+    return s if s else raw_name
+
+
+# Backwards-compat alias for any remaining call sites.
+_HARMONY_LEAK_RE = _HARMONY_LEAK_TRAILING_RE
 
 # Models served via vLLM that REQUIRE the `/v1/responses` (Harmony) endpoint
 # for tool calling, NOT `/v1/chat/completions`. vLLM maintainers explicitly
@@ -938,7 +958,7 @@ async def _run_tool_conversation_responses(
             # on the responses path as well, not just chat/completions. Same
             # regex defensive layer.
             raw_name = fc.name
-            name = _HARMONY_LEAK_RE.sub("", raw_name)
+            name = _strip_harmony_leak(raw_name)
             if name != raw_name:
                 logger.warning(
                     f"[vllm-responses turn {turn}] tool_name special-token "
@@ -1008,11 +1028,26 @@ async def _run_tool_conversation_responses(
         # vllm#33089 + harmony spec, multi-turn Responses API requires the
         # full set of item kinds to be roundtripped back as input — dropping
         # reasoning items breaks the model's chain-of-thought continuity and
-        # the model behaves as if each turn starts fresh. model_dump() with
-        # exclude_none=False ensures id/status are preserved (required by
-        # vLLM's strict Pydantic validation for ResponseOutputMessageParam).
+        # the model behaves as if each turn starts fresh.
+        #
+        # ASYMMETRY (verified empirically 2026-05-03): vLLM Responses API can
+        # OUTPUT `mcp_call` items but its input parser rejects them with
+        # `400 'Unknown input type: mcp_call'`. So mcp_call items must be
+        # reshaped to `function_call` shape (which the input parser DOES accept)
+        # before going into history. Both carry .name/.arguments/.id; the only
+        # field difference is mcp_call has `server_label` while function_call
+        # has `call_id`. Drop server_label and synthesize call_id = id.
         for item in all_items_for_history:
-            full_input.append(item.model_dump(exclude_none=True))
+            d = item.model_dump(exclude_none=True)
+            if d.get("type") == "mcp_call":
+                d = {
+                    "type": "function_call",
+                    "name": d["name"],
+                    "arguments": d.get("arguments", "{}"),
+                    "call_id": d.get("call_id") or d.get("id"),
+                    "id": d.get("id"),
+                }
+            full_input.append(d)
         full_input.extend(next_input)
 
     return _estimate_cost_usd(total_usage, model), total_usage, "incomplete"
