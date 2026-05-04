@@ -27,22 +27,21 @@ from logger import RunLogger
 
 @dataclass
 class InfraConfig:
-    """Per-run infrastructure config shared by all solving methods."""
-    backend: str
+    """Per-run infrastructure shared by all solving methods.
+
+    Per-role backend/model/effort/budget/timeout previously shared at this
+    level moved into per-role ModelConfig (see methods/specs.py). InfraConfig
+    now carries only cross-role context: the cache_dir for cache pre-flight
+    and explore-cache reads (used by solvers like rerank / standalone_integrator
+    that walk a single cache directory), max_iterations, the benchmark, the
+    logger, and the integrate-enabled flag.
+    """
     max_iterations: int
     cache_dir: Path | None
     cache_only: bool
-    budget_tokens: int
-    effort: str | None
-    timeout: float | None
     benchmark: Any
     logger: RunLogger | None
     enable_integrate: bool = True
-    max_output_tokens: int | None = None
-    # orchestrator_effort: only consumed by tts-agent (TTSAgentSpec); other
-    #   methods leave this None. Plumbed into SolveContext and used at
-    #   tts_agent.py:280 to override `effort` on orchestrator turn ONLY.
-    orchestrator_effort: str | None = None
 
 
 @dataclass
@@ -68,7 +67,15 @@ class SolvingState:
 
 @dataclass
 class SolveContext:
-    """Common state for all solve methods, created by create_solve_context()."""
+    """Common state for all solve methods, created by create_solve_context().
+
+    Per-role invocation parameters are NO LONGER cached here. Solvers pass
+    a `model_cfg: ModelConfig` to `call_sub_model`; the underlying
+    _sub_model_fn was bound at create_solve_context time to one specific
+    backend (the role that owns the default caller). For cross-backend roles
+    (e.g. multi-variant explore), solvers build their own per-variant
+    `make_sub_model_caller` instances inline.
+    """
     state: SolvingState
     cost: CostTracker
     rounds: list[RoundLog]
@@ -76,38 +83,45 @@ class SolveContext:
     writer: TrajectoryWriter
     traj_dir: Path | None
     question_cache_dir: Path | None
-    # Config
-    backend: str
     image_data_url: str | None
-    budget_tokens: int
-    effort: str | None
     benchmark: Any  # BenchmarkConfig
-    # Logging
     logger: RunLogger | None
     question_id: str | None
-    max_output_tokens: int | None = None
+    cache_only: bool
     rollout_idx: int | None = None
-    # orchestrator_effort: tts-agent-only override; orchestrator turn uses
-    #   `self.orchestrator_effort or self.effort`. None = unchanged behavior.
-    orchestrator_effort: str | None = None
 
     async def call_sub_model(
         self,
         *,
         system_prompt: str,
         user_message: str,
-        model: str,
+        model_cfg,  # methods.specs.ModelConfig (typed at call site)
         output_schema: dict[str, Any],
         cache_key: str = "",
         writer: TrajectoryWriter | None = None,
     ) -> tuple[dict[str, Any], str, float, dict[str, Any], float]:
-        """Call a sub-model with config from this context."""
+        """Dispatch a single backend call using a ModelConfig.
+
+        All backend selection / budget / effort / timeout / sampling /
+        provider routing comes from model_cfg. The infra-level _sub_model_fn
+        was constructed at create_solve_context() time and is bound to a
+        single backend module — so model_cfg.backend MUST match what
+        _sub_model_fn was built against. Solvers that need to dispatch
+        across backends (cross-backend explore variants) keep one
+        _sub_model_fn per backend; see methods/tts_agent.py per-variant
+        callers.
+        """
         return await self._sub_model_fn(
-            system_prompt, user_message, self.image_data_url, model, output_schema,
+            system_prompt, user_message, self.image_data_url,
+            model_cfg.model, output_schema,
             cache_key=cache_key,
             writer=writer or TrajectoryWriter.noop(),
-            budget_tokens=self.budget_tokens,
-            effort=self.effort,
+            budget_tokens=model_cfg.budget_tokens,
+            effort=model_cfg.effort,
+            sampling=(model_cfg.vllm_sampling.model_dump()
+                      if model_cfg.vllm_sampling is not None else None),
+            provider_order=model_cfg.openrouter_provider_order,
+            provider_allow_fallbacks=model_cfg.openrouter_provider_allow_fallbacks,
         )
 
     def result(self, answer: str) -> SolveResult:
@@ -223,15 +237,22 @@ async def call_sub_model(
     budget_tokens: int = 32000,
     effort: str | None = None,
     sampling: dict | None = None,
+    provider_order: list[str] | None = None,
+    provider_allow_fallbacks: bool = True,
 ) -> tuple[dict[str, Any], str, float, dict[str, Any]]:
     """Spawn a fresh sub-model call (no caching). Used by grader etc.
 
     Returns (structured_output, trajectory_text, cost_usd, usage).
+
+    provider_order / provider_allow_fallbacks are openrouter-only routing
+    knobs; non-openrouter backends accept and ignore them.
     """
     backend_mod = import_module(f"backends.{backend}")
     return await backend_mod.call_sub_model(
         system_prompt, user_message, image_data_url, model, output_schema,
         writer, budget_tokens=budget_tokens, effort=effort, sampling=sampling,
+        provider_order=provider_order,
+        provider_allow_fallbacks=provider_allow_fallbacks,
     )
 
 
@@ -273,6 +294,8 @@ def make_sub_model_caller(
         budget_tokens: int = 32000,
         effort: str | None = None,
         sampling: dict | None = None,
+        provider_order: list[str] | None = None,
+        provider_allow_fallbacks: bool = True,
     ) -> tuple[dict[str, Any], str, float, dict[str, Any], float]:
         # Cache read
         if cache_dir and cache_key:
@@ -301,6 +324,8 @@ def make_sub_model_caller(
         api_coro = backend_mod.call_sub_model(
             system_prompt, user_message, image_data_url, model, output_schema,
             writer, budget_tokens=budget_tokens, effort=effort, sampling=sampling,
+            provider_order=provider_order,
+            provider_allow_fallbacks=provider_allow_fallbacks,
         )
         if timeout is not None:
             try:
@@ -334,6 +359,8 @@ def make_sub_model_caller(
 def create_solve_context(
     *,
     infra: InfraConfig,
+    backend: str,
+    timeout: float,
     problem: str,
     image_data_url: str | None = None,
     question_id: str | None = None,
@@ -344,6 +371,12 @@ def create_solve_context(
     rollout_idx: int | None = None,
 ) -> SolveContext:
     """Create common solve infrastructure shared by all methods.
+
+    `backend` and `timeout` are passed in by the solver because they belong
+    on the role's ModelConfig now, not on infra. The default _sub_model_fn
+    is built against `backend`; solvers needing cross-backend dispatch (e.g.
+    multi-variant explore in tts_agent.py) build additional _sub_model_fn
+    instances per variant inline.
 
     When rollout_idx is None (default, K=1 path), trajectory is written to
     trajectories/<qid>/ (flat, old behavior). When rollout_idx is set (K>1
@@ -369,8 +402,8 @@ def create_solve_context(
         assert question_id is not None, "question_id required when using cache_dir"
         question_cache_dir = infra.cache_dir / question_id
     sub_model_fn = make_sub_model_caller(
-        infra.backend, question_cache_dir, infra.cache_only,
-        traj_dir=traj_dir, timeout=infra.timeout,
+        backend, question_cache_dir, infra.cache_only,
+        traj_dir=traj_dir, timeout=timeout,
     )
 
     if traj_dir is not None:
@@ -394,14 +427,10 @@ def create_solve_context(
         writer=writer,
         traj_dir=traj_dir,
         question_cache_dir=question_cache_dir,
-        backend=infra.backend,
         image_data_url=image_data_url,
-        budget_tokens=infra.budget_tokens,
-        effort=infra.effort,
         benchmark=infra.benchmark,
         logger=infra.logger,
         question_id=question_id,
-        max_output_tokens=infra.max_output_tokens,
+        cache_only=infra.cache_only,
         rollout_idx=rollout_idx,
-        orchestrator_effort=infra.orchestrator_effort,
     )
