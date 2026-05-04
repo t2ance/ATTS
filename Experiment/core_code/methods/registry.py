@@ -17,7 +17,7 @@ from typing import Callable
 logger = logging.getLogger(__name__)
 
 from methods.specs import (
-    MethodSpec, TTSAgentSpec, TTSAgentMultiSpec, TTSAgentEffortSpec,
+    MethodSpec, TTSAgentSpec,
     SelfRefineSpec, SocraticSelfRefineSpec, BudgetForcingSpec,
     RerankSpec, StandaloneIntegratorSpec,
 )
@@ -101,50 +101,6 @@ class TTSAgentMethod(MethodConfig):
         return solve
 
 
-class TTSAgentMultiMethod(MethodConfig):
-    name = "tts-agent-multi"
-    cache_only = True
-
-    def build_solve_fn(self, spec: TTSAgentMultiSpec):
-        from methods.tts_agent_multi import solve
-        return functools.partial(
-            solve,
-            cache_dirs=spec.cache_dirs,
-            model_budgets=spec.model_budgets,
-            exploration_effort=spec.exploration_effort,
-        )
-
-    def derive_evaluate_args(self, spec: TTSAgentMultiSpec) -> dict:
-        # multi reuses orchestrator_model as integrate_model downstream
-        return {
-            "orchestrator_model": spec.orchestrator_model,
-            "explore_model": "",   # unused by multi
-            "integrate_model": spec.orchestrator_model,
-            "cache_dirs_multi": spec.cache_dirs,
-        }
-
-
-class TTSAgentEffortMethod(MethodConfig):
-    name = "tts-agent-effort"
-    cache_only = True
-
-    def build_solve_fn(self, spec: TTSAgentEffortSpec):
-        from methods.tts_agent_effort import solve
-        return functools.partial(
-            solve,
-            cache_dirs=spec.cache_dirs,
-            effort_budgets=spec.effort_budgets,
-        )
-
-    def derive_evaluate_args(self, spec: TTSAgentEffortSpec) -> dict:
-        return {
-            "orchestrator_model": spec.orchestrator_model,
-            "explore_model": spec.explore_model,
-            "integrate_model": spec.orchestrator_model,
-            "cache_dirs_multi": spec.cache_dirs,
-        }
-
-
 class SelfRefineMethod(MethodConfig):
     name = "self-refine"
     cache_only = False                  # generates new refines on top of cached drafts
@@ -201,8 +157,6 @@ class StandaloneIntegratorMethod(MethodConfig):
 
 METHODS: dict[str, type[MethodConfig]] = {
     "tts-agent": TTSAgentMethod,
-    "tts-agent-multi": TTSAgentMultiMethod,
-    "tts-agent-effort": TTSAgentEffortMethod,
     "self-refine": SelfRefineMethod,
     "socratic-self-refine": SocraticSelfRefineMethod,
     "budget-forcing": BudgetForcingMethod,

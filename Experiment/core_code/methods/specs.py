@@ -123,80 +123,62 @@ class ExploreVariant(BaseModel):
     num_explores: int = 8
 
 
-class BackendConfig(BaseModel):
-    model_config = {"extra": "forbid"}
-    # "openrouter" added 2026-05-03: dispatches via the OpenRouter Anthropic-Skin
-    # endpoint (ANTHROPIC_BASE_URL=https://openrouter.ai/api). Reuses backends/claude.py
-    # transport — backend module name "openrouter" maps to importing claude.py via
-    # a thin alias. See todo_openrouter_via_claude.md for the viability proof.
-    name: Literal["codex", "claude", "vllm", "openrouter"]
-    budget_tokens: int = 32000
-    effort: Literal["low", "medium", "high", "max"] = "low"
-    timeout: float = 1200.0
-    max_output_tokens: int | None = None
-    # OpenRouter-only: pin upstream provider routing. See
-    # backends/openrouter.py:set_provider for rationale (2026-05-04
-    # deepseek-v4-flash incident: ~33% of routes 400'd on forced tool_choice
-    # because some upstream providers like DeepSeek's deepseek-reasoner endpoint
-    # reject `tool_choice={"type":"function",...}`). When set, eval.py calls
-    # backends.openrouter.set_provider(...) at startup; both call_sub_model and
-    # run_tool_conversation inject the block into extra_body.provider on every
-    # request. Ignored silently by non-openrouter backends.
-    provider_order: list[str] | None = None
-    provider_allow_fallbacks: bool = True
-
-
 class _MethodSpec(BaseModel):
     model_config = {"extra": "forbid"}
 
 
 class TTSAgentSpec(_MethodSpec):
+    """Unified spec covering single, multi-model, and multi-effort runs.
+
+    `explore: list[ExploreVariant]` length encodes the operating mode:
+    - length 1 with `orchestrator_prompt: single`: standard ATTS.
+    - length 3 with `orchestrator_prompt: multi_model` and labels
+      {haiku, sonnet, opus}: replaces the old TTSAgentMultiSpec.
+    - length 3 with `orchestrator_prompt: effort` and labels
+      {low, medium, high}: replaces the old TTSAgentEffortSpec.
+
+    The orchestrator's explore tool exposes `variant: enum[<labels>]` when
+    `len(explore) > 1`, no parameter when `len(explore) == 1`. The function
+    `prompts.select_orchestrator_prompt(spec)` routes
+    (orchestrator_prompt, integrate is None) to the matching system prompt;
+    the multi_model and effort prompts hardcode their label sets, so the
+    validator below enforces label-set match.
+    """
     name: Literal["tts-agent"]
-    backend: BackendConfig
-    orchestrator_model: str
-    explore_model: str
-    integrate_model: str | None = None
-    cache_dir: Path
-    no_integrate: bool = False
-    num_explores: int = 8
+    orchestrator: ModelConfig
+    explore: list[ExploreVariant]
+    integrate: RoleSlot | None = None
+    orchestrator_prompt: Literal["single", "multi_model", "effort"]
     num_rollouts: int = 1
-    sampling: SamplingConfig | None = None
-    # orchestrator_effort: per-role override of backend.effort, applied ONLY
-    #   to the orchestrator turn (run_tool_conversation in tts_agent.py:~280),
-    #   NOT to explore tool calls. Use case: cached explores at effort=low
-    #   are reused; orchestrator at effort=high reasons more deeply when
-    #   selecting/integrating among them. None = inherit backend.effort.
-    #   Coupling: cache_only=True (registry.py:94) prevents new explore calls,
-    #   so cache effort consistency is preserved regardless of this setting.
-    orchestrator_effort: Literal["low", "medium", "high", "max"] | None = None
 
     @model_validator(mode="after")
-    def _check_integrate(self):
-        if not self.no_integrate:
-            assert self.integrate_model, (
-                "tts-agent requires integrate_model unless no_integrate=true"
+    def _check_consistency(self):
+        n = len(self.explore)
+        p = self.orchestrator_prompt
+        assert (p == "single") == (n == 1), (
+            f"orchestrator_prompt={p!r} requires "
+            f"{'len(explore)==1' if p == 'single' else 'len(explore)>1'}, got {n}"
+        )
+        labels = [v.label for v in self.explore]
+        assert len(set(labels)) == len(labels), (
+            f"duplicate labels in explore list: {labels}"
+        )
+        if p == "multi_model":
+            assert set(labels) == {"haiku", "sonnet", "opus"}, (
+                f"orchestrator_prompt=multi_model hardcodes haiku/sonnet/opus; "
+                f"yaml has labels={set(labels)}"
+            )
+        if p == "effort":
+            assert set(labels) == {"low", "medium", "high"}, (
+                f"orchestrator_prompt=effort hardcodes low/medium/high; "
+                f"yaml has labels={set(labels)}"
+            )
+        if p in ("multi_model", "effort"):
+            assert self.integrate is None, (
+                f"orchestrator_prompt={p!r} assumes orchestrator self-synthesizes; "
+                f"integrate must be None"
             )
         return self
-
-
-class TTSAgentMultiSpec(_MethodSpec):
-    name: Literal["tts-agent-multi"]
-    backend: BackendConfig
-    orchestrator_model: str
-    cache_dirs: dict[str, Path]
-    model_budgets: dict[str, int]
-    exploration_effort: Literal["low", "medium", "high"] | None = None
-    num_explores: int = 8
-
-
-class TTSAgentEffortSpec(_MethodSpec):
-    name: Literal["tts-agent-effort"]
-    backend: BackendConfig
-    orchestrator_model: str
-    explore_model: str
-    cache_dirs: dict[str, Path]
-    effort_budgets: dict[str, int]
-    num_explores: int = 8
 
 
 class SelfRefineSpec(_MethodSpec):
@@ -247,7 +229,7 @@ class StandaloneIntegratorSpec(_MethodSpec):
 
 MethodSpec = Annotated[
     Union[
-        TTSAgentSpec, TTSAgentMultiSpec, TTSAgentEffortSpec,
+        TTSAgentSpec,
         SelfRefineSpec, SocraticSelfRefineSpec, BudgetForcingSpec,
         RerankSpec, StandaloneIntegratorSpec,
     ],
