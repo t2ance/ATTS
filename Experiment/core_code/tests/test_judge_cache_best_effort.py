@@ -45,7 +45,7 @@ def _make_judges_dir(tmp_path: Path, label: str, stored: dict) -> Path:
 # -- spec field tests --
 
 def _make_hle_yaml(judge_extras: dict | None = None) -> dict:
-    judge = {"name": "claude", "model": "claude-haiku-4-5-20251001"}
+    judge = {"backend": "claude", "model": "claude-haiku-4-5-20251001"}
     if judge_extras:
         judge.update(judge_extras)
     return {"name": "hle", "subset": "gold", "text_only": True, "judge": judge}
@@ -54,9 +54,18 @@ def _make_hle_yaml(judge_extras: dict | None = None) -> dict:
 def test_claude_judge_spec_default_no_extras():
     parsed = TypeAdapter(BenchmarkSpec).validate_python(_make_hle_yaml())
     dump = parsed.model_dump(exclude_none=True)
-    # exclude_none drops the optional effort/budget_tokens that defaulted None;
-    # this is what eval.py:684 uses to build judge_spec dict for cache lookup.
-    assert dump["judge"] == {"name": "claude", "model": "claude-haiku-4-5-20251001"}
+    # Post-modelconfig-refactor: judge is a ModelConfig, so the dump carries
+    # ModelConfig defaults (budget_tokens=32000, effort=low, timeout=1200.0,
+    # openrouter_provider_allow_fallbacks=True). What matters for cache
+    # equality is that the user-set keys round-trip and backend-specific
+    # fields are excluded by exclude_none for the wrong backend.
+    j = dump["judge"]
+    assert j["backend"] == "claude"
+    assert j["model"] == "claude-haiku-4-5-20251001"
+    assert j["effort"] == "low"
+    assert j["budget_tokens"] == 32000
+    assert "vllm_sampling" not in j
+    assert "openrouter_provider_order" not in j
 
 
 def test_claude_judge_spec_with_effort_low():
@@ -65,7 +74,6 @@ def test_claude_judge_spec_with_effort_low():
     )
     dump = parsed.model_dump(exclude_none=True)
     assert dump["judge"]["effort"] == "low"
-    assert "budget_tokens" not in dump["judge"]
 
 
 def test_claude_judge_spec_with_budget_tokens_only():
@@ -74,7 +82,6 @@ def test_claude_judge_spec_with_budget_tokens_only():
     )
     dump = parsed.model_dump(exclude_none=True)
     assert dump["judge"]["budget_tokens"] == 1024
-    assert "effort" not in dump["judge"]
 
 
 def test_claude_judge_spec_rejects_unknown_field():
@@ -86,7 +93,7 @@ def test_claude_judge_spec_rejects_unknown_field():
 # -- find_cached_judge tests --
 
 def test_exact_match_hits_and_increments_exact_counter(tmp_path: Path):
-    stored = {"name": "claude", "model": "claude-haiku-4-5-20251001"}
+    stored = {"backend": "claude", "model": "claude-haiku-4-5-20251001"}
     requested = dict(stored)
     label = judge_label(requested)
     judges_dir = _make_judges_dir(tmp_path, label, stored)
@@ -103,8 +110,8 @@ def test_exact_match_hits_and_increments_exact_counter(tmp_path: Path):
 def test_stored_subset_of_requested_hits_with_best_effort_counter(tmp_path: Path):
     """Schema evolution: stored bundle predates a new optional field. The
     legitimate forward-compat case. Counter increments; no per-call warning."""
-    stored = {"name": "claude", "model": "claude-haiku-4-5-20251001"}
-    requested = {"name": "claude", "model": "claude-haiku-4-5-20251001",
+    stored = {"backend": "claude", "model": "claude-haiku-4-5-20251001"}
+    requested = {"backend": "claude", "model": "claude-haiku-4-5-20251001",
                  "effort": "low"}
     label = judge_label(requested)
     judges_dir = _make_judges_dir(tmp_path, label, stored)
@@ -121,9 +128,9 @@ def test_stored_superset_of_requested_raises_spec_narrowing(tmp_path: Path):
     """Spec narrowing: stored bundle has effort=low, requester now omits effort.
     Cached verdict was produced under a non-default config the caller no longer
     specifies — refusing silent reuse is the safety guarantee P1 enforces."""
-    stored = {"name": "claude", "model": "claude-haiku-4-5-20251001",
+    stored = {"backend": "claude", "model": "claude-haiku-4-5-20251001",
               "effort": "low"}
-    requested = {"name": "claude", "model": "claude-haiku-4-5-20251001"}
+    requested = {"backend": "claude", "model": "claude-haiku-4-5-20251001"}
     label = judge_label(requested)
     judges_dir = _make_judges_dir(tmp_path, label, stored)
 
@@ -133,9 +140,9 @@ def test_stored_superset_of_requested_raises_spec_narrowing(tmp_path: Path):
 
 def test_value_conflict_on_shared_key_raises(tmp_path: Path):
     """Both sides set effort but values disagree -> hard error, no soft path."""
-    stored = {"name": "claude", "model": "claude-haiku-4-5-20251001",
+    stored = {"backend": "claude", "model": "claude-haiku-4-5-20251001",
               "effort": "high"}
-    requested = {"name": "claude", "model": "claude-haiku-4-5-20251001",
+    requested = {"backend": "claude", "model": "claude-haiku-4-5-20251001",
                  "effort": "low"}
     label = judge_label(requested)
     judges_dir = _make_judges_dir(tmp_path, label, stored)
@@ -145,7 +152,7 @@ def test_value_conflict_on_shared_key_raises(tmp_path: Path):
 
 
 def test_missing_dir_returns_none(tmp_path: Path):
-    requested = {"name": "claude", "model": "claude-haiku-4-5-20251001"}
+    requested = {"backend": "claude", "model": "claude-haiku-4-5-20251001"}
     judges_dir = tmp_path / "judges"  # never created
     assert find_cached_judge(judges_dir, requested) is None
 
@@ -156,13 +163,13 @@ def test_partial_bundle_returns_none(tmp_path: Path):
     bundle = tmp_path / "judges" / label
     bundle.mkdir(parents=True)
     # NOTE: no config.json written
-    requested = {"name": "claude", "model": "claude-haiku-4-5-20251001"}
+    requested = {"backend": "claude", "model": "claude-haiku-4-5-20251001"}
     assert find_cached_judge(tmp_path / "judges", requested) is None
 
 
 def test_best_effort_extras_aggregate_across_calls(tmp_path: Path):
     """Multiple bundles each adding a different new key -> union accumulated."""
-    stored = {"name": "claude", "model": "claude-haiku-4-5-20251001"}
+    stored = {"backend": "claude", "model": "claude-haiku-4-5-20251001"}
     label = judge_label(stored)
     judges_dir = _make_judges_dir(tmp_path, label, stored)
 

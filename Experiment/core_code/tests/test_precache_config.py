@@ -19,16 +19,22 @@ def _write(tmp_path, name, body):
     return p
 
 
-# HLE/BabyVision/RBenchV require a `judge:` block per JudgeSpec design (2026-05-01).
-_JUDGE = {"name": "claude", "model": "claude-haiku-4-5-20251001"}
+# Post-modelconfig-refactor (2026-05-04): judge is a flat ModelConfig dict.
+_JUDGE = {"backend": "claude", "model": "claude-haiku-4-5-20251001"}
+
+# Reusable explore variant: top-level explore field on PrecacheConfig.
+_EXPLORE = {
+    "label": "default",
+    "model": {"backend": "claude", "model": "claude-sonnet-4-6"},
+    "cache_dir": "/cache/x",
+    "num_explores": 8,
+}
 
 
 def _minimal_kwargs(**overrides):
     base = {
         "benchmark": {"name": "hle", "judge": _JUDGE},
-        "backend": "claude",
-        "explore_model": "claude-sonnet-4-6",
-        "cache_dir": "/cache/x",
+        "explore": _EXPLORE,
     }
     base.update(overrides)
     return base
@@ -37,13 +43,19 @@ def _minimal_kwargs(**overrides):
 def test_minimal_precache_validates():
     cfg = PrecacheConfig(**_minimal_kwargs())
     assert cfg.benchmark.name == "hle"
-    assert cfg.cache_dir == Path("/cache/x")
-    assert cfg.num_explores == 8
+    assert cfg.explore.cache_dir == Path("/cache/x")
+    assert cfg.explore.num_explores == 8
+    assert cfg.explore.model.backend == "claude"
 
 
 def test_precache_requires_cache_dir():
-    kw = _minimal_kwargs()
-    del kw["cache_dir"]
+    """ExploreVariant.cache_dir is required."""
+    kw = _minimal_kwargs(explore={
+        "label": "default",
+        "model": {"backend": "claude", "model": "claude-sonnet-4-6"},
+        # cache_dir missing
+        "num_explores": 8,
+    })
     with pytest.raises(ValidationError, match="cache_dir"):
         PrecacheConfig(**kw)
 
@@ -54,16 +66,19 @@ def test_precache_loader_yaml(tmp_path):
           name: hle
           subset: gold
           judge:
-            name: claude
+            backend: claude
             model: claude-haiku-4-5-20251001
-        backend: claude
-        explore_model: claude-sonnet-4-6
-        cache_dir: /cache/h
-        num_explores: 16
+        explore:
+          label: default
+          model:
+            backend: claude
+            model: claude-sonnet-4-6
+          cache_dir: /cache/h
+          num_explores: 16
     """)
     cfg = load_config(config_path=yml, schema=PrecacheConfig)
-    assert cfg.cache_dir == Path("/cache/h")
-    assert cfg.num_explores == 16
+    assert cfg.explore.cache_dir == Path("/cache/h")
+    assert cfg.explore.num_explores == 16
     assert cfg.benchmark.subset == "gold"
 
 
@@ -72,9 +87,10 @@ def test_precache_filter_validation(tmp_path):
         benchmark:
           name: hle
           difficulty: hard
-        backend: claude
-        explore_model: claude-sonnet-4-6
-        cache_dir: /cache/h
+        explore:
+          label: default
+          model: {backend: claude, model: claude-sonnet-4-6}
+          cache_dir: /cache/h
     """)
     with pytest.raises(ValidationError, match="difficulty"):
         load_config(config_path=yml, schema=PrecacheConfig)

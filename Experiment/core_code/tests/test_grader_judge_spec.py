@@ -36,7 +36,7 @@ def test_grade_answer_multiplechoice_short_circuits_even_with_judge_spec():
     """Multiple-choice short-circuits to string match regardless of judge_spec."""
     is_correct, cost = _run(grade_answer(
         "C", "C", "q", "multipleChoice",
-        judge_spec={"name": "claude", "model": "claude-haiku-4-5-20251001"},
+        judge_spec={"backend": "claude", "model": "claude-haiku-4-5-20251001"},
     ))
     assert is_correct is True
     assert cost == 0.0
@@ -46,7 +46,7 @@ def test_grade_answer_multiplechoice_short_circuits_even_with_judge_spec():
 
 
 def test_grade_answer_with_judge_spec_invokes_judge_answer():
-    spec = {"name": "claude", "model": "claude-haiku-4-5-20251001"}
+    spec = {"backend": "claude", "model": "claude-haiku-4-5-20251001"}
     with patch("benchmarks.grader.judge_answer", new=AsyncMock(return_value=(True, 0.012))) as m:
         is_correct, cost = _run(grade_answer(
             "x", "y", "q", "exactMatch", judge_spec=spec,
@@ -65,7 +65,7 @@ def test_grade_answer_with_judge_spec_invokes_judge_answer():
 
 
 def test_judge_answer_writes_config_json(tmp_path):
-    spec = {"name": "claude", "model": "claude-haiku-4-5-20251001"}
+    spec = {"backend": "claude", "model": "claude-haiku-4-5-20251001"}
     fake_result = {"correct": True, "extracted_final_answer": "x", "reasoning": ""}
     fake_call_sub_model = AsyncMock(return_value=(fake_result, "trajectory text", 0.001, {}))
     with patch("benchmarks.grader.call_sub_model", new=fake_call_sub_model):
@@ -81,8 +81,8 @@ def test_judge_answer_writes_config_json(tmp_path):
 
 def test_judge_answer_routes_backend_from_spec_name(tmp_path):
     """name field in judge_spec selects the backend; model is the model arg."""
-    spec = {"name": "vllm", "model": "qwen36-35b-a3b-fp8",
-            "sampling": {"temperature": 0.6}}
+    spec = {"backend": "vllm", "model": "qwen36-35b-a3b-fp8",
+            "vllm_sampling": {"temperature": 0.6}}
     fake_result = {"correct": False, "extracted_final_answer": "", "reasoning": ""}
     fake_call_sub_model = AsyncMock(return_value=(fake_result, "tt", 0.0, {}))
     with patch("benchmarks.grader.call_sub_model", new=fake_call_sub_model):

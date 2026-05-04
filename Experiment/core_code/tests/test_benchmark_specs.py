@@ -12,7 +12,7 @@ class _Holder(BaseModel):
 
 
 # Shared judge fixture for hle/babyvision/rbenchv specs that now require it.
-_JUDGE = {"name": "claude", "model": "claude-haiku-4-5-20251001"}
+_JUDGE = {"backend": "claude", "model": "claude-haiku-4-5-20251001"}
 
 
 def test_hle_full():

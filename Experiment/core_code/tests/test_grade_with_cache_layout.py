@@ -25,7 +25,7 @@ def _run(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
 
 
-_HAIKU_SPEC = {"name": "claude", "model": "claude-haiku-4-5-20251001"}
+_HAIKU_SPEC = {"backend": "claude", "model": "claude-haiku-4-5-20251001"}
 
 
 def _write_judge_files_into_out_dir(out_dir: Path):

@@ -22,7 +22,7 @@ def _run(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
 
 
-JUDGE_SPEC = {"name": "claude", "model": "claude-haiku-4-5-20251001"}
+JUDGE_SPEC = {"backend": "claude", "model": "claude-haiku-4-5-20251001"}
 
 
 def test_judge_answer_succeeds_first_attempt():
