@@ -17,7 +17,13 @@ method:
     temperature: 1.0
     top_p: 0.95
     top_k: 64
-    enable_thinking: true
+    # enable_thinking=false (override default true; 2026-05-03):
+    # Variant B is Sonnet-cached aggregator — thinking-on caused 28% empty
+    # predicted_answer on HLE 100Q (archived run_20260503_051610). Disabling
+    # restores the explorer-thinks / orchestrator-aggregates split. Compare
+    # new run Acc to archived thinking-on baseline at
+    # analysis/archive/gemma_sonnet_orch_thinking_on_2026-05-03/.
+    enable_thinking: false
     # max_tokens=20000 (NOT 32768): LCB orchestrator headroom convention from
     # exp_orch — leaves room for accumulated multi-turn explore tool_response
     # inputs (LCB explores can be longer than HLE/GPQA).

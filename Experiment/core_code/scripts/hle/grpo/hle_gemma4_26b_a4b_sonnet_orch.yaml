@@ -39,7 +39,16 @@ method:
     temperature: 1.0
     top_p: 0.95
     top_k: 64
-    enable_thinking: true
+    # enable_thinking=false (override default true; 2026-05-03):
+    # Variant B is Sonnet-cached aggregator — thinking-on caused 28%
+    # empty predicted_answer on HLE 100Q (archived run_20260503_051610):
+    # median empty row burned 32768 tokens + 16-min wall on a single
+    # orchestrator round before finish=length, no tool_call emitted.
+    # Disabling collapses orchestrator output to <5K tokens (no thinking
+    # trace), keeps the explorer-thinks / orchestrator-aggregates split
+    # the architecture intends. Compare new run Acc against archived
+    # thinking-on baseline at analysis/archive/gemma_sonnet_orch_thinking_on_2026-05-03/.
+    enable_thinking: false
     # max_tokens=32768: matches Qwen archetype + exp_orch. Variant B uses same
     # value to keep orchestrator behavior identical between variants.
     max_tokens: 32768

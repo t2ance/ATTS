@@ -26,7 +26,15 @@ method:
     temperature: 1.0
     top_p: 0.95
     top_k: 64
-    enable_thinking: true
+    # enable_thinking=false (override default true; 2026-05-03):
+    # Variant B is Sonnet-cached aggregator — thinking-on caused 28% empty
+    # predicted_answer on HLE 100Q (archived run_20260503_051610). Disabling
+    # restores the explorer-thinks / orchestrator-aggregates split. BV
+    # multimodal cache reads still flow image features via tool_response
+    # text; orchestrator's aggregation does not need thinking to vote.
+    # Compare new run Acc to archived thinking-on baseline at
+    # analysis/archive/gemma_sonnet_orch_thinking_on_2026-05-03/.
+    enable_thinking: false
     # max_tokens=20000: matches BV exp_orch (BV multimodal has shorter outputs
     # than HLE; 20000 is the established headroom).
     max_tokens: 20000

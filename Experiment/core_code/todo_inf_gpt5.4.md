@@ -1,5 +1,13 @@
 # TODO: GPT-5.4 ATTS run on HLE + GPQA — paper main `tab:backbone-ablation`
 
+## Status: DEFERRED (paused 2026-05-03 by user)
+
+Paused mid-Phase-2 (HLE precache) at user request. Resume by relaunching `bash /data3/peijia/dr-claw/Explain/Experiment/core_code/scripts/hle/gpt5.4_high/supervisor.sh` (precache_explores.py auto-skips already-cached explores).
+
+**Final HLE precache state at pause:** cache=356/800 (44.5%), 0 timeout placeholders, 0 zombie processes. Codex rate window has been cycling between open and throttled in ~2-3h windows; supervisor v5 (setsid + group kill + per-Round stall counter reset) handled it autonomously over 6h35min, no manual intervention needed during the window.
+
+**Outstanding work when resumed:** 444 HLE explores remaining + HLE eval + GPQA precache + GPQA eval + paper integration (Phases 2-4).
+
 ## What this is
 
 Add 2 rows to the paper's backbone ablation table (`tab:backbone-ablation` at `Publication/paper/main.tex` line 417-418 area), `GPT-5.4 & high & HLE` and `GPT-5.4 & high & GPQA`, mirroring the existing GPT-5.2 high-effort methodology exactly. Methodology is the same two-step that produced the existing GPT-5.2 high rows:
@@ -154,9 +162,9 @@ User can `tail -f <path>` for any of these.
    │      Evidence · 
    └ How  · clone 4 sh files from `scripts/hle/gpt5.2_low/run_precache.sh` / `run_delegated.sh` and `scripts/gpqa/gpt5.2/run_precache.sh` / `run_no_integrate_high.sh`, edit paths
 
-## Phase 2 — HLE [0/2]
+## Phase 2 — HLE [0/2] — DEFERRED
 
-04 ☐ HLE precache (gpt-5.4, effort=low, workers=4, 200 → ~100 questions × 8 explores)
+04 ⏸ HLE precache (gpt-5.4, effort=low, workers=4, 200 → ~100 questions × 8 explores) — DEFERRED at 356/800 (44.5%)
    ├ G1 ☐ Gate · banner line `Tasks: K to run, 0 already cached` appears with K = expected total (≈800) on first launch
    │      Evidence · 
    ├ G2 ☐ Gate · `find ../analysis/cache/hle/gpt5.4_high/gold -name result.json | wc -l` ≥ 800 after run completes (≥100 qids × 8 explores; may be slightly lower if HLE-gold subset has <100 items)
@@ -210,7 +218,7 @@ User can `tail -f <path>` for any of these.
    │      Evidence · 
    └ How  · `bash scripts/hle/gpt5.4_high/run_delegated.sh`; estimated 15–25min wall
 
-## Phase 3 — GPQA [0/2]
+## Phase 3 — GPQA [0/2] — DEFERRED (blocked on Phase 2)
 
 06 ☐ GPQA precache (gpt-5.4, effort=low, workers=4, 198 questions × 8 explores)
    ├ G1 ☐ Gate · banner `Tasks: K to run, 0 already cached` on first launch with K ≈ 1584
@@ -264,7 +272,7 @@ User can `tail -f <path>` for any of these.
    │      Evidence · 
    └ How  · `bash scripts/gpqa/gpt5.4/run_no_integrate_high.sh`; estimated 1.5–2h wall
 
-## Phase 4 — Paper integration [0/3]
+## Phase 4 — Paper integration [0/3] — DEFERRED (blocked on Phases 2-3)
 
 08 ☐ Parse 2 results.jsonl → Pass@1 / Acc / Gain / true-wallet $/q
    ├ G1 ☐ Gate · 2 metric rows printed: HLE-high and GPQA-high

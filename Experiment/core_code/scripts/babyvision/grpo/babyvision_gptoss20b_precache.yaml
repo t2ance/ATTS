@@ -1,0 +1,30 @@
+benchmark:
+  name: babyvision
+  judge:
+    name: claude
+    model: claude-haiku-4-5-20251001
+backend: vllm
+# Explorer-only setup: gpt-oss-20b emits explore candidates that downstream
+# orchestrators (Sonnet / Gemma / Qwen) can consume. Multi-turn orchestration
+# with gpt-oss as orchestrator is unstable on vllm 0.20.0 (commit-rate ~80% on
+# HLE smoke 2026-05-03 due to vllm#27641 + vllm#33089 multi-turn Responses API
+# issues), so we keep gpt-oss in the explorer slot only.
+explore_model: gptoss-20b
+cache_dir: ../analysis/cache/babyvision/gptoss20b
+num_explores: 8
+# num_workers=64 (override default 128 / qwen 128): gpt-oss DP=2 nominal
+# concurrency = ~17.4 per replica × 2 = 34.76 total. 64 client workers leaves
+# 2x headroom over server capacity, matches HLE/GPQA/LCB precache convention.
+num_workers: 64
+seed: 42
+# explore_timeout=1200s: BabyVision is image+text — multimodal preprocessing
+# adds ~10s overhead per request beyond pure-text decode. 1200s gives long-tail
+# margin while still capping queue starvation.
+explore_timeout: 1200.0
+sampling:
+  # gpt-oss harmony defaults per OpenAI recipe: T=1.0, top_p=1.0; NO top_k.
+  temperature: 1.0
+  top_p: 1.0
+  # max_tokens=60000: matches HLE/GPQA/LCB gpt-oss precache budget. gpt-oss
+  # reasoning chains can be long; 60K fits within max-model-len=131072.
+  max_tokens: 60000

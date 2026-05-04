@@ -1,0 +1,31 @@
+# HLE eval (ATTS orchestrator over precached explores) for deepseek/deepseek-v4-pro.
+# Reads explores from cache, runs orchestrator turns, grades via Haiku judge.
+# Paired with hle_deepseek-v4-pro_precache.yaml — same cache_dir.
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+  judge:
+    name: claude
+    model: claude-haiku-4-5-20251001
+method:
+  name: tts-agent
+  backend:
+    name: openrouter
+    # timeout: 1200.0 — explicit per user 2026-05-04 directive "Timeout 写成
+    #   1200 秒"; matches BackendConfig default.
+    timeout: 1200.0
+    # max_output_tokens: 384000 — explicit per user 2026-05-04 directive
+    #   "Max Token 设成 384k"; matches OpenRouter-reported max_completion_tokens
+    #   for deepseek/deepseek-v4-pro. Prevents drift if upstream spec changes.
+    max_output_tokens: 384000
+    effort: low
+  explore_model: deepseek/deepseek-v4-pro
+  orchestrator_model: deepseek/deepseek-v4-pro
+  cache_dir: ../analysis/cache/hle/openrouter_deepseek-v4-pro/gold
+  no_integrate: true
+  num_explores: 4
+num: 100
+num_workers: 4
+seed: 42
+log_dir: ../analysis/run/hle/openrouter_deepseek-v4-pro

@@ -30,6 +30,8 @@
 \usepackage{tabularx}
 \usepackage{float}
 \usepackage{graphicx}
+\usepackage{subcaption} % needed for §4.4 Analysis subfigures (added 2026-05-04)
+\usepackage{wrapfig}
 \usepackage{listings}
 \usepackage[all]{hypcap}
 \usepackage{algorithm}
@@ -177,6 +179,15 @@ We evaluate on four benchmarks: HLE-Verified \citep{hle_verified_paper}, LiveCod
 %   "Thinking disabled" as standalone label, "Sonnet orchestrator" as suffix.
 % =============================================================================
 
+\begin{wrapfigure}{r}{0.48\textwidth}
+  \vspace{-1.0em}
+  \centering
+  \includegraphics[width=0.48\textwidth]{figures/benchmark_coverage.pdf}
+  \vspace{-1.5em}
+  \caption{Evaluation coverage. The inner ring shows the four benchmarks; the outer ring expands each into its official subcategories (8 HLE-Verified Gold categories, 3 LiveCodeBench v6 difficulty levels, 22 BabyVision subtypes, 13 GPQA-Diamond subdomains).}
+  \label{fig:benchmark-coverage}
+  \vspace{-1.0em}
+\end{wrapfigure}
 The experiments below evaluate two configurations of our framework, treated as the two methods we report. \our{} is the single-model configuration: Claude Sonnet 4.6 (\texttt{claude-sonnet-4-6}) serves as both orchestrator and explorer, the orchestrator synthesizes the final answer directly (no separate integrator), extended thinking is enabled, and the exploration budget is $T{=}8$ \explore{} calls per question. \attsmm{} is the multi-model configuration: the orchestrator (still Sonnet 4.6) dispatches to a pool of three explorers \{Haiku, Sonnet, Opus\} at Medium exploration effort, with budget $T{=}16$ (per-model limits: Haiku~8, Sonnet~8, Opus~4). Unless otherwise noted, all baselines and ablation variants share the same backbone (Sonnet 4.6), default sampling parameters (no explicit temperature or top-$p$ override), extended thinking budget of 32{,}000 tokens, and the API's default reasoning effort. Claude Haiku, Sonnet, and Opus are three capability tiers in the Claude model family, ordered from smallest/cheapest to largest/most capable.
 
 We compare against seven baselines, all sharing the same backbone model and answer interface so that only the inference-time strategy differs (full details in Appendix~\ref{app:implementation-details}): Pass@1 (single rollout), Majority Voting ($N{=}8$ independent candidates, most-frequent answer; reported only on benchmarks where direct answer aggregation is well-defined), Self-Refine~\citep{self_refine_paper} (iterative feedback-revision on a single draft), Socratic Self-Refine (Self-Refine with the feedback step replaced by Socratic-style probing questions before revision), Budget Forcing~\citep{s1_budget_forcing_paper} ($N$ sequential rounds with forced continuation via ``Wait''), reward-model reranking using Skywork-Reward-V2~\citep{skywork_reward_v2_paper,skywork_reward_v2_hf} for text benchmarks or VisualPRM~\citep{visualprm_paper,visualprm_hf} for multimodal benchmarks, and LLM Selection ($N{=}8$), which feeds all pre-cached candidates to the backbone model in a single call and asks it to analyze, compare, and synthesize a final answer. LLM Selection isolates the contribution of LLM-based aggregation from adaptive sequential exploration.
@@ -212,7 +223,25 @@ Qwen3-Max-Thinking & 48.48 & -- \\
 \groupheader{3}{Test-Time Scaling Methods}
 Pass@1 & 48.00 & 0.50 \\
 Self-Refine & 53.00 & \textbf{0.41} \\
-Socratic Self-Refine & 45.00 & 0.90 \\
+% TBD-RECHECK 2026-05-03: SSR HLE updated 45.00 -> 58.00.
+% Source: results.jsonl + progress.json + grade.json (Haiku judge, claude-haiku-4-5-20251001).
+% Log file frozen at 45/100 because run_20260427_071039 was scored under judge_model=null
+% (the 2026-04-11 hle.py bug; restored 2026-04-28). After restoration eval.py's
+% _grade_with_cache invalidated the stale judge_model=null cache and re-graded 100 rows
+% with Haiku; 13 rows flipped wrong->correct. All 13 are LaTeX-formatting equivalences
+% e.g. predicted='32/29' vs gold='\frac{32}{29}', predicted='-m^2/2' vs gold='$-m^2/2$'
+% which string-match (judge=null fallback) rejected but Haiku correctly accepts.
+% Side effects NOT yet applied (deferred to narrative pass):
+%   1. L223 LLM Selection 58.00 \textbf{} bolding: SSR also 58.00, may need joint bold.
+%   2. L324 narrative says SSR "underperforms Self-Refine" -- now wrong (SSR 58 > SR 53).
+%   3. L675 appendix says "small accuracy regression on HLE" -- now wrong (it's a +5pp lift).
+%   4. scripts/plot_all_methods.py reads log via parse_method_log -> still plots 45.
+%   5. Open question: are Self-Refine/Budget Forcing/Skywork etc. on HLE also re-graded
+%      with Haiku, or are they still on the original judge? If asymmetric, the comparison
+%      between 53/51/52/56/57/58 is not apples-to-apples (SSR alone benefits from Haiku
+%      LaTeX-equivalence leniency). MUST verify per-method judge_model consistency
+%      before locking the final number.
+Socratic Self-Refine & 58.00 & 0.90 \\
 Budget Forcing & 51.00 & 0.60 \\
 % Corrected: 10 compaction-failed explores in hle/sonnet/gold cache zeroed (cost_usd -> 0).
 % Skywork/LLM Selection read all 8 explores per question -> all 10 bad explores consumed -> -$79.40.
@@ -221,6 +250,9 @@ Budget Forcing & 51.00 & 0.60 \\
 % Multi-model Med: 1 of 10 consumed -> -$8.63 -> ($162.80-$8.63)/100 = $1.54.
 Skywork-Reward-V2 & 52.00 & 3.61 \\
 LLM Selection ($N{=}8$) & \textbf{58.00} & 3.71 \\
+% N=4 row added 2026-05-04: integrator $8.77 + cache-zeroed Explorer $221.75 = $230.52/100 = $2.31.
+% Run: Experiment/analysis/run/hle/sonnet_standalone_integrator_n4/. Same cache as N=8, only first 4 candidates per question consumed.
+LLM Selection ($N{=}4$) & 57.00 & 2.31 \\
 \our{} & 56.00 & 1.59 \\
 \attsmm{} & 57.00 & 1.54 \\
 \bottomrule
@@ -247,6 +279,10 @@ Socratic Self-Refine & 82.29 & \textbf{100.00} & 90.38 & 67.50 & 0.60 \\
 Budget Forcing & 80.00 & \textbf{100.00} & 88.46 & 63.75 & 0.50 \\
 Skywork-Reward-V2 & 78.86 & \textbf{100.00} & 90.38 & 60.00 & 1.41 \\
 LLM Selection ($N{=}8$) & 81.14 & \textbf{100.00} & 86.54 & 67.50 & 1.51 \\
+% N=4 row added 2026-05-04: integrator $18.30 + cache Explorer $146.90 = $165.20/175 = $0.94.
+% Per-subset: easy 43/43, med 48/52, hard 55/80. Run: Experiment/analysis/run/lcb/sonnet_standalone_integrator_n4/.
+% N=4 outperforms N=8 on Pass@1 (+2.29pp) and Med (+5.77pp), tying ATTS-MM on Med at 92.31 (joint bold).
+LLM Selection ($N{=}4$) & 83.43 & \textbf{100.00} & \textbf{92.31} & 68.75 & 0.94 \\
 \our{} & 82.29 & \textbf{100.00} & 90.38 & 67.50 & 0.53 \\
 \attsmm{} & \textbf{85.63} & \textbf{100.00} & \textbf{92.31} & \textbf{73.42} & 0.69 \\
 \bottomrule
@@ -484,7 +520,7 @@ The within-family swap above varies the orchestrator across three Anthropic capa
 % =====================================================================
 \begin{table}[H]
 \centering
-\caption{Cross-family extension of Table~\ref{tab:orch-ablation}: orchestrator backbone is Qwen3.6-35B-A3B-FP8 (open-weights, served locally via vLLM with TP=2 FP8) instead of an Anthropic model. Explorer remains Sonnet 4.6 with the same cached candidates; \texttt{no\_integrate} is on so the orchestrator synthesizes the final answer directly. Pass@1 = first cached Sonnet candidate; Gain = Acc.\ $-$ Pass@1 therefore isolates the orchestrator's contribution above returning the first cached candidate. Orchestrator inference is local and contributes \$0 to the cost column; \$/q reflects only explorer (Sonnet) charges.}
+\caption{Cross-family extension of Table~\ref{tab:orch-ablation}: two open-weights orchestrator backbones (Qwen3.6-35B-A3B-FP8 and Gemma-4-26B-A4B-it, both served locally via vLLM) replace the Anthropic orchestrator. Explorer remains Sonnet 4.6 with the same cached candidates; \texttt{no\_integrate} is on so the orchestrator synthesizes the final answer directly. Pass@1 = first cached Sonnet candidate; Gain = Acc.\ $-$ Pass@1 therefore isolates the orchestrator's contribution above returning the first cached candidate. Orchestrator inference is local and contributes \$0 to the cost column; \$/q reflects only explorer (Sonnet) charges. Qwen runs with thinking-mode decoding ($T{=}1.0$, top-$p{=}0.95$, top-$k{=}20$); Gemma is decoded with \texttt{enable\_thinking}=false (the orchestrator is an aggregator over pre-thought candidates, not a re-deriver of the question).}
 \label{tab:orch-ablation-cross}
 \small
 \setlength{\tabcolsep}{3pt}
@@ -495,6 +531,11 @@ Orchestrator & Benchmark & N & Pass@1 & Acc. & Gain & \$/q \\
 Qwen3.6-35B-A3B-FP8 & HLE-Verified  & 100 & 48.00 & 56.00 & \textbf{+8.00}  & 2.53 \\
 Qwen3.6-35B-A3B-FP8 & GPQA-Diamond  & 198 & 74.75 & 83.33 & \textbf{+8.58}  & 0.38 \\
 Qwen3.6-35B-A3B-FP8 & LiveCodeBench & 175 & 77.14 & 78.29 & \textbf{+1.15}  & 0.48 \\
+\midrule
+Gemma-4-26B-A4B-it  & HLE-Verified  & 100 & 47.00 & 51.00 & \textbf{+4.00}  & 2.43 \\
+Gemma-4-26B-A4B-it  & GPQA-Diamond  & 198 & 74.75 & 75.25 & \textbf{+0.51}  & 0.39 \\
+Gemma-4-26B-A4B-it  & LiveCodeBench & 175 & 77.14 & 80.00 & \textbf{+2.86}  & 1.22 \\
+Gemma-4-26B-A4B-it  & BabyVision    & 388 & 19.59 & 21.91 & \textbf{+2.32}  & 0.40 \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -550,6 +591,98 @@ Condition & Acc. (\%) & \$/q & Explores/q \\
 \end{table}
 
 \our{} (no thinking) reduces accuracy by 3.5 points relative to \our{} (82.83\% $\to$ 79.29\%) with no cost savings (Table~\ref{tab:thinking-ablation}). The exploration behavior is nearly identical (2.08 vs.\ 2.15 explores per question), indicating that the accuracy gap is attributable to synthesis quality, not stopping behavior. This result confirms that the orchestrator's internal reasoning---even when constrained to a pure orchestration role with no direct problem-solving---contributes meaningfully to evidence evaluation and answer selection.
+
+\subsection{Analysis}
+\label{sec:analysis}
+
+% =====================================================================
+% Section 4.4 Analysis -- direct mechanistic evidence on the orchestrator.
+% Each paragraph reports one claim; the figure under each paragraph
+% supports that paragraph's claim. Built as subfigure scaffolding so
+% additional panels (heatmap, H2-vs-H3 contrast, cross-benchmark) can
+% be added side-by-side later without restructuring.
+%
+% First paragraph -- "Stop is not random" (Tier 1-A)
+%   Source data : 5 GPQA stability runs (run_20260328_060344) at
+%                 Experiment/analysis/run/gpqa/sonnet_no_integrate_run{1..5}/
+%                 = 5 x 198 = 990 trajectories; 975 clean (3 qids excluded
+%                 due to precache failures); 790 with defined first-correct-
+%                 majority emergence step k* (the remaining 185 = 19% are
+%                 the "never converged" cohort, reported separately).
+%   Stats file  : Experiment/analysis/orch_evidence/gpqa_sonnet/stats.json
+%                 -> gap_pooled (median, bootstrap CI, frac_gap_zero, etc.)
+%                 -> gap_per_run (per-run medians for cherry-pick check)
+%   Plot script : Experiment/scripts/orch_evidence/plot_orch_evidence.py
+%   Figure src  : Experiment/analysis/orch_evidence/gpqa_sonnet/fig1_gap_histogram.pdf
+%   Figure copy : figures/orch_evidence_gap_histogram.pdf (this file)
+%
+% Figure may need polish (axis labels, legend placement, font sizes).
+% Numbers cited below come directly from stats.json.gap_pooled.
+% =====================================================================
+
+\paragraph{The orchestrator's stop time tracks candidate-pool convergence, not budget exhaustion.}
+A reviewer might worry that the gains reported above arise from any aggregation strategy and that the stopping decision itself is a budget-exhaustion artifact. To probe the stopping mechanism directly, we measure for each question the gap between the orchestrator's natural stop time $t^\star$ and the earliest prefix length at which a correct majority among the cached explores would have emerged ($k^\star$): $\mathrm{gap} = t^\star - k^\star$. A negative gap means the orchestrator stopped before convergence; a positive gap means it kept exploring after the pool had already converged on the correct answer; zero is the ideal. We compute this on the five GPQA-Diamond stability runs ($5 \times 198 = 975$ trajectories, of which $790$ admit a defined $k^\star$; the remaining $185$ ($19\%$) never see a correct majority within the exploration budget and are reported separately as the capitulation cohort). Across the defined cohort, the gap concentrates sharply on zero: median $0$ with bootstrap $95\%$ CI $[0, 0]$, $88.9\%$ of trajectories stop exactly at convergence, $94.3\%$ stop within one step of it, and no trajectory overstays past convergence (the fraction of positive gaps is $0$). The five stability runs report identical medians individually, ruling out cherry-picking across runs. As a null reference, the same gap computed under uniform-random stopping in $[1, T]$ has median $+2$ with CI $[+2, +2.5]$, non-overlapping with the observed CI by two full units. This rules out the random and budget-exhaustion nulls at once: \our{} stops at the moment the candidate pool resolves, not at the budget cap and not at random.
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[t]{\linewidth}
+  \centering
+  \includegraphics[width=\linewidth]{figures/orch_evidence_gap_histogram.pdf}
+  \caption{Distribution of $\mathrm{gap} = t^\star - k^\star$ over the $n{=}790$ GPQA-Diamond trajectories with a defined $k^\star$, pooled across the five stability runs. Observed (\our{}) is concentrated at zero; uniform-random stopping in $[1, T]$ is shown as the null reference.}
+  \label{fig:analysis-gap-histogram}
+\end{subfigure}
+\caption{Stop-time validity. The orchestrator's natural stop time aligns with the earliest emergence of a correct majority in the candidate pool, not with the budget cap or a random schedule. Additional analysis panels will be added as siblings to this subfigure.}
+\label{fig:analysis-stop-time}
+\end{figure}
+
+% =====================================================================
+% Second paragraph -- "Comfort zone: 100% accuracy on the easy cohort
+% across all four benchmarks" (Tier 1-B)
+%   Source data : 4 pool_state.parquet files at
+%                 Experiment/analysis/orch_evidence/{gpqa,hle,lcb,babyvision}_sonnet/pool_state.parquet
+%                 (1613 trajectories total: GPQA 975, HLE 100, LCB 151, BV 387)
+%                 GPQA pools the 5 stability runs (5 x 195 clean qids).
+%                 HLE / LCB / BV are single-run (n_trajectories = n_questions).
+%   Build script: Experiment/scripts/orch_evidence/build_pool_state_all_benchmarks.py
+%   Plot src    : currently inline matplotlib (see tmp/orch_ev_cross_bench.log
+%                 documented in Experiment/core_code/todo_orch_evidence_A_pool_state.md
+%                 item 11). If the figure needs re-polishing, lift the inline
+%                 code into a standalone scripts/orch_evidence/plot_difficulty_cohorts.py.
+%   Figure src  : Experiment/analysis/orch_evidence/fig4_cross_benchmark_difficulty.pdf
+%   Figure copy : figures/orch_evidence_difficulty_cohorts.pdf (this file)
+%
+% Cohort definitions (binning is per-question, derived from the cached
+% explore pool, independent of orchestrator decisions):
+%   easy      : k* = 2  (first 2 explores both correct)
+%   medium    : k* in {3, 4}
+%   hard      : k* >= 5
+%   undefined : no k* (correct majority never emerges in T=8 budget) =
+%               capitulation cohort
+% Per-cohort n (visible as panel annotations):
+%   GPQA : easy 690, medium 55, hard 45, undefined 185 (total 975)
+%   HLE  : easy 30,  medium 14, hard 7,  undefined 49  (total 100)
+%   LCB  : easy 33,  medium 18, hard 1,  undefined 99  (total 151)
+%   BV   : easy 60,  medium 22, hard 11, undefined 294 (total 387)
+%
+% This paragraph cites only the easy cohort. The medium/hard/undefined
+% bars on the same figure will be cited by subsequent paragraphs (taxonomy,
+% capitulation, multi-model rescue) without re-introducing the figure.
+% =====================================================================
+
+\paragraph{Easy cohort: \our{} captures every two-explore convergence at $100\%$ accuracy.}
+The previous paragraph established that \our{} stops at convergence. This paragraph asks how often convergence is correct, and how reliably \our{} captures it. Re-using $k^\star$ from above, we bin every question of every benchmark by $k^\star$ into four cohorts: \emph{easy} ($k^\star{=}2$, the first two explores agree on the correct answer), \emph{medium} ($k^\star{\in}\{3,4\}$), \emph{hard} ($k^\star{\geq}5$), and \emph{undefined} (no correct majority emerges within the budget; the capitulation cohort). The binning is determined by the cached explore pool alone and is independent of orchestrator decisions. Figure~\ref{fig:analysis-difficulty-cohorts} reports, for each cohort, the fraction of trajectories on which \our{} answers correctly (blue) alongside the fraction on which the final answer differs from the modal cached answer (red, ``minority extraction''). The leftmost bars in all four panels report the comfort-zone effect: when the first two explores agree on the correct answer, \our{} answers correctly in $100\%$ of trajectories on every benchmark, with a minority-extraction rate of $0$--$13\%$. \our{} resolves these trajectories by detecting and locking in the agreed answer, not by overriding the pool. The cohort sizes, however, vary sharply across benchmarks: $71\%$ ($n{=}690/975$) of GPQA-Diamond trajectories, $30\%$ ($n{=}30/100$) of HLE-Verified, $22\%$ ($n{=}33/151$) of LiveCodeBench, and only $16\%$ ($n{=}60/387$) of BabyVision fall into this regime. This differential is the structural reason \our{} reaches $80.81\%$ on GPQA but $23.20\%$ on BabyVision under the same control logic and budget: BabyVision rarely admits a two-explore correct convergence, so \our{}'s effective accuracy on that benchmark is dominated by the harder cohorts shown in the remaining bars (analyzed in subsequent paragraphs).
+
+\begin{figure}[H]
+\centering
+\begin{subfigure}[t]{\linewidth}
+  \centering
+  \includegraphics[width=\linewidth]{figures/orch_evidence_difficulty_cohorts.pdf}
+  \caption{ATTS behavior stratified by question difficulty across the four benchmarks. Each panel reports final accuracy (blue) and minority-extraction rate (red) within four cohorts defined by $k^\star$: easy ($k^\star{=}2$), medium ($k^\star{\in}\{3,4\}$), hard ($k^\star{\geq}5$), undefined (no correct majority within budget). Per-cohort sample size $n$ is annotated on each bar.}
+  \label{fig:analysis-difficulty-cohorts}
+\end{subfigure}
+\caption{Comfort-zone effect and difficulty stratification. The leftmost bar in every panel shows that \our{} captures every two-explore correct convergence at $100\%$ accuracy. The cohort that contains those convergences is itself a sharply benchmark-dependent quantity, ranging from $71\%$ of GPQA-Diamond down to $16\%$ of BabyVision. Subsequent paragraphs analyze the medium, hard, and undefined cohorts.}
+\label{fig:analysis-difficulty}
+\end{figure}
 
 \section{Limitations}
 

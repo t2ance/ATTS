@@ -4,7 +4,7 @@
 
 | Benchmark | Done / Total | Status | Log path |
 |---|---|---|---|
-| hle | 100 / 100 | done (gold+text_only, integrated=45.0%, $0.90/q) | /data3/peijia/dr-claw/Explain/Experiment/analysis/run/hle/sonnet_socratic_self_refine/socratic_self_refine.log |
+| hle | 100 / 100 | done (gold+text_only, integrated=58.00%, $0.90/q). NOTE: log file shows 45.00 (run_20260427_071039 was scored with judge_model=null due to the 2026-04-11 hle.py bug — restored 2026-04-28). progress.json + results.jsonl have the Haiku-corrected 58/100; the 13-row delta are LaTeX-formatting equivalences (e.g. predicted=`32/29` vs gold=`\frac{32}{29}`) that string-match rejects but Haiku correctly accepts. paper updated 2026-05-03 to 58.00. plot_all_methods.py carries `_HLE_ACC_CORRECTIONS` override to mirror this. | /data3/peijia/dr-claw/Explain/Experiment/analysis/run/hle/sonnet_socratic_self_refine/socratic_self_refine.log |
 | gpqa | 198 / 198 | done 2026-04-30 04:24 UTC (Integrated 147/198 = 74.24%, $0.56/q). env transition mid-run: rows 1-127 base/Py 3.13, rows 128- explain/Py 3.11. Run dir `run_20260428_163751`. | /data3/peijia/dr-claw/Explain/Experiment/analysis/run/gpqa/sonnet_socratic_self_refine/socratic_self_refine.log |
 | lcb | 175 / 175 | done 2026-04-30 05:25 UTC (Integrated 144/175 = 82.29%, $0.60/q). Run dir `run_20260428_163748`. | /data3/peijia/dr-claw/Explain/Experiment/analysis/run/lcb/sonnet_socratic_self_refine/socratic_self_refine.log |
 | babyvision | 388 / 388 | done 2026-04-30 19:29 UTC (Integrated 82/388 = 21.13%, $0.58/q). Run dir `run_20260428_075116`. Resume from 2026-04-29 22:34 UTC stop completed cleanly under explain env. | /data3/peijia/dr-claw/Explain/Experiment/analysis/run/babyvision/sonnet_socratic_self_refine/socratic_self_refine.log |

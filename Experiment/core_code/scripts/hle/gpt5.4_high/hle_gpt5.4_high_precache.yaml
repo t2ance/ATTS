@@ -16,8 +16,12 @@ cache_dir: ../analysis/cache/hle/gpt5.4_high/gold
 # despite num=200 in yaml). Keeps Table 3 row size consistent.
 num: 100
 num_explores: 8
-# num_workers: 4 — high-effort single call is ~4x token volume of low-effort,
-# so workers=4 puts us at same per-minute token rate as 5.2-low at workers=16.
-# 5.2-low precache hit zero 429 at workers=8. Conservative ramp.
-num_workers: 4
+# num_workers: 1 — workers=4 attempted 2026-05-03 06:58 hit codex 429 cascade
+# at the 86th call (4 workers all stuck in 60s/120s/240s exponential retry
+# loops; no forward progress for 7+ min). Smoke at workers=2 had zero 429,
+# so rate limit boundary is between workers=2 and workers=4. User directive
+# 2026-05-03 07:45: pick workers=1 — slow but no thrash. ETA ~32h wall time
+# for the remaining 663 calls (vs ~16h at workers=2). Coupling: must use
+# --resume / cache hit on restart so the 113 already-cached explores skip.
+num_workers: 1
 seed: 42

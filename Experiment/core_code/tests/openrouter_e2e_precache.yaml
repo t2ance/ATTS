@@ -1,0 +1,36 @@
+# End-to-end smoke for backends/openrouter.py via precache_explores.py.
+# Smallest possible meaningful test: 1 GPQA question, 1 explore, free model.
+# Verifies the FULL ATTS explorer pipeline works through the new backend
+# (PrecacheConfig validates → make_sub_model_caller dispatches → claude.py
+# transports → OpenRouter's Anthropic-Skin endpoint → free model responds →
+# result.json caches → schema-extracted answer matches gpqa multipleChoice).
+#
+# Prerequisites: OPENROUTER_API_KEY in env; backends/openrouter.py auto-injects
+# the rest (ANTHROPIC_BASE_URL/AUTH_TOKEN/API_KEY + 11 DISABLE flags via claude.py).
+
+benchmark:
+  name: gpqa
+# backend: openrouter — added 2026-05-03 to PrecacheConfig.Literal. Routes via
+# backends/openrouter.py (re-exports claude.py with Anthropic-Skin env).
+backend: openrouter
+# Free model on OpenRouter. Verified $0 billing per call when claude.py's
+# 11 DISABLE flags are active (which they are by default after the in-source
+# setdefault block at backends/claude.py:18).
+explore_model: openai/gpt-oss-120b:free
+# Isolated smoke cache under tests/. Will be wiped after verification; do NOT
+# pollute the real ../analysis/cache/gpqa/* directories.
+cache_dir: tests/cache/openrouter_e2e_smoke/gpqa
+# Single explore for the smoke. Real ATTS uses num_explores=8.
+num_explores: 1
+# Single question. Real precache runs over 198 GPQA Diamond questions.
+num: 1
+num_workers: 1
+seed: 42
+# Match the budget used in probe A; keeps token cost predictable.
+budget_tokens: 4000
+effort: low
+# Free-tier wall-clock — gpt-oss-120b is fast (~2-9s per call observed).
+explore_timeout: 60.0
+# NO sampling block: backends/claude.py:call_sub_model asserts sampling is None
+# or all-None entries (sampling control is via thinking.budget_tokens / effort,
+# not OpenAI sampling knobs). Matches Anthropic-Skin behavior.

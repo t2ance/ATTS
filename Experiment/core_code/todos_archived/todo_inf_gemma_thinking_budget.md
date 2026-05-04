@@ -1,5 +1,11 @@
 # TODO: Gemma-4 thinking_token_budget validation — recover HLE timeout rate
 
+> **STATUS: PAUSED 2026-05-03 evening** — Gemma path deferred per user directive "先放弃吧，暂时不考虑 gemma 了".
+>
+> **Why this todo is also paused**: `thinking_token_budget` would only matter if the upstream Gemma-4 thinking pipeline worked end-to-end. The 2026-05-03 HLE 16-explore smoke (post Layer-1+Layer-2 fix) showed only 3/16 explores actually carried `<think>` blocks; 13/16 failed via two distinct failure modes (mid-thinking timeout + empty-reasoning skip). Until the upstream channel-marker bugs are fixed, validating `thinking_token_budget` is meaningless — the parameter only kicks in after thinking emits properly.
+>
+> **Resume condition**: vllm#38855 closed upstream + fresh ≥14/16 smoke pass on the parent Gemma todo (`todo_inf_gemma_A_exp_orch.md` Phase 5 item 14) BEFORE attempting any item below. Until then **all items below are frozen**.
+
 ## What this is
 
 Empirical validation of vllm 0.20.0's `thinking_token_budget` parameter (PR #20859, merged 2026-03-24) on Gemma-4-26B-A4B-it served with `--structured-outputs-config '{"backend":"xgrammar","reasoning_parser":"gemma4"}'`. The PR explicitly tested DeepSeek-R1 / Qwen3 / Nemotron-3; gemma4 reasoning parser is registered in `vllm/reasoning/gemma4_reasoning_parser.py` but not in the PR's test matrix — so empirical verification is required.
@@ -154,4 +160,22 @@ Sources cross-checked today:
 - vllm#37112 (reasoning_budget feature, merged) https://github.com/vllm-project/vllm/pull/37112
 - vLLM Recipes Gemma 4 Usage Guide https://docs.vllm.ai/projects/recipes/en/latest/Google/Gemma4.html
 - vllm#39697 (Qwen3.5 budget leaks reasoning_end_str into content — analogous fragility) https://github.com/vllm-project/vllm/issues/39697
+
+## Update 2026-05-03 evening — channel-open root cause fixed; this todo is revisitable
+
+The 04:40 diagnosis above concluded "Gemma4 inlines its chain-of-thought into the JSON `approach` field" and "model never opens `<|channel>`". Today's evening session (2026-05-03 ~18:00-19:00) refined the root cause and produced a working fix:
+
+- **Root cause refined (Layer 1)**: HF default `chat_template.jinja` line 348-352 (and vLLM upstream `examples/tool_chat_template_gemma4.jinja` line 324-330) only prefill `<|channel>thought\n<channel|>` (closed empty thinking block) when `enable_thinking=false`; for `enable_thinking=true` they leave the prompt at bare `<|turn>model\n` and rely on the model to open `<|channel>` itself. The IT-tuned weights' first-token logit at `<|turn>model\n` prefers a normal text token over `<|channel>` (token 100) — verified at temperature=0 and 1.0 (3 seeds), with system-prompt nudges, even with `<|channel>thought\n` prefill via `/v1/completions` without the system-turn `<|think|>`.
+- **Fix (Layer 1)**: vendored `chat_template.jinja` to `scripts/gpqa/grpo/tool_chat_template_gemma4_fixed.jinja`, patched the `add_generation_prompt` block to also prefill `<|channel>thought\n` (channel OPEN, no closing token) when `enable_thinking=true`. Wired into serve via `--chat-template scripts/gpqa/grpo/tool_chat_template_gemma4_fixed.jinja` flag in `scripts/gpqa/grpo/serve_gemma4_26b_a4b_dp4.sh`.
+- **Root cause refined (Layer 2)**: even with channel open, vLLM 0.20.0 routes the parsed thinking into `message.reasoning` (matching OpenAI o1-series schema), NOT `message.reasoning_content` (the older field name some vLLM docs and parser comments still reference). Pre-fix `backends/vllm.py:call_sub_model` read only `reasoning_content` → silently dropped thinking.
+- **Fix (Layer 2)**: `backends/vllm.py` now reads `getattr(msg, "reasoning", None) or getattr(msg, "reasoning_content", None)` (forward-compat); `run_tool_conversation` mirrors.
+- **Validation evidence**: real e2e through `backends/vllm.py:call_sub_model` at `tmp/case_demo_real/output.md` — 2688 chars: `<think>` block (1679 chars natural CoT including self-correction `"Wait, should I list it as '1' or 'x=1'?"` and verification `1 - 4 + 6 - 4 + 1 = 0`) followed by schema-valid JSON answer. `usage.completion_tokens=944`.
+
+**Implications for this todo:**
+- Phase 3 G2 STOP is now logically obsolete — channel DOES open, thinking DOES flow into a separate field. The "thinking_token_budget mechanism does not fire on Gemma4" conclusion was based on the channel-never-opens premise; that premise is now falsified.
+- The `thinking_token_budget` approach can therefore be retried. Phase 3 / Phase 4 budget-scan items can be re-attempted with the fix in place.
+- However, this todo is currently NOT in the user's active workstream — Variant A `_exp_orch` and Variant B `_sonnet_orch` are. Re-opening this todo is only justified if HLE-class long-tail timeouts re-emerge AT scale on the post-fix pipeline (Variant A item 14 smoke + item 15 full HLE precache will measure).
+- If timeouts re-emerge, the next attempt should: (a) NOT clone the pre-fix budget-scan caches (they're archived at `analysis/archive/gemma_pre_thinking_fix_2026-05-03/cache/hle/gemma4_26b_a4b_it_budget15k_smoke/`); (b) start with `thinking_token_budget=15000` on a fresh `cache_dir`; (c) verify `usage.output_tokens` actually clamps near budget × 1.1 (the original Phase 3 G2 threshold).
+
+Cross-reference: full Gemma-4 thinking double-bug entry in vllm skill at `~/.claude/dream-clone/plugins/memory-recall/skills/vllm/references/troubleshooting.md` (commit `47b978b vllm skill: document Gemma-4 thinking double-bug on vLLM 0.20.x`).
 

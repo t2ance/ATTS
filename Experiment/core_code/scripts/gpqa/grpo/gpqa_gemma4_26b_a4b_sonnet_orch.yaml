@@ -17,7 +17,14 @@ method:
     temperature: 1.0
     top_p: 0.95
     top_k: 64
-    enable_thinking: true
+    # enable_thinking=false (override default true; 2026-05-03):
+    # Variant B is Sonnet-cached aggregator — thinking-on caused 28% empty
+    # predicted_answer on HLE 100Q (archived run_20260503_051610) and was
+    # drifting GPQA Pass@1 to 75.19% on 129/198 partial vs Sonnet-cached
+    # deterministic 74.24%. Disabling thinking restores the explorer-thinks
+    # / orchestrator-aggregates split. Compare new run Acc to archived
+    # thinking-on baseline at analysis/archive/gemma_sonnet_orch_thinking_on_2026-05-03/.
+    enable_thinking: false
     # max_tokens=32768: matches Qwen archetype + exp_orch. Variant B keeps
     # orchestrator config identical between variants.
     max_tokens: 32768

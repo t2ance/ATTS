@@ -1,0 +1,29 @@
+# HLE eval-side smoke for x-ai/grok-4.1-fast — num=2 sanity check after precache.
+# Cache_dir is SEPARATE from production.
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+  judge:
+    name: claude
+    model: claude-haiku-4-5-20251001
+method:
+  name: tts-agent
+  backend:
+    name: openrouter
+    timeout: 1200.0
+    # max_output_tokens: 8000 — paper R8 cap (blast-radius limit per
+    #   todo_openrouter_hle_models.md item 06 G2: "max_output_tokens=8000 to
+    #   cap blast radius"). xAI provider's per-call max is much higher; this
+    #   is our explicit guardrail against thinking-mode runaway.
+    max_output_tokens: 8000
+    effort: low
+  explore_model: x-ai/grok-4.1-fast
+  orchestrator_model: x-ai/grok-4.1-fast
+  cache_dir: ../analysis/cache/hle/openrouter_grok-4.1-fast_smoke/gold
+  no_integrate: true
+  num_explores: 2
+num: 2
+num_workers: 2
+seed: 42
+log_dir: ../analysis/run/hle/openrouter_grok-4.1-fast_smoke

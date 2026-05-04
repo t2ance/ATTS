@@ -11,9 +11,23 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import os
 import sys
 from pathlib import Path
 from typing import Any, Awaitable, Callable
+
+# (Removed 2026-05-03: an earlier commit added a setdefault block for 11
+# CLAUDE_CODE_DISABLE_*/DISABLE_* env vars in an attempt to suppress a hidden
+# Anthropic Haiku 1-token classifier call billed at ~$0.0066 per claude_agent_sdk
+# invocation. Empirically those flags do NOT suppress the call: the original
+# "$0 delta" measurements were ledger-lag artifacts (OpenRouter `/auth/key.usage`
+# updates ~30-60s after a call settles). Across 13 reconstructed calls in one
+# session, every claude.py invocation incurred exactly one Haiku tax. The Haiku
+# call is intrinsic to the SDK's CLI subprocess and cannot be turned off via env.
+# For cost-zero free-tier routing on OpenRouter, use `backends/openrouter.py`
+# which talks directly to OpenRouter's chat/completions endpoint via AsyncOpenAI
+# (no claude_agent_sdk in the call chain → no Haiku tax by construction).
+# See docs/superpowers/plans/2026-05-03-openrouter-real-backend.md.)
 
 logger = logging.getLogger(__name__)
 

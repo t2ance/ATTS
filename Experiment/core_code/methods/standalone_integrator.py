@@ -23,11 +23,13 @@ async def solve(
     image_data_url: str | None = None,
     question_id: str | None = None,
     integrate_model: str = "claude-sonnet-4-6",
+    num_explores: int = 8,
     **_extra,
 ) -> SolveResult:
-    """Synthesize from all pre-cached candidates in one LLM call."""
+    """Synthesize from up to `num_explores` pre-cached candidates in one LLM call."""
     assert infra.cache_dir is not None, "cache_dir is required for standalone-integrator"
     assert question_id is not None, "question_id is required for standalone-integrator"
+    assert num_explores >= 1, f"num_explores must be >= 1, got {num_explores}"
 
     ctx = create_solve_context(
         infra=replace(infra, timeout=None),
@@ -38,13 +40,19 @@ async def solve(
         writer_header_lines=[
             f"**Integrate Model**: {integrate_model}",
             f"**Method**: standalone-integrator",
+            f"**num_explores**: {num_explores}",
         ],
         writer_title_suffix="(standalone-integrator)",
     )
 
-    candidates, explore_cost_total = load_cached_candidates(
+    candidates, _ = load_cached_candidates(
         infra.cache_dir, question_id, ctx.benchmark,
     )
+    # Truncate to first N cached candidates; recompute cost from kept entries
+    # only so paper-style $/q reporting reflects the candidates actually
+    # integrated. Default num_explores=8 keeps original "consume all" behavior.
+    candidates = candidates[:num_explores]
+    explore_cost_total = sum(c.cost_usd for c in candidates)
 
     if len(candidates) == 0:
         logger.info(f"  [standalone-integrator] No valid candidates for {question_id}")

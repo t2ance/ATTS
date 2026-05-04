@@ -1,0 +1,30 @@
+# HLE precache for deepseek/deepseek-v4-pro via OpenRouter (paid).
+# Generates 8 explore candidates per question for 100 HLE-Verified gold questions.
+# Model anchors (OpenRouter /api/v1/models 2026-05-04):
+#   ctx=1048576, max_completion_tokens=384000, $0.435/M input, $0.870/M output,
+#   reasoning=True, tools=True. Paid (NOT :free) — no daily-budget throttle,
+#   no max_completion_tokens=8192 free-tier cap.
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+  judge:
+    name: claude
+    model: claude-haiku-4-5-20251001
+backend: openrouter
+explore_model: deepseek/deepseek-v4-pro
+# effort: low — matches gpt-oss-20b LOW baseline (per user 2026-05-04 directive
+#   "其他的东西都不变, 都按之前的配置"); routes via
+#   extra_body={"reasoning":{"effort":"low"}} in backends/openrouter.py.
+effort: low
+cache_dir: ../analysis/cache/hle/openrouter_deepseek-v4-pro/gold
+num: 100
+num_explores: 4
+num_workers: 4
+seed: 42
+# explore_timeout: 1200.0 — overrides PrecacheConfig default 1200 explicitly
+#   (per user 2026-05-04 directive "Timeout 写成 1200 秒"). Same as default;
+#   redundant but documents the choice. NOT 600 like gpt-oss-20b legacy
+#   (free-tier 20rpm budget made shorter timeout sensible there; paid tier
+#   has no such constraint, full 1200 is appropriate).
+explore_timeout: 1200.0

@@ -1,5 +1,17 @@
 # TODO: Gemma-4-26B-A4B-it Variant B (`_sonnet_orch`) — paper appendix `tab:qwen36-baseline`
 
+> **STATUS: PAUSED 2026-05-03 evening** — Gemma path deferred per user directive "先放弃吧，暂时不考虑 gemma 了".
+>
+> **Trigger**: HLE 16-explore smoke at `analysis/cache/hle/gemma4_26b_a4b_it_thinking_smoke_v2/gold/` returned **3/16 with `<think>` block, 13/16 failed** (7 TIMED OUT mid-thinking, 6 emitted empty reasoning).
+>
+> **Root cause**: vLLM 0.20.0 Gemma-4 thinking pipeline still depends on upstream bugs that are OPEN: vllm#38855 (special tokens stripped before reasoning-parser) and vllm#39130 (xgrammar+thinking-off silent disable). The model's stochastic channel-close behavior at T=1.0 is not addressable client-side.
+>
+> **Variant B specifically**: this Variant uses Sonnet-cached explores + Gemma orchestrator. Even though the explorer is fully cached and not affected, the Gemma orchestrator path runs through the same broken vLLM thinking pipeline, so the orchestrator's tool-calls + final-answer JSON have the same failure modes (Gemma either rambles past max_tokens or skips thinking entirely).
+>
+> **Preserved (do NOT delete)**: same as Variant A — jinja patch, `backends/vllm.py` reasoning plumbing, smoke caches, pre-fix archive.
+>
+> **Resume condition**: vllm#38855 closed upstream AND fresh ≥14/16 smoke pass. Until then **all items below are frozen** — no further `☐ → ✓` flips.
+
 ## What this is
 
 Variant B of the Gemma-4-26B-A4B-it experiment plan: **Sonnet-cached explorer + Gemma orchestrator**, mirroring the existing appendix table `tab:qwen36-baseline` already in the paper for Qwen3.6-35B-A3B-FP8 (paper line 824-839).
@@ -76,6 +88,29 @@ These are the bugs the gates below are designed to catch — do NOT remove the c
 | RB4 | Pass@1 doesn't match published Sonnet Pass@1 → wrong cache or cache key changed | cache key includes (model, sampling, prompt); one of these drifted | Phase 2 each eval `Pass@1 deterministic check` Gate (±0.5pp hard, STOP on miss) |
 | RB5 | Gain compared against wrong reference (e.g. some unrelated Gemma experiment's number rather than Qwen36-baseline appendix) → mis-interpreted result | confusing this Variant's reference anchor in paper writeup | Phase 3 G_review explicit comparison anchor: Qwen36-baseline appendix Gain (HLE +8.0, GPQA +8.58, LCB −0.57, BV −5.93) |
 | RB6 | Sonnet cache directory layout differs from expected (e.g. extra `gold/` subdir for HLE only) → wrong path | path convention drift between benchmarks | Phase 1 item 01 G1-G4 (per-benchmark explicit path check: HLE uses `sonnet/gold/`, others use `sonnet/`) |
+| RB7 | Orchestrator `enable_thinking: true` on a Sonnet-cached aggregator burns the per-round token budget on re-derivation, finish_reason=length before any tool_call → high empty `predicted_answer` rate | Gemma thinking-mode chews ≥30K tokens per round on hard HLE questions; aggregator role has no need to re-think the problem (Sonnet cache already contains reasoning) | Variant B 4 YAMLs ship `enable_thinking: false` on `method.sampling`; first attempt with `true` (HLE 100Q) is archived at `analysis/archive/gemma_sonnet_orch_thinking_on_2026-05-03/` for cross-check (28% empty, median empty-row burned 16-min wall on 1 round). **2026-05-03 evening REASSESSMENT** — root cause is partly outdated: pre-fix, thinking and JSON shared the same `message.content` token stream so thinking ate into final-answer tokens. Post-fix (Layer-1 chat_template prefill + Layer-2 `message.reasoning` field plumbing), thinking lands in an independent channel that does NOT count against `message.content` length budget. The 28%-empty failure mode of the pre-fix `enable_thinking=true` attempt should NOT recur post-fix. Whether to flip the YAMLs back to `enable_thinking=true` is now a **design decision** (thinking gives the orchestrator real chain-of-thought capacity at the cost of latency) — Phase 1 item 02 G3 marks this as `[USER DECISION REQUIRED]` below. |
+| R8 | Gemma `<|channel>thought\n...<channel|>` thinking trace never opens; cache trajectory has only the JSON fields, no native `<think>` block | HF default `chat_template.jinja` line 348-352 (and vLLM upstream `examples/tool_chat_template_gemma4.jinja`) DO NOT prefill `<|channel>thought\n` at the model-turn end when `enable_thinking=true`; IT-tuned weights' first-token logit at `<|turn>model\n` prefers a normal text token over `<|channel>` (token 100) → channel never opens | Layer-1 fix at `scripts/gpqa/grpo/tool_chat_template_gemma4_fixed.jinja` prefills `<|channel>thought\n` for `enable_thinking=true`; serve script `serve_gemma4_26b_a4b_dp4.sh` adds `--chat-template <fixed-jinja>` flag |
+| R9 | `message.reasoning_content` is `None` even when thinking opened — vLLM 0.20.0 routes reasoning into `message.reasoning` (matching OpenAI o1-series schema), NOT `message.reasoning_content` | vLLM 0.20.0 chat-completions response schema field naming drift; parser correctly splits the channel — only field-name on the response side is `reasoning` | Layer-2 fix at `backends/vllm.py:call_sub_model` reads `getattr(msg, "reasoning", None) or getattr(msg, "reasoning_content", None)`; `run_tool_conversation` mirrors |
+
+## Archive — failed thinking-on attempt (2026-05-03)
+
+The first Variant B attempt (HLE 100Q complete, GPQA 129/198 partial) was run with `enable_thinking: true` on the orchestrator. It triggered RB7 (28% empty `predicted_answer`, 3 rows of R2 judge contamination on HLE; G1+G3 of item 07 hard-fail). All artifacts moved to `analysis/archive/gemma_sonnet_orch_thinking_on_2026-05-03/`:
+
+- `run/hle/gemma4_26b_a4b_it_sonnet_orch/` — HLE 100Q results.jsonl + trajectories
+- `run/hle/gemma4_26b_a4b_it_sonnet_orch_smoke/` — pre-100Q smoke
+- `run/gpqa/gemma4_26b_a4b_it_sonnet_orch/` — GPQA 129/198 partial (killed mid-run)
+- `tmp_logs/` — eval / serve / power logs
+- `yaml_snapshots/` — 4 thinking-on YAML snapshots (so original config recoverable)
+
+**Cross-check anchor for the new (thinking-off) run:** if new Acc on any benchmark drops below the archived thinking-on Acc by more than 5pp, this would mean disabling thinking hurt synthesis quality more than it helped completion rate — flag for manual review before paper writeup. Expected delta: empty rate drops from 28% to ≤5% on HLE; non-empty Acc roughly preserved or lifted.
+
+## Update 2026-05-03 evening — Gemma-4 thinking double-bug fix
+
+This todo's risk register added R8 (chat_template prefill missing) and R9 (`message.reasoning` field-name drift), and RB7 was reassessed (root cause partly obsolete). Cross-reference: full diagnostic appended to vllm skill at `~/.claude/dream-clone/plugins/memory-recall/skills/vllm/references/troubleshooting.md` (commit `47b978b`); empirical fix evidence at `tmp/case_demo_real/output.md` (real e2e through `backends/vllm.py:call_sub_model`).
+
+**Pre-fix Variant B run dirs were archived 2026-05-03 19:02** to `analysis/archive/gemma_pre_thinking_fix_2026-05-03/run/<bench>/gemma4_26b_a4b_it_sonnet_orch/` (HLE 46-row partial, GPQA 198-row, LCB 175-row, BV 388-row; all `<think>` count = 0). Total archive 683M (cache+run combined). NOTES.md at archive root documents both bugs + per-dir entry tables + "do NOT restore" guidance.
+
+**Decision deferred to Phase 1 item 02 G3:** Variant B yamls currently ship `enable_thinking: false` based on the now-superseded RB7 root cause. Post-fix, the failure mode that motivated `false` (28% empty `predicted_answer` because thinking ate content-budget) cannot recur — thinking is an independent channel. Phase 1 item 02 G3 explicitly flags this as `[USER DECISION REQUIRED]` for the design call: keep `enable_thinking=false` (faster, no synthesis CoT), or flip to `true` (real chain-of-thought aggregation at higher latency).
 
 ## Co-monitor — log paths for parallel watching
 
@@ -111,7 +146,7 @@ User can `tail -f /data3/peijia/dr-claw/Explain/Experiment/core_code/<path>` for
    │      Evidence · 
    ├ G2 ☐ Gate · Required fields verified by reading YAML: `explore_model: claude-sonnet-4-6`; `orchestrator_model: gemma4-26b-a4b-it`; `cache_dir: ../analysis/cache/hle/sonnet/gold`; `cache_only: true`; `no_integrate: true`; `num_explores: 8`; `num: 100`; `log_dir: ../analysis/run/hle/gemma4_26b_a4b_it_sonnet_orch`
    │      Evidence · 
-   ├ G3 ☐ Gate · sampling block matches the canonical Gemma-orchestrator sampling block at `scripts/hle/grpo/hle_gemma4_26b_a4b_exp_orch.yaml` (path `method.sampling`) (T=1.0, top_p=0.95, top_k=64, enable_thinking=true, max_tokens=32768) — orchestrator behavior identical between Variants
+   ├ G3 ☐ Gate · `[USER DECISION REQUIRED]` sampling block matches the canonical Gemma-orchestrator sampling block at `scripts/hle/grpo/hle_gemma4_26b_a4b_exp_orch.yaml` (path `method.sampling`). Pre-fix, Variant B yamls used `enable_thinking: false` to dodge RB7 (thinking eating content budget). Post-fix (2026-05-03 evening Layer-1 + Layer-2), thinking is an independent channel and that failure mode cannot recur. Decision: keep `false` for fast aggregator (no orchestrator CoT, identical to current archived attempt's setup but now safe) OR flip to `true` to enable real synthesis CoT. Once decided, this Gate verifies the Variant B yaml block matches Variant A on every other field except this one toggle.
    │      Evidence · 
    ├ G4 ☐ Gate · `benchmark.judge` block matches the canonical Gemma judge block defined in `scripts/hle/grpo/hle_gemma4_26b_a4b_exp_orch.yaml` (vllm gemma4-26b-a4b-it, enable_thinking=false, max_tokens=4096) — judge identity must match for apples-to-apples comparison and judge cache reuse
    │      Evidence · 

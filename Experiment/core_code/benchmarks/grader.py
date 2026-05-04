@@ -130,6 +130,12 @@ async def judge_answer(
     backend = judge_spec["name"]
     model = judge_spec["model"]
     sampling = judge_spec.get("sampling")
+    # Optional thinking-budget knobs (claude backend only). Fall back to
+    # call_sub_model's defaults (budget_tokens=32000, effort=None) when the
+    # judge_spec doesn't set them, preserving the original cache build-time
+    # behavior for any bundle that lacks these keys.
+    effort = judge_spec.get("effort")
+    budget_tokens = judge_spec.get("budget_tokens")
     judge_prompt = _get_judge_system_prompt(backend)
     user_message = (
         f"[question]: {question}\n"
@@ -140,6 +146,11 @@ async def judge_answer(
     last_result: dict = {}
     last_trajectory = ""
     last_usage: dict = {}
+    sub_model_kwargs: dict = {"sampling": sampling}
+    if effort is not None:
+        sub_model_kwargs["effort"] = effort
+    if budget_tokens is not None:
+        sub_model_kwargs["budget_tokens"] = budget_tokens
     for attempt in range(1, max_retries + 1):
         result, trajectory_text, cost_usd, usage = await call_sub_model(
             backend=backend,
@@ -149,7 +160,7 @@ async def judge_answer(
             model=model,
             output_schema=JUDGE_SCHEMA,
             writer=TrajectoryWriter.noop(),
-            sampling=sampling,
+            **sub_model_kwargs,
         )
         total_cost += cost_usd
         last_result, last_trajectory, last_usage = result, trajectory_text, usage

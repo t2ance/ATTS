@@ -1,0 +1,24 @@
+# LCB eval (ATTS orchestrator over precached explores) for deepseek/deepseek-v4-pro.
+# Reads explores from cache, runs orchestrator turns, grades via lcb_runner code execution.
+# Paired with lcb_deepseek-v4-pro_precache.yaml — same cache_dir.
+# No `judge:` block — LCB grades by running predicted code against test cases.
+benchmark:
+  name: lcb
+method:
+  name: tts-agent
+  backend:
+    name: openrouter
+    # timeout: 1200.0 — explicit per user 2026-05-04 directive.
+    timeout: 1200.0
+    # max_output_tokens: 384000 — explicit per user 2026-05-04 directive.
+    max_output_tokens: 384000
+    effort: low
+  explore_model: deepseek/deepseek-v4-pro
+  orchestrator_model: deepseek/deepseek-v4-pro
+  cache_dir: ../analysis/cache/lcb/openrouter_deepseek-v4-pro
+  no_integrate: true
+  num_explores: 4
+num: 100
+num_workers: 4
+seed: 42
+log_dir: ../analysis/run/lcb/openrouter_deepseek-v4-pro

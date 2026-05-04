@@ -56,11 +56,25 @@ class SamplingConfig(BaseModel):
 
 class BackendConfig(BaseModel):
     model_config = {"extra": "forbid"}
-    name: Literal["codex", "claude", "vllm"]
+    # "openrouter" added 2026-05-03: dispatches via the OpenRouter Anthropic-Skin
+    # endpoint (ANTHROPIC_BASE_URL=https://openrouter.ai/api). Reuses backends/claude.py
+    # transport — backend module name "openrouter" maps to importing claude.py via
+    # a thin alias. See todo_openrouter_via_claude.md for the viability proof.
+    name: Literal["codex", "claude", "vllm", "openrouter"]
     budget_tokens: int = 32000
     effort: Literal["low", "medium", "high", "max"] = "low"
     timeout: float = 1200.0
     max_output_tokens: int | None = None
+    # OpenRouter-only: pin upstream provider routing. See
+    # backends/openrouter.py:set_provider for rationale (2026-05-04
+    # deepseek-v4-flash incident: ~33% of routes 400'd on forced tool_choice
+    # because some upstream providers like DeepSeek's deepseek-reasoner endpoint
+    # reject `tool_choice={"type":"function",...}`). When set, eval.py calls
+    # backends.openrouter.set_provider(...) at startup; both call_sub_model and
+    # run_tool_conversation inject the block into extra_body.provider on every
+    # request. Ignored silently by non-openrouter backends.
+    provider_order: list[str] | None = None
+    provider_allow_fallbacks: bool = True
 
 
 class _MethodSpec(BaseModel):
@@ -145,7 +159,13 @@ class StandaloneIntegratorSpec(_MethodSpec):
     backend: BackendConfig
     integrate_model: str
     cache_dir: Path
-    # No explore_model / num_explores: reads cached explores, single integrate call.
+    # Default 8 reproduces the paper's "LLM Selection (N=8)" baseline (main.tex
+    # tab:main-results). Override e.g. `num_explores: 4` in yaml to take only
+    # the first N cached candidates per question -- enables cost-vs-accuracy
+    # Pareto sweeps on the same fixed cache without regenerating explores.
+    # Coupling: integrator response cache key is `integrate_standalone_{N}` so
+    # different N values do NOT collide on the cached integrator output.
+    num_explores: int = 8
 
 
 MethodSpec = Annotated[

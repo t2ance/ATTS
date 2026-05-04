@@ -1,0 +1,26 @@
+# HLE precache for openai/gpt-oss-20b:free via OpenRouter — effort=high run.
+# Why high: low-effort run (see _low_precache.yaml) showed 5% Pass@1 with
+# oracle Pass@k saturating at 10% (ceiling at k>=3). Hypothesis: more
+# reasoning depth raises both raw correctness AND oracle ceiling.
+# Phase 1 item 04 (effort sweep) of todo_openrouter_hle_models.md.
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+  judge:
+    name: claude
+    model: claude-haiku-4-5-20251001
+backend: openrouter
+explore_model: openai/gpt-oss-20b:free
+# effort: high — overrides backend default "low". Routes via
+#   extra_body={"reasoning":{"effort":"high"}} in backends/openrouter.py.
+#   Expected per-call wall-time 2-4x longer than low; total budget ~5-10 hr.
+effort: high
+cache_dir: ../analysis/cache/hle/openrouter_gpt-oss-20b_free_high/gold
+num: 100
+num_explores: 4
+# num_workers: 4 — same as low run; high effort means longer per-call
+#   (less burst on free-tier 20 rpm cap), so 4 workers stays safe.
+num_workers: 4
+seed: 42
+explore_timeout: 600.0

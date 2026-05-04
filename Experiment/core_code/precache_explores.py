@@ -40,7 +40,8 @@ class PrecacheConfig(BaseModel):
     model_config = {"extra": "forbid", "arbitrary_types_allowed": False}
 
     benchmark: BenchmarkSpec
-    backend: Literal["codex", "claude", "vllm"]
+    # "openrouter" added 2026-05-03: see methods/specs.py BackendConfig comment.
+    backend: Literal["codex", "claude", "vllm", "openrouter"]
     explore_model: str
     cache_dir: Path
 
@@ -53,6 +54,15 @@ class PrecacheConfig(BaseModel):
     budget_tokens: int = 32000
     effort: Literal["low", "medium", "high", "max"] = "low"
     explore_timeout: float = 1200.0
+    # OpenRouter-only: pin upstream provider routing. See
+    # backends/openrouter.py:set_provider for rationale (2026-05-04
+    # deepseek-v4-flash incident: ~33% of routes 400'd on forced tool_choice).
+    # When set, precache_explores.py calls backends.openrouter.set_provider(...)
+    # at startup; both call_sub_model and run_tool_conversation inject the
+    # block into extra_body.provider on every request. Silently ignored by
+    # non-openrouter backends.
+    provider_order: list[str] | None = None
+    provider_allow_fallbacks: bool = True
     # vLLM-only sampling block. MUST match the orchestrator's sampling block in
     # the eval yaml that consumes this cache -- explorer cache distribution and
     # on-the-fly orchestrator-explore distribution must be identical, otherwise
@@ -195,6 +205,13 @@ def main() -> None:
         random.shuffle(filtered)
 
     cfg.cache_dir.mkdir(parents=True, exist_ok=True)
+
+    # If the yaml pinned an OpenRouter provider, configure the backend module
+    # before any explore call fires. No-op for other backends (the import
+    # below is guarded — only attempted when backend=='openrouter').
+    if cfg.backend == "openrouter" and cfg.provider_order is not None:
+        from backends import openrouter as _openrouter
+        _openrouter.set_provider(cfg.provider_order, cfg.provider_allow_fallbacks)
 
     asyncio.run(precache(
         benchmark=benchmark,

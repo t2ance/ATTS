@@ -1,0 +1,25 @@
+# HLE smoke PRECACHE for deepseek/deepseek-v4-pro via OpenRouter (paid).
+# 4 explores total (num=2 questions × num_explores=2). Goal: produce a tiny
+# cache for the user to inspect BEFORE committing to full 800-explore precache.
+# Writes to a SEPARATE cache_dir from production (..._smoke/gold) so it can
+# be wiped without affecting production cache.
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+  judge:
+    name: claude
+    model: claude-haiku-4-5-20251001
+backend: openrouter
+explore_model: deepseek/deepseek-v4-pro
+# effort: low — matches production precache yaml.
+effort: low
+cache_dir: ../analysis/cache/hle/openrouter_deepseek-v4-pro_smoke/gold
+num: 2
+num_explores: 2
+# num_workers: 1 — AkashML (only verified-clean provider for this model)
+#   rate-limits hard at any concurrency >1: smoke at num_workers=2 hit 14
+#   HTTP 429 in 2 min (2026-05-04). Sequential = no rate-limit collisions.
+num_workers: 2
+seed: 42
+explore_timeout: 1200.0

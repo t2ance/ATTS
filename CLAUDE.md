@@ -4,6 +4,8 @@ For generic preferences (communication style, coding principles, monitoring, mod
 
 This file holds only the Explain-project-specific facts.
 
+RUNNING CLAUDE AS BACKEND DOES NOT USE AN API KEY. JUST RUN IT.
+
 ## Writing
 Whenever having modified the main.tex, remember to use compile.sh to re-compile the source file to get the latest pdf.
 
@@ -35,11 +37,84 @@ PYTHONUNBUFFERED=1 nohup conda run -n explain --no-capture-output python eval.py
 
 Never call bare `python` in a launcher; that inherits whatever env was active in the parent shell (usually `base`), which is silently wrong.
 
+## API-key freshness in long-running shells (incident 2026-05-04)
+
+Pre-flight: before any eval that calls a paid API, curl the credential. Do NOT trust that `$OPENROUTER_API_KEY` / `$ANTHROPIC_API_KEY` "is set" — verify the endpoint returns HTTP 200, not just that the var is non-empty.
+
+```bash
+curl -sS -o /dev/null -w "HTTP=%{http_code}\n" \
+  -H "Authorization: Bearer $OPENROUTER_API_KEY" \
+  https://openrouter.ai/api/v1/auth/key
+# expect HTTP=200; HTTP=401 with body {"error":{"message":"User not found."}} = dead key
+```
+
+The trap: a long-lived bash session (and any Claude Code session forked from it) **fixates env at startup**. Editing `~/.bashrc` afterward does NOT propagate to the running shell or its children. The parent bash on this box has been alive >1 day; commenting out an old `OPENROUTER_API_KEY` line and adding a new one does not refresh the env until the shell is restarted.
+
+The naive fix `bash -c 'source ~/.bashrc; ...'` does NOT work either: stock `~/.bashrc` opens with `case $- in *i*) ;; *) return;; esac` — non-interactive subshells `return` at line ~9 before reaching any `export`. Symptom: launch looks normal, eval starts, OpenRouter returns 401 "User not found." on every orchestrator turn → predicted="" → judge grades empty answers as wrong → Pass@1 collapses to 0-3% on questions that should score ~9%.
+
+To pull a fresh `export FOO=...` line out of `~/.bashrc` into a non-interactive launcher, grep the active line (regex anchored to `^[[:space:]]*export` excludes `#export` commented lines) and `eval` it:
+
+```bash
+eval "$(grep -E '^[[:space:]]*export[[:space:]]+OPENROUTER_API_KEY=' ~/.bashrc)"
+PYTHONUNBUFFERED=1 nohup conda run -n explain --no-capture-output python eval.py ... &
+```
+
+This sources only the one line you need, never inlines the secret on the command line, and bypasses the `case $-` guard. The key still never appears in `ps`, `nohup.out`, or shell history.
+
+Concrete cost of skipping pre-flight (2026-05-04): two consecutive eval launches (run_20260504_051728, run_20260504_054240) each ran for several minutes, made 36-58 dead-on-arrival OpenRouter calls, and graded empty answers with Haiku before being killed and archived as `_BROKEN_orch401`. Both broken runs are preserved under `analysis/run/hle/openrouter_gpt-oss-20b_free_low/run_*_BROKEN_orch401/` for forensic reference.
+
+## OpenRouter provider compatibility cheat-sheet (verified 2026-05-04 16:30 UTC)
+
+`backends/openrouter.py` forces `tool_choice={"type":"function","function":{"name":"StructuredOutput"}}` on every call to guarantee structured output (the `response_format=json_schema` path triggers a vllm grammar-loop bug; see `call_sub_model` docstring 2026-05-03 incident). Forced `tool_choice` is NOT universally supported across OpenRouter's upstream provider list — `tools=True` in `/api/v1/models` is necessary but not sufficient. The probe tool `tmp/probe_provider_compat.py` exhaustively tests every provider for every candidate model.
+
+For any new model in this project, run `python tmp/probe_provider_compat.py` (edit MODELS list) before writing yamls. The compatibility classes:
+
+- **STRUCTURAL OK** — provider returns 200 + `tool_calls` populated. Safe to use.
+- **STRUCTURAL 404** — provider listed in `/endpoints` API but actually not deployed (OpenRouter metadata lag). Strict pin to it returns "No endpoints found for ...".
+- **STRUCTURAL 400** — provider deployed but rejects forced `tool_choice` schema. Common pattern: reasoning-only inference engines (DeepSeek's deepseek-reasoner endpoint).
+- **STRUCTURAL 200-no-tool_calls** — provider returns 200 but ignores `tool_choice`, emits free-form text. Caches as `timed_out reason=no_tool_call`. Model-side issue.
+- **TRANSIENT 429 / 502** — rate limit or upstream incident. Snapshot-only state; survives in production via SDK retry, but bursting num_workers=4 against rate-limited providers wastes time.
+
+### Verified pins per model (2026-05-04)
+
+Use `provider_order: [...]` and `provider_allow_fallbacks: false` in yaml. Strict pin = OpenRouter never falls through to broken providers. If pinned provider is fully down, request 404s loudly rather than silently failing on a broken fallback.
+
+| Model | `provider_order` | Notes |
+|---|---|---|
+| `openai/gpt-oss-120b:free` | `[]` (default routing) | Single provider OpenInference; default route empirically works for 100/100 evals despite occasional 400 in single-shot probes |
+| `openai/gpt-oss-20b:free` | `[]` | Same as above; 100/100 HLE eval landed 2026-05-04 |
+| `google/gemma-4-26b-a4b-it:free` | (UNUSABLE) | Google AI Studio is the only provider; structurally returns 200 without `tool_calls` (model ignores forced `tool_choice`) AND throttles aggressively. DEFERRED in `todo_openrouter_hle_gemma-4-26b-a4b-it_free.md`. Revival requires either paid Google endpoint or different prompting strategy. |
+| `x-ai/grok-4.1-fast` | `[]` | Single provider xAI; default works |
+| `deepseek/deepseek-v4-flash` | (UNUSABLE without BYOK) | DeepSeek (official) 400's tool_choice; 4 providers 404 (listed-not-deployed); DeepInfra 429+502 unreliable; AkashML is the only structurally-clean route, but is throttled at the SHARED OpenRouter→AkashML key — even a single `max_tokens=10` call returns 429 "temporarily rate-limited upstream. Please retry shortly, or add your own key to accumulate your rate limits". Production verdict 2026-05-04: 1 explore takes ~8 min through SDK 429-retry storm; 800 explores would need >5 days wall-clock. Use `deepseek-v4-pro` instead, OR BYOK at OpenRouter `/settings/integrations`. |
+| `deepseek/deepseek-v4-pro` | `[]` (default routing) | Default routes successfully to a non-DeepSeek provider (Parasail confirmed working in single-call probe); 4 providers 404 (GMICloud/AtlasCloud/SiliconFlow/Novita listed-not-deployed); DeepSeek (official) still 400's tool_choice; Together 429-flaky. Pricing $0.435/$0.870 per M (3× v4-flash). For HLE-100 budget ~$13-20. |
+| `moonshotai/kimi-k2.6` | `["Io Net", "Parasail", "Inceptron", "Venice"]` | 4 verified providers; multi-pin gives natural fallback within strict mode (OpenRouter tries them in order before failing). |
+| `google/gemini-3-flash-preview` | `[]` | Both Google AI Studio and Google providers work; default routing fine |
+
+### When the matrix is wrong
+
+The probe is a moment-in-time snapshot. Production findings override:
+
+- DeepInfra showed 429 in our probe but earlier in the same day successfully served 1 request. Rate limits churn.
+- OpenInference 400'd gpt-oss-* in the probe, but full 100/100 HLE evals landed earlier the same day. Single-shot probes can mislead on transient outages.
+
+**If a production run reports `BadRequestError` or `transient_api_error` rates >5%**, re-run the probe to refresh the matrix before adjusting `provider_order`. Don't blindly add providers based on stale matrix entries.
+
+### How `provider_order` plumbs through
+
+1. `BackendConfig.provider_order` (eval yamls; `methods/specs.py:65-78`) and `PrecacheConfig.provider_order` (precache yamls; `precache_explores.py:55-64`) accept the list at config-load time.
+2. `eval.py:781-788` and `precache_explores.py:209-214` call `backends.openrouter.set_provider(...)` once at process startup.
+3. `backends/openrouter.py:_maybe_inject_provider` injects `extra_body["provider"] = {"order": [...], "allow_fallbacks": bool}` on every `chat.completions.create` call in both `call_sub_model` (line ~149) and `run_tool_conversation` (line ~332).
+
+If you add a new model and don't see provider pin in extra_body, check both call sites are covered.
+
 ## Per-benchmark grading reference
 
 Each benchmark's grading logic is FIXED — we never swap judge models or grading strategies in practice. The `judge_model` class attribute and `_JUDGE_MODEL_CODEX` mapping in `benchmarks/base.py` are flexibility hooks that are not currently exercised. This table is the source of truth for "how is X graded".
 
 Verified by reading `benchmarks/*.py` and `benchmarks/grader.py` on 2026-04-28.
+
+## Thining budget configuration
+For judge of answer, ALWAYS use non-thinking to save money.
 
 ### Routing logic (`benchmarks/grader.py:135-147`)
 

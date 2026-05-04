@@ -58,13 +58,13 @@ CUDA_VISIBLE_DEVICES=0,1,2,3 nohup conda run --no-capture-output -n grpo_vllm \
         --disable-custom-all-reduce \
         --port 8000 \
         --enable-auto-tool-choice \
-        --tool-call-parser qwen3xml \
+        --tool-call-parser qwen3_xml \
     > $LOG 2>&1 &
-        # --enable-auto-tool-choice + --tool-call-parser qwen3xml (added
+        # --enable-auto-tool-choice + --tool-call-parser qwen3_xml (added
         # 2026-05-02 to align with backends/vllm.py path-B refactor): vLLM
         # populates structured `message.tool_calls=[...]` so the client never
         # text-parses `<tool_call><function=NAME><parameter=K>V</parameter>
-        # </function></tool_call>` itself. qwen3xml is the parser matching
+        # </function></tool_call>` itself. qwen3_xml is the parser matching
         # Qwen3.6's chat_template tool-call format (XML body inside
         # <tool_call>...</tool_call>). Thread-safety race vllm#34932 fixed
         # in vllm#40059 (vllm 0.20.0), so DP=4 is safe.

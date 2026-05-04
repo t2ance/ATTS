@@ -30,6 +30,25 @@ class _JudgeSpec(BaseModel):
 class ClaudeJudgeSpec(_JudgeSpec):
     name: Literal["claude"]
     model: str
+    # Thinking-budget controls for the judge call. Default `effort: "low"`
+    # enforces CLAUDE.md global policy "For judge of answer, ALWAYS use
+    # non-thinking to save money" — without this default, ~60 yamls that
+    # don't set effort: explicitly would fall back to library defaults
+    # (`thinking.enabled=true, budget_tokens=32000` → ~1.8K avg output
+    # tokens / verdict → ~$0.013 per call → $10+ per 800-grade eval).
+    # Setting effort=low caps thinking and brings cost to ~$2-3 per
+    # 800-grade eval (verified 2026-05-04 against gpt-oss-20b LOW
+    # cache: 135 Haiku grades sum to $1.81). Override here in the YAML
+    # explicitly (`effort: "high"` / `budget_tokens: 32000`) ONLY if a
+    # specific judging task needs more reasoning depth (none currently
+    # in scripts/ as of 2026-05-04 — see grep `effort:` under judge:).
+    # Cache coupling: judge_label includes only (name, model), NOT effort,
+    # so existing caches built before this default change still hit; new
+    # cache misses produce verdicts under the new low-effort default.
+    # find_cached_judge logs a best-effort warning if stored config lacks
+    # `effort` keys.
+    effort: Literal["low", "medium", "high", "max"] | None = "low"
+    budget_tokens: int | None = None
 
 
 class CodexJudgeSpec(_JudgeSpec):

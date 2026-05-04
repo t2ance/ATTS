@@ -32,13 +32,58 @@ def judge_label(judge_spec: dict) -> str:
     return f"{judge_spec['name']}__{judge_spec['model']}"
 
 
-def find_cached_judge(judges_dir: Path, judge_spec: dict) -> Path | None:
-    """Locate the cached bundle matching judge_spec, or None on miss.
+# Process-level counters for run-end banner aggregation. Per-call warnings
+# would flood logs (one line per cached explore-judge x N questions). eval.py
+# reads these via summarize_judge_cache() at run finalize and prints one line.
+_JUDGE_CACHE_STATS: dict = {
+    "exact_hits": 0,                # stored == requested
+    "best_effort_hits": 0,          # stored is a strict subset of requested
+    "best_effort_extras": set(),    # union of "only_in_requested" keys observed
+}
 
-    Raises RuntimeError if the labelled directory exists but its config.json
-    differs from judge_spec (label collision; user must rename one bundle).
-    Treats partial bundles (missing config.json) as misses so callers can
-    re-grade and overwrite.
+
+def reset_judge_cache_stats() -> None:
+    _JUDGE_CACHE_STATS["exact_hits"] = 0
+    _JUDGE_CACHE_STATS["best_effort_hits"] = 0
+    _JUDGE_CACHE_STATS["best_effort_extras"] = set()
+
+
+def summarize_judge_cache() -> dict:
+    """Snapshot for eval.py's run-end banner."""
+    return {
+        "exact_hits": _JUDGE_CACHE_STATS["exact_hits"],
+        "best_effort_hits": _JUDGE_CACHE_STATS["best_effort_hits"],
+        "best_effort_extras": sorted(_JUDGE_CACHE_STATS["best_effort_extras"]),
+    }
+
+
+def find_cached_judge(judges_dir: Path, judge_spec: dict) -> Path | None:
+    """Unidirectional best-effort match: locate the cached bundle for judge_spec.
+
+    Match policy (UNIDIRECTIONAL by design — see policy rationale below):
+      - Exact dict equality                  -> hit (silent fast-path)
+      - Stored is a STRICT SUBSET of         -> hit (counted toward best-effort
+        requested (legacy bundle, requested      stats; banner-aggregated; no
+        adds new optional fields)                per-call log)
+      - Stored has any key absent from       -> RuntimeError (spec narrowing:
+        requested (i.e. cached run used         caller would silently inherit a
+        a non-default config the caller         non-default verdict produced
+        is no longer specifying)                under conditions they did not
+                                                request)
+      - Any SHARED key with disagreeing      -> RuntimeError (true conflict)
+        values
+      - Directory or config.json missing     -> None (real cache miss)
+
+    Why unidirectional: stored-superset-of-requested means the cached verdict
+    was made under stricter / non-default spec (e.g. a previous run had
+    `effort: low` but the caller is now requesting default thinking-on). Reusing
+    that verdict would hide a real spec change. Only stored-subset-of-requested
+    is the legitimate "schema evolution" case (cache predates a new optional
+    field, caller now sets the field explicitly).
+
+    Why aggregate stats instead of per-call warnings: 800 cached explore-judge
+    bundles per HLE run -> 800 warning lines would drown out signal. eval.py's
+    run finalizer reads summarize_judge_cache() and prints ONE banner line.
     """
     label = judge_label(judge_spec)
     candidate = judges_dir / label
@@ -48,16 +93,42 @@ def find_cached_judge(judges_dir: Path, judge_spec: dict) -> Path | None:
     if not config_path.exists():
         return None
     stored = json.loads(config_path.read_text(encoding="utf-8"))
+
     if stored == judge_spec:
+        _JUDGE_CACHE_STATS["exact_hits"] += 1
         return candidate
-    raise RuntimeError(
-        f"Judge label collision at {candidate}.\n"
-        f"  Stored config:    {stored}\n"
-        f"  Requested config: {judge_spec}\n"
-        f"Two judges share the same backend+model label but differ on other "
-        f"fields (e.g. sampling). Manually rename one of the conflicting "
-        f"bundles before re-running."
-    )
+
+    shared = set(stored) & set(judge_spec)
+    conflicts = {k: (stored[k], judge_spec[k]) for k in shared
+                 if stored[k] != judge_spec[k]}
+    if conflicts:
+        raise RuntimeError(
+            f"Judge config value conflict at {candidate}.\n"
+            f"  Conflicting keys (stored vs requested): {conflicts}\n"
+            f"  Stored:    {stored}\n"
+            f"  Requested: {judge_spec}\n"
+            f"Wipe the bundle or rename the label before re-running so the "
+            f"new spec gets a fresh judge bundle."
+        )
+
+    only_stored = sorted(set(stored) - set(judge_spec))
+    only_requested = sorted(set(judge_spec) - set(stored))
+    if only_stored:
+        raise RuntimeError(
+            f"Judge cache spec narrowing at {candidate}.\n"
+            f"  Stored has keys absent from requested: {only_stored}\n"
+            f"  Stored:    {stored}\n"
+            f"  Requested: {judge_spec}\n"
+            f"Cached verdict was produced under a non-default spec; refusing "
+            f"to reuse it for a less-specific request. Either add the missing "
+            f"fields to your spec to match the cache, or wipe the bundle to "
+            f"re-judge under the new spec."
+        )
+
+    # Only legitimate path: stored ⊂ requested. Schema evolution case.
+    _JUDGE_CACHE_STATS["best_effort_hits"] += 1
+    _JUDGE_CACHE_STATS["best_effort_extras"].update(only_requested)
+    return candidate
 
 
 # ---------------------------------------------------------------------------

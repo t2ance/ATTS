@@ -1,0 +1,21 @@
+# HLE smoke PRECACHE for x-ai/grok-4.1-fast — 10-question cost-estimation probe
+# (per user 2026-05-04 "先跑 Precache，跑上 10 个问题，看一下估算大概要多少").
+# 10 × 4 = 40 explores. Writes to a SEPARATE cache_dir (..._smoke_precache/gold)
+# so the 40 explores can carry forward into the production run later by
+# simply copying or by reusing the cache slug if the user decides to commit.
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+  judge:
+    name: claude
+    model: claude-haiku-4-5-20251001
+backend: openrouter
+explore_model: x-ai/grok-4.1-fast
+effort: low
+cache_dir: ../analysis/cache/hle/openrouter_grok-4.1-fast_smoke_precache/gold
+num: 10
+num_explores: 4
+num_workers: 4
+seed: 42
+explore_timeout: 1200.0

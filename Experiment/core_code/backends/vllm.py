@@ -76,13 +76,14 @@ _HARMONY_LEAK_TRAILING_RE = re.compile(r"<\|.*$|(?:commentary|analysis|final|jso
 def _strip_harmony_leak(raw_name: str) -> str:
     """Strip harmony channel-token leak from a tool-call name string.
 
-    Returns the cleaned name. If the leak ate the entire name (defensive),
-    returns the original to surface the AssertionError downstream rather
-    than dispatch a phantom tool with empty name.
+    Returns the cleaned name. If the leak ate the entire name (i.e. raw_name
+    was a pure harmony control sequence like `<|constrain|>json`), returns ""
+    so the caller can skip dispatch — these are not real tool calls but
+    harmony format markers that vLLM's openai parser misinterpreted.
     """
     s = _HARMONY_LEAK_LEADING_RE.sub("", raw_name)
     s = _HARMONY_LEAK_TRAILING_RE.sub("", s)
-    return s if s else raw_name
+    return s
 
 
 # Backwards-compat alias for any remaining call sites.
@@ -333,7 +334,18 @@ async def call_sub_model(
             )
         raise
 
-    text = response.choices[0].message.content or ""
+    msg = response.choices[0].message
+    text = msg.content or ""
+    # vLLM ≥ 0.20 with `--reasoning-parser <family>` (gemma4 / qwen3 / deepseek_r1
+    # / openai_gptoss) routes the thinking-channel decode into a separate
+    # `message.reasoning` field, leaving `message.content` as the post-thinking
+    # answer text. Field name is `reasoning` (mirroring OpenAI o1-series
+    # reasoning models), NOT `reasoning_content` (OpenAI's older name and the
+    # name in some vLLM docs — empirically not what 0.20.0 emits). Read both
+    # for forward-compat with future vLLM versions; whichever is non-empty
+    # wins. Verified 2026-05-03 on Gemma-4-26B-A4B-it serve at 0.20.0:
+    # message.reasoning held the 1338-char thinking trace, reasoning_content=None.
+    reasoning = getattr(msg, "reasoning", None) or getattr(msg, "reasoning_content", None) or ""
     usage = {
         "input_tokens": response.usage.prompt_tokens if response.usage else 0,
         "output_tokens": response.usage.completion_tokens if response.usage else 0,
@@ -379,9 +391,17 @@ async def call_sub_model(
             usage,
         )
 
-    trajectory = text
+    # Trajectory: thinking trace (when present) prepended as a <think>...</think>
+    # block, followed by the JSON answer text. This mirrors the Claude backend's
+    # `claude.py:call_sub_model` output where ThinkingBlock content is appended
+    # before the final ```json``` fence. Downstream `output.md` consumers see
+    # the same shape regardless of backend.
+    if reasoning:
+        trajectory = f"<think>\n{reasoning}\n</think>\n\n{text}"
+    else:
+        trajectory = text
     if writer:
-        writer.write_text(text)
+        writer.write_text(trajectory)
         writer.close()
 
     return result, trajectory, cost, usage
@@ -603,7 +623,7 @@ async def run_tool_conversation(
             # Regex strips both shapes: optional `<|...|>` + harmony channel
             # keyword suffix (commentary | analysis | final | json). Other
             # parsers (Gemma, Qwen) emit clean names so this is a no-op.
-            clean_name = _HARMONY_LEAK_RE.sub("", tc.function.name)
+            clean_name = _strip_harmony_leak(tc.function.name)
             if clean_name != tc.function.name:
                 logger.warning(
                     f"[vllm turn {turn}] tool_name special-token leak "
@@ -959,6 +979,32 @@ async def _run_tool_conversation_responses(
             # regex defensive layer.
             raw_name = fc.name
             name = _strip_harmony_leak(raw_name)
+            if not name:
+                # Pure harmony control sequence (e.g. `<|constrain|>json`) that
+                # vLLM's openai parser wrongly classified as a tool call. Skip.
+                logger.warning(
+                    f"[vllm-responses turn {turn}] dropping phantom tool call "
+                    f"(pure harmony control sequence): {raw_name!r}"
+                )
+                continue
+            # Case + separator normalization: gpt-oss emits multiple variants
+            # of the StructuredOutput name (verified empirically 2026-05-03):
+            #   "StructuredOutput" (canonical)
+            #   "structuredOutput" (lowercase 's' / camelCase)
+            #   "structured_output" (snake_case)
+            # Normalize by stripping non-alphanumeric and lowercasing.
+            registered_norm = {
+                "".join(c for c in t["name"] if c.isalnum()).lower(): t["name"]
+                for t in tools
+            }
+            registered_norm["structuredoutput"] = "StructuredOutput"
+            name_norm = "".join(c for c in name if c.isalnum()).lower()
+            if name_norm in registered_norm and name not in registered_norm.values():
+                logger.warning(
+                    f"[vllm-responses turn {turn}] tool_name normalized: "
+                    f"{name!r} -> {registered_norm[name_norm]!r}"
+                )
+                name = registered_norm[name_norm]
             if name != raw_name:
                 logger.warning(
                     f"[vllm-responses turn {turn}] tool_name special-token "

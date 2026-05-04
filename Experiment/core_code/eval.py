@@ -21,7 +21,10 @@ logger = logging.getLogger(__name__)
 os.environ.pop("CLAUDECODE", None)
 
 from benchmarks import get_benchmark
-from benchmarks.base import BenchmarkConfig, Candidate3, find_cached_judge, judge_label
+from benchmarks.base import (
+    BenchmarkConfig, Candidate3, find_cached_judge, judge_label,
+    summarize_judge_cache,
+)
 from benchmarks.specs import BenchmarkSpec
 from methods import MethodSpec, get_method
 from methods.specs import SamplingConfig
@@ -658,6 +661,18 @@ async def evaluate(
         logger.info(f"Explore distribution:")
         for ec in sorted(explore_dist):
             logger.info(f"  {ec} explores: {explore_dist[ec]} questions")
+    # P2: aggregated judge cache banner. Suppresses per-call WARNs that would
+    # flood the log (800 explore-judge cache hits per HLE run). Only printed
+    # when there were any best-effort hits, since exact-only is the steady state.
+    judge_cache = summarize_judge_cache()
+    if judge_cache["best_effort_hits"]:
+        logger.warning(
+            f"Judge cache: {judge_cache['exact_hits']} exact hits, "
+            f"{judge_cache['best_effort_hits']} best-effort hits "
+            f"(legacy bundles trusted under schema evolution; "
+            f"new-keys-in-requested seen across run: "
+            f"{judge_cache['best_effort_extras']})"
+        )
     benchmark.print_metrics(summary, total)
     logger.info(f"Logs:       {run_logger.run_dir}")
 
@@ -681,7 +696,11 @@ async def async_main() -> None:
     # Pull `judge` (if present) out of the benchmark spec dump and pass it
     # separately. Spec validation guarantees only HLE/BabyVision/RBenchV carry
     # `judge:`; the remaining benchmarks return judge_spec=None.
-    bench_dump = cfg.benchmark.model_dump()
+    # exclude_none=True drops any None-valued optional fields so that a yaml
+    # that does NOT specify e.g. `effort:` produces exactly the same dict as
+    # before the field was added -- preserving find_cached_judge exact-match
+    # against pre-existing cached config.json bundles.
+    bench_dump = cfg.benchmark.model_dump(exclude_none=True)
     judge_spec = bench_dump.pop("judge", None)
     benchmark = get_benchmark(
         cfg.benchmark.name,
@@ -758,6 +777,13 @@ async def async_main() -> None:
         enable_integrate=not getattr(cfg.method, "no_integrate", False),
         max_output_tokens=backend_block.max_output_tokens if backend_block else None,
     )
+
+    # If the yaml pinned an OpenRouter provider via method.backend.provider_order,
+    # configure the backend module before any explore / orchestrator call fires.
+    # No-op for other backends.
+    if backend_block and backend_block.name == "openrouter" and backend_block.provider_order is not None:
+        from backends import openrouter as _openrouter
+        _openrouter.set_provider(backend_block.provider_order, backend_block.provider_allow_fallbacks)
 
     sampling = getattr(cfg.method, "sampling", None)
     await evaluate(

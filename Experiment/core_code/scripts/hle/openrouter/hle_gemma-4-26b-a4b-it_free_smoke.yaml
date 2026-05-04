@@ -1,0 +1,34 @@
+# HLE smoke (num=2, n_explore=2 → 4 explores) for google/gemma-4-26b-a4b-it:free
+# Pre-flight gate before the 100×4 production precache. Different cache_dir
+# (`_smoke/gold` suffix) so smoke evidence does not pollute production cache.
+# Companion todo: ../../todo_openrouter_hle_gemma-4-26b-a4b-it_free.md item 02.
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+  # Same Qwen3.6 self-judge as production (alias qwen36-35b-a3b-fp8 on :8000).
+  # Mirrors production yaml exactly so judge cache invariants hold.
+  judge:
+    name: vllm
+    model: qwen36-35b-a3b-fp8
+    sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
+      enable_thinking: false
+      max_tokens: 4096
+backend: openrouter
+explore_model: google/gemma-4-26b-a4b-it:free
+# effort: medium — match production. Smoke validates effort=medium does NOT
+# saturate the 32768 cap (G3 of todo item 02) before committing 400-explore
+# wall-clock budget.
+effort: medium
+# Separate cache dir from production. Do NOT remove the `_smoke` suffix.
+cache_dir: ../analysis/cache/hle/openrouter_google_gemma-4-26b-a4b-it_free_smoke/gold
+num: 2
+num_explores: 2
+# num_workers: 2 — smoke = 2 questions × 2 explores = 4 in-flight max anyway,
+# 2 workers is plenty and minimizes burst against free-tier rpm cap.
+num_workers: 2
+seed: 42
+explore_timeout: 600.0

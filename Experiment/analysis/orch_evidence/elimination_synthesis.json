@@ -1,0 +1,234 @@
+{
+  "gpqa": {
+    "total_trajectories": 975,
+    "n_no_correct_seen_total": 170,
+    "n_elimination_synthesis": 19,
+    "n_no_correct_seen_final_wrong": 151,
+    "elimination_rate_overall_pct": 1.95,
+    "elimination_rate_within_no_correct_seen_pct": 11.18,
+    "n_letter_not_in_seen_GPQA_only": 19,
+    "sample_cases": [
+      {
+        "run": "sonnet_no_integrate_run1",
+        "qid": "rec0wZvZgiz320KRs",
+        "t_star": 2,
+        "n_explore_candidates_total": 8,
+        "seen_normalized_answers": [
+          "-0.7",
+          "-0.7"
+        ],
+        "predicted_answer": "(D) -0.7",
+        "gold_answer": "D",
+        "seen_letters": [],
+        "final_letter": "d",
+        "gold_letter": "d"
+      },
+      {
+        "run": "sonnet_no_integrate_run1",
+        "qid": "recI1ls9OXdxatHQn",
+        "t_star": 2,
+        "n_explore_candidates_total": 8,
+        "seen_normalized_answers": [
+          "0.85",
+          "0.85"
+        ],
+        "predicted_answer": "(A) 0.85",
+        "gold_answer": "A",
+        "seen_letters": [],
+        "final_letter": "a",
+        "gold_letter": "a"
+      },
+      {
+        "run": "sonnet_no_integrate_run1",
+        "qid": "recIMcQfaQNa6vzsT",
+        "t_star": 2,
+        "n_explore_candidates_total": 8,
+        "seen_normalized_answers": [
+          "~ 33.4",
+          "~ 33.4"
+        ],
+        "predicted_answer": "(B) ~ 33.4",
+        "gold_answer": "B",
+        "seen_letters": [],
+        "final_letter": "b",
+        "gold_letter": "b"
+      },
+      {
+        "run": "sonnet_no_integrate_run1",
+        "qid": "recrHBEJJoDTV05JR",
+        "t_star": 2,
+        "n_explore_candidates_total": 8,
+        "seen_normalized_answers": [
+          "35",
+          "35"
+        ],
+        "predicted_answer": "B",
+        "gold_answer": "B",
+        "seen_letters": [],
+        "final_letter": "b",
+        "gold_letter": "b"
+      },
+      {
+        "run": "sonnet_no_integrate_run1",
+        "qid": "recXsYa3i2UhGF5fe",
+        "t_star": 2,
+        "n_explore_candidates_total": 8,
+        "seen_normalized_answers": [
+          "1",
+          "1"
+        ],
+        "predicted_answer": "C",
+        "gold_answer": "C",
+        "seen_letters": [],
+        "final_letter": "c",
+        "gold_letter": "c"
+      }
+    ],
+    "letter_not_in_seen_cases_sample": [
+      {
+        "run": "sonnet_no_integrate_run1",
+        "qid": "rec0wZvZgiz320KRs",
+        "t_star": 2,
+        "n_explore_candidates_total": 8,
+        "seen_normalized_answers": [
+          "-0.7",
+          "-0.7"
+        ],
+        "predicted_answer": "(D) -0.7",
+        "gold_answer": "D",
+        "seen_letters": [],
+        "final_letter": "d",
+        "gold_letter": "d"
+      },
+      {
+        "run": "sonnet_no_integrate_run1",
+        "qid": "recI1ls9OXdxatHQn",
+        "t_star": 2,
+        "n_explore_candidates_total": 8,
+        "seen_normalized_answers": [
+          "0.85",
+          "0.85"
+        ],
+        "predicted_answer": "(A) 0.85",
+        "gold_answer": "A",
+        "seen_letters": [],
+        "final_letter": "a",
+        "gold_letter": "a"
+      },
+      {
+        "run": "sonnet_no_integrate_run1",
+        "qid": "recIMcQfaQNa6vzsT",
+        "t_star": 2,
+        "n_explore_candidates_total": 8,
+        "seen_normalized_answers": [
+          "~ 33.4",
+          "~ 33.4"
+        ],
+        "predicted_answer": "(B) ~ 33.4",
+        "gold_answer": "B",
+        "seen_letters": [],
+        "final_letter": "b",
+        "gold_letter": "b"
+      },
+      {
+        "run": "sonnet_no_integrate_run1",
+        "qid": "recrHBEJJoDTV05JR",
+        "t_star": 2,
+        "n_explore_candidates_total": 8,
+        "seen_normalized_answers": [
+          "35",
+          "35"
+        ],
+        "predicted_answer": "B",
+        "gold_answer": "B",
+        "seen_letters": [],
+        "final_letter": "b",
+        "gold_letter": "b"
+      },
+      {
+        "run": "sonnet_no_integrate_run1",
+        "qid": "recXsYa3i2UhGF5fe",
+        "t_star": 2,
+        "n_explore_candidates_total": 8,
+        "seen_normalized_answers": [
+          "1",
+          "1"
+        ],
+        "predicted_answer": "C",
+        "gold_answer": "C",
+        "seen_letters": [],
+        "final_letter": "c",
+        "gold_letter": "c"
+      }
+    ]
+  },
+  "hle": {
+    "total_trajectories": 100,
+    "n_no_correct_seen_total": 40,
+    "n_elimination_synthesis": 1,
+    "n_no_correct_seen_final_wrong": 39,
+    "elimination_rate_overall_pct": 1.0,
+    "elimination_rate_within_no_correct_seen_pct": 2.5,
+    "n_letter_not_in_seen_GPQA_only": null,
+    "sample_cases": [
+      {
+        "run": "sonnet_no_integrate",
+        "qid": "66ed5e6a1d24f687ee9b06d1",
+        "t_star": 3,
+        "n_explore_candidates_total": 8,
+        "seen_normalized_answers": [
+          "triangle. 4 dots. arrow in 4\u03c0/3 radians position.",
+          "cell 9: triangle. 0 dots. arrow is straight up.",
+          "cell 9: triangle. 0 dots. arrow is straight up."
+        ],
+        "predicted_answer": "Triangle. 0 dots. Arrow is straight up.",
+        "gold_answer": "Triangle. 0 dots. Arrow is straight up."
+      }
+    ]
+  },
+  "lcb": {
+    "total_trajectories": 160,
+    "n_no_correct_seen_total": 17,
+    "n_elimination_synthesis": 2,
+    "n_no_correct_seen_final_wrong": 15,
+    "elimination_rate_overall_pct": 1.25,
+    "elimination_rate_within_no_correct_seen_pct": 11.76,
+    "n_letter_not_in_seen_GPQA_only": null,
+    "sample_cases": [
+      {
+        "run": "sonnet",
+        "qid": "3768",
+        "t_star": 2,
+        "n_explore_candidates_total": 8,
+        "seen_normalized_answers": [
+          "class Solution:\n    def hasSameDigits(self, s: str) -> bool:\n        while len(s) > 2:\n            s = str((int(s[i]) + int(s[i+1])) % 10 for i in range(len(s)-1))\n            s = ''.join(str((int(s[i]) + int(s[i+1])) % 10) for i in range(len(s)-1))\n        # redo properly\n        s_list = [int(c) for c in s]\n        while len(s_list) > 2:\n            s_list = [(s_list[i] + s_list[i+1]) % 10 for i in range(len(s_list)-1)]\n        return s_list[0] == s_list[1]",
+          "class Solution:\n    def hasSameDigits(self, s: str) -> bool:\n        while len(s) > 2:\n            s = str((int(s[i]) + int(s[i+1])) % 10 for i in range(len(s)-1))\n            s = ''.join(str((int(s[i]) + int(s[i+1])) % 10) for i in range(len(s)-1))\n        # redo properly\n        s_list = [int(c) for c in s]\n        while len(s_list) > 2:\n            s_list = [(s_list[i] + s_list[i+1]) % 10 for i in range(len(s_list)-1)]\n        return s_list[0] == s_list[1]"
+        ],
+        "predicted_answer": "class Solution:\n    def hasSameDigits(self, s: str) -> bool:\n        digits = [int(c) for c in s]\n        while len(digits) > 2:\n            digits = [(digits[i] + digits[i+1]) % 10 for i in range(len(digits) - 1)]\n        return digits[0] == digits[1]\n",
+        "gold_answer": ""
+      },
+      {
+        "run": "sonnet",
+        "qid": "3788",
+        "t_star": 2,
+        "n_explore_candidates_total": 8,
+        "seen_normalized_answers": [
+          "from typing import List\n\nclass Solution:\n    def maxSum(self, nums: List[int]) -> int:\n        return sum(v for v in set(nums) if v > 0)",
+          "from typing import List\n\nclass Solution:\n    def maxSum(self, nums: List[int]) -> int:\n        return sum(v for v in set(nums) if v > 0)"
+        ],
+        "predicted_answer": "from typing import List\n\nclass Solution:\n    def maxSum(self, nums: List[int]) -> int:\n        positive_sum = sum(v for v in set(nums) if v > 0)\n        if positive_sum > 0:\n            return positive_sum\n        # All values are <= 0; must pick at least one element\n        return max(nums)\n",
+        "gold_answer": ""
+      }
+    ]
+  },
+  "babyvision": {
+    "total_trajectories": 382,
+    "n_no_correct_seen_total": 270,
+    "n_elimination_synthesis": 0,
+    "n_no_correct_seen_final_wrong": 270,
+    "elimination_rate_overall_pct": 0.0,
+    "elimination_rate_within_no_correct_seen_pct": 0.0,
+    "n_letter_not_in_seen_GPQA_only": null,
+    "sample_cases": []
+  }
+}

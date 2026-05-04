@@ -1,0 +1,35 @@
+# HLE eval (ATTS orchestrator over precached explores) for x-ai/grok-4.1-fast.
+# Reads explores from cache, runs orchestrator turns, grades via Haiku judge.
+# Paired with hle_grok-4.1-fast_precache.yaml — same cache_dir.
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+  judge:
+    name: claude
+    model: claude-haiku-4-5-20251001
+method:
+  name: tts-agent
+  backend:
+    name: openrouter
+    timeout: 1200.0
+    # max_output_tokens: 8000 — paper R8 cap (todo_openrouter_hle_models.md
+    #   item 06 G2). Guardrail against thinking-mode runaway.
+    max_output_tokens: 8000
+    effort: low
+  explore_model: x-ai/grok-4.1-fast
+  orchestrator_model: x-ai/grok-4.1-fast
+  cache_dir: ../analysis/cache/hle/openrouter_grok-4.1-fast/gold
+  no_integrate: true
+  num_explores: 4
+num: 100
+# num_workers: 16 — user directive 2026-05-04 21:05 UTC "并行开到 16". Daily
+#   Haiku quota reset at 21:00 UTC, so previous burst-rate-limit (run_20260504_
+#   194550 with workers=4) is no longer the bottleneck. Resume reuses
+#   trajectories + grading from prior crashed run via `resume:` below.
+num_workers: 16
+seed: 42
+# resume: dropped — previous crash (run_20260504_194550) never produced
+#   results.jsonl rows before rate_limit, so resume would assertion-fail.
+#   Explore cache (400/400) intact; orchestrator turns redo cheap (~$3-5).
+log_dir: ../analysis/run/hle/openrouter_grok-4.1-fast

@@ -1,0 +1,27 @@
+# HLE eval (ATTS orchestrator over precached explores) for gpt-oss-20b:free
+# at effort=high. Reads from the _high cache; no integrate; full HLE-100.
+# Phase 1 item 04 (effort sweep) of todo_openrouter_hle_models.md.
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+  judge:
+    name: claude
+    model: claude-haiku-4-5-20251001
+method:
+  name: tts-agent
+  backend:
+    name: openrouter
+    # effort: high — overrides backend default "low". Same effort knob the
+    #   precache used; eval re-issues orchestrator+explore calls at the same
+    #   reasoning depth so cache and live calls are consistent.
+    effort: high
+  explore_model: openai/gpt-oss-20b:free
+  orchestrator_model: openai/gpt-oss-20b:free
+  cache_dir: ../analysis/cache/hle/openrouter_gpt-oss-20b_free_high/gold
+  no_integrate: true
+  num_explores: 4
+num: 100
+num_workers: 4
+seed: 42
+log_dir: ../analysis/run/hle/openrouter_gpt-oss-20b_free_high

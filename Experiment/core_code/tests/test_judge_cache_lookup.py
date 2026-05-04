@@ -57,7 +57,10 @@ def test_find_cached_judge_label_collision_raises(tmp_path):
     bundle = judges_dir / "vllm__qwen36-35b-a3b-fp8"
     bundle.mkdir(parents=True)
     (bundle / "config.json").write_text(json.dumps(stored_spec))
-    with pytest.raises(RuntimeError, match="Judge label collision"):
+    # find_cached_judge moved to best-effort match: a value disagreement on a
+    # SHARED key (here `sampling`) still raises strictly. Error wording is now
+    # "Judge config value conflict ..." instead of the old "label collision".
+    with pytest.raises(RuntimeError, match="value conflict"):
         find_cached_judge(judges_dir, requested_spec)
 
 

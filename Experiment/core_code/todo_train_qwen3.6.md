@@ -1,5 +1,13 @@
 # Qwen3.6 GRPO Training — Strategy Pivot Log
 
+**Status (2026-05-04 00:27): DEFERRED — blocked by vLLM #37121 (Mamba KV 7× overestimation).** Phase 1.3 smoke test attempted v6→v11 (2026-05-03 22:18 → 2026-05-04 00:27, 6 hours):
+- v6 (TP=1 DP=3, mem_util=0.74): rollout-mid CUDA OOM (0.19 GB external headroom)
+- v7-v9 (mem_util / prefix_caching / ref offload tweaks): all KV check failed at init (0.22 GiB available, 1.67-1.82 GiB needed)
+- v10 (max_num_seqs 8→4): same KV check failure — proved Mamba pool doesn't scale with max_num_seqs
+- Root cause found: [vLLM #37121](https://github.com/vllm-project/vllm/issues/37121) — vLLM 0.20 overestimates Qwen3.5 hybrid Mamba KV cache by 7×, blocks init even when actual usage fits
+- v11 (TP=2 DP=1, mem_util=0.60): vLLM init PASSED + entered rollout, but **DEFERRED** by user before step 0 completion
+- Decision: user pause to re-evaluate options (model swap / vLLM downgrade / wait for upstream patch). v11 launcher state preserved at `training/scripts/m6_grpo_smoke_qwen36_27b.sh` for resume.
+
 **Status (2026-04-30):** ABANDON Qwen/Qwen3.6-35B-A3B (MoE). New target: `Qwen/Qwen3.6-27B`.
 Reason: 2× A100-80GB local box has only 9 GiB residual workspace per card under
 production token budget at 35B-A3B — every operating point either OOMs or
@@ -159,9 +167,14 @@ will let us absorb whatever LoRA inefficiencies remain.
   - Every override carries inline comment per `comment_on_config_overrides` rule
   - Separate `CKPT_DIR` (`tmp/grpo_smoke_qwen36_27b`) to avoid loading 35B state
 - [x] **1.2 Verify training data still compatible** — same Hermes orchestrator format, 4240 train rows, schema intact
-- [ ] **1.3 Smoke launch with `total_training_steps=1`, `val_before_train=False`**
+- [DEFERRED] **1.3 Smoke launch with `total_training_steps=1`, `val_before_train=False`**
   - Acceptance: no crash + finite loss + ckpt saved + sustained GPU power ≥ 50% (≥150 W on GPU 1+2)
   - Attach Monitor immediately on launch (per `feedback_monitor_tool_after_script_launch`)
+  - **2026-05-04 status**: blocked by vLLM #37121. v11 (TP=2 DP=1, mem_util=0.60) passed init but deferred by user. Resume options when revisiting:
+    - A: monkey patch `_align_hybrid_block_size` in vLLM (skip Mamba page padding) — risk downstream block manager
+    - C: switch model to non-hybrid (Qwen3-32B etc.) — breaks paper setup
+    - F: vLLM version downgrade to pre-0.20 (verify if bug introduced in 0.20)
+    - or: continue v11 path (TP=2 DP=1) and accept the 1-GPU idle cost
 
 ### Phase 2 — performance validation
 

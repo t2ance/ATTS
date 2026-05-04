@@ -1,0 +1,24 @@
+# LCB precache for deepseek/deepseek-v4-pro via OpenRouter (paid).
+# Generates 8 explore candidates per question for 100 LiveCodeBench problems.
+# Model anchors (OpenRouter /api/v1/models 2026-05-04):
+#   ctx=1048576, max_completion_tokens=384000, $0.435/M input, $0.870/M output.
+# LCB grading: NO judge — `lcb.py:142` runs predicted code against
+#   public_test_cases + private_test_cases via lcb_runner. No `judge:` block;
+#   benchmarks/specs.py LCBSpec extra=forbid would reject it.
+benchmark:
+  name: lcb
+backend: openrouter
+explore_model: deepseek/deepseek-v4-pro
+# effort: low — matches gpt-oss-20b LOW baseline (per user 2026-05-04 directive
+#   "其他的东西都不变, 都按之前的配置").
+effort: low
+cache_dir: ../analysis/cache/lcb/openrouter_deepseek-v4-pro
+num: 100
+num_explores: 4
+num_workers: 4
+seed: 42
+# explore_timeout: 1200.0 — explicit per user 2026-05-04 directive
+#   "Timeout 写成 1200 秒"; matches PrecacheConfig default in
+#   precache_explores.py:56. Code-generation problems can have long reasoning
+#   tails on hard LCB instances; 1200 is comfortable headroom.
+explore_timeout: 1200.0

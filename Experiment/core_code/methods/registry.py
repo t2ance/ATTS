@@ -192,7 +192,11 @@ class StandaloneIntegratorMethod(MethodConfig):
 
     def build_solve_fn(self, spec: StandaloneIntegratorSpec):
         from methods.standalone_integrator import solve
-        return functools.partial(solve, integrate_model=spec.integrate_model)
+        return functools.partial(
+            solve,
+            integrate_model=spec.integrate_model,
+            num_explores=spec.num_explores,
+        )
 
 
 METHODS: dict[str, type[MethodConfig]] = {

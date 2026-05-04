@@ -51,6 +51,7 @@ This section is the entry point for any agent (human or LLM) picking up this wor
 | 12 | Trajectory taxonomy on GPQA (rescue analysis) | Pure rescue is rare (1/135 wrong-first-majority); minority extraction is broader pattern (87/975 = 8.9%) | inline python in `tmp/orch_ev_diagnose.log` | log file | 7 categories; 1 rescue case `run5/rec2fsnzUuvNtUYK8` |
 | 13 | Multi-model ATTS rescue investigation | Multi rescues 100% within hard+undefined cohorts of single-model failures; Opus contributes to 44% of GPQA rescues | inline python (4-panel matplotlib) | `analysis/orch_evidence/fig5_multi_rescue.{pdf,png}` + log | GPQA net +4 rescue, BV net -3; rescues land in hard+undefined |
 | 14 | n_correct/8 bucketing (objective alternative to fcm) | More precise than fcm; reveals fcm-medium ME of 80% was inflated → real ~36% on 4-6/8 bucket | `scripts/orch_evidence/analyze_n_correct_bucketing.py` | `analysis/orch_evidence/stats_n_correct_bucketing.json` + `fig6_n_correct_difficulty.{pdf,png}` | (see item 14 evidence below) |
+| 15 | Elimination synthesis investigation (does orchestrator deduce answer when ALL seen explorers were wrong?) | **Almost never on string-match benchmarks**: only 2 genuine cases on LCB (0.12% of 1622 trajectories total). 19 GPQA "elimination" candidates are 100% format-normalization artifacts (explorer wrote correct value without letter prefix). 1 HLE case is judge-strictness artifact. | `scripts/orch_evidence/analyze_elimination_synthesis.py` + inline strict filter | `analysis/orch_evidence/elimination_synthesis.json` + `tmp/orch_ev_elimination_strict.log` | GPQA 0 genuine / 6 letter-mapping; HLE 0 genuine / 1 prefix-strip; LCB 2 genuine; BV 0 |
 
 **File layout (for any agent picking up)**:
 - Scripts: `scripts/orch_evidence/{build_pool_state_table.py, build_pool_state_all_benchmarks.py, compute_stop_statistics.py, plot_orch_evidence.py, analyze_n_correct_bucketing.py}` — 5 files total
@@ -233,6 +234,37 @@ This is offline analysis, so logs are short and one-shot per script. All paths a
    └ How  · inline python comparison + matplotlib 4-panel; `tmp/orch_ev_multi_rescue.log` (in this session's stdout).
 
    **PAPER-LEVEL CONCLUSION (item 13)**: Multi-model ATTS rescues single-model failures EXACTLY in the cohorts where single-model gives up early (hard + undefined buckets, the "no try-harder mechanism" failure mode of Phase 6 Claim C). This validates ATTS-MM as the architectural response to single-model ATTS's specific failure mode — NOT as a general accuracy boost. The boundary condition is benchmarks where the explorer pool's weakest member (Haiku) injects noise faster than its strongest member (Opus) rescues — visible on BabyVision where multi-model net regresses by 3 questions.
+
+14 ✓ n_correct/8 bucketing — objective alternative to fcm (post-hoc-derived) bucketing
+   ├ G1 ✓ Gate · cross-tab fcm × n_correct/8 reveals fcm bucketing miscategorizes some trajectories
+   │      Evidence (GPQA, n=975): cross-tab shows fcm-easy contains 40 trajectories with 4-6/8 correct (not 7-8/8 as fcm-easy implies); fcm-undefined contains 75 trajectories with 1-3/8 correct (capability is partial, not zero) and 110 with 0/8 (true ceiling). Two regimes were conflated. Cross-tab written to `stats_n_correct_bucketing.json._gpqa_crosstab_fcm_x_n_correct`.
+   ├ G2 ✓ Gate · re-stratify all 4 benchmarks under n_correct/8 bucketing
+   │      Evidence · written to `analysis/orch_evidence/stats_n_correct_bucketing.json` and visualized in `fig6_n_correct_difficulty.{pdf,png}`. **Headline corrections to earlier conclusions**:
+   │      - GPQA reliable (7-8/8, n=655): final_acc=100%, gap=0 (98.9%), ME=1.1% (was fcm-easy: 100%/0%; consistent)
+   │      - GPQA majority (4-6/8, n=90): final_acc=91.1%, ME=**35.6%** (fcm-medium had reported 80% — inflated by fcm-medium being a small, unrepresentative slice. The +35.6 number is the cleaner one.)
+   │      - GPQA minority (1-3/8, n=120): final_acc=36.7%, **median_gap=-3** (orchestrator gives up early), ME=33.3% (fcm-hard reported 47%; consistent within sampling noise)
+   │      - GPQA never (0/8, n=110): final_acc=7.3% (random-guess on 4-choice ≈25%, so model is below chance on these — these are questions where the model systematically points to wrong answers)
+   │      - HLE reliable (n=40): ME=**45%** — surprisingly high; even on questions where model gets ≥7/8 right, almost half the time orchestrator goes via minority extraction rather than majority. HLE answers are unique strings → majority rarely forms.
+   │      - LCB reliable (n=124): ME=75%; LCB majority (n=10): ME=80%; LCB minority (n=6): ME=67%. **Across ALL non-empty LCB buckets, ME is the dominant mechanism** — this is a stronger claim than the fcm-based version.
+   │      - BV majority (n=35): ME=0%; the visual benchmark hardly uses minority extraction even at majority-correct level. Different mechanism profile than text/code benchmarks.
+   ├ G3 ✓ Gate · figure published with same layout as fig4 for direct comparison
+   │      Evidence · `fig6_n_correct_difficulty.{pdf,png}` saved.
+   ├ G4 ✓ Gate · paper-level conclusion update
+   │      Evidence · The qualitative story holds (3 claims unchanged). Quantitative numbers shift: ATTS minority extraction in the medium-difficulty regime is **~36%** on GPQA (not 80%); LCB is dominated by ME at every difficulty level (not just medium); BV has the cleanest "majority detection only" pattern. **The narrative for the paper appendix should switch to n_correct/8 bucketing because (a) it is objective rather than post-hoc-derived, (b) it has cleaner separation between regimes, and (c) it produces tighter quantitative claims that survive scrutiny.**
+   └ How  · `scripts/orch_evidence/analyze_n_correct_bucketing.py`; output `stats_n_correct_bucketing.json` + `fig6_n_correct_difficulty.{pdf,png}`. Re-run takes <2 seconds.
+
+15 ✓ Elimination synthesis investigation — does orchestrator deduce answer when ALL seen explorers were wrong?
+   ├ G1 ✓ Gate · find trajectories where 0 of t* explorers were correct AND final is correct
+   │      Evidence (raw count): GPQA 19, HLE 1, LCB 2, BV 0 across 4 benchmarks. Initial framing seemed to support C3 strongest form ("orchestrator deduced answer no explorer suggested").
+   ├ G2 ✓ Gate · sanity-check a sample of cases — are they genuine reasoning or grading/format artifacts?
+   │      Evidence · ALL 19 GPQA cases inspected: explorers gave correct numerical values (e.g. `-0.7`, `0.85`, `35`) but wrote no letter prefix; the grader's `_extract_mc_letter` regex returned None and marked them False. orchestrator added the letter prefix `(D)` / `(A)` / `B` and the grader marked True. **The "elimination" is letter-format alignment, NOT cognitive deduction.** HLE 1 case is similar: explorer added `cell 9:` prefix, judge rejected it; orchestrator stripped the prefix and judge accepted. Format-strictness artifact.
+   ├ G3 ✓ Gate · strict re-filter: orchestrator's content (letter-prefix stripped) must NOT match any explorer's content
+   │      Evidence (`tmp/orch_ev_elimination_strict.log`): GPQA 6/975 (0.62%) — but all 6 are inverse-format-mapping (explorer wrote value, orchestrator wrote letter, e.g. `recrHBEJJoDTV05JR` predicted=`b`, explorers gave `35` which IS option B's numerical value). HLE 1/100 — judge-strictness. LCB 2/160 (1.25%) — **GENUINELY DIFFERENT CODE**: `qid=3768` explorers wrote `s = str((int(s[i]) + ...))` buggy; orchestrator wrote `digits = [int(c) for c in s]` working. `qid=3788` similar.
+   ├ G4 ✓ Gate · final honest count and interpretation
+   │      Evidence · **TRUE elimination synthesis = 2/1622 trajectories ≈ 0.12%, ALL in LCB**. Mechanism: orchestrator rewrites code from scratch when explorers' code fails; possible on LCB because (a) test-runner grader is incorruptible by format, (b) code answer space is unbounded so orchestrator can produce a substantively new program. On string-match benchmarks (GPQA/HLE/BV), what looks like elimination is actually format-alignment because the grader is letter-or-string-comparison and surface format dominates is_correct.
+   ├ G5 ✓ Gate · paper-level conclusion update
+   │      Evidence · **Single-Sonnet ATTS works almost entirely through (a) majority detection + (b) format normalization**, NOT through cognitive elimination. The "minority extraction" we discussed earlier (8.9% on GPQA) is largely format-alignment too — orchestrator picking the letter that best fits the explorers' content, even when no explorer wrote that letter explicitly. This refinement should be reflected in the paper appendix narrative — avoid overclaiming "the orchestrator deduces when explorers fail"; instead claim the calibrated truth: "the orchestrator translates explorer content into the grader-expected format, with rare (0.1%) genuine algorithmic rewrites on code benchmarks".
+   └ How  · `scripts/orch_evidence/analyze_elimination_synthesis.py` + inline strict-filter python; outputs `analysis/orch_evidence/elimination_synthesis.json` + `tmp/orch_ev_elimination_strict.log`.
 
 ## Phase 7 — Paper integration [0/1]
 

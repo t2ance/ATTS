@@ -1,0 +1,17 @@
+benchmark:
+  name: lcb
+method:
+  name: standalone-integrator
+  backend:
+    name: claude
+  integrate_model: claude-sonnet-4-6
+  cache_dir: ../analysis/cache/lcb/sonnet
+  # Override default 8 -> 4. Halved candidate budget for a cost-vs-accuracy
+  # Pareto point on the same fixed cache. LCB grades via lcb_runner test cases
+  # (no LLM judge), so judge cost is $0; only the 175 integrator calls incur
+  # new API spend. Coupling: paper main.tex tab:main-results panel (b) gets a
+  # new "LLM Selection (N=4)" row sibling to the existing N=8 row at line 267.
+  num_explores: 4
+num_workers: 16
+seed: 42
+log_dir: ../analysis/run/lcb/sonnet_standalone_integrator_n4

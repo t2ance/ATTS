@@ -1,0 +1,25 @@
+# HLE smoke eval (Pass@1 sanity over partially cached precache).
+# num=20 — first 20 HLE-Verified gold questions, mostly hits cache from
+# resume1-5 (158/800 explores already cached, 19 qids with all 8 explores).
+# Goal: validate pipeline produces sensible Pass@1 BEFORE precache fully completes.
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+  judge:
+    name: claude
+    model: claude-haiku-4-5-20251001
+method:
+  name: tts-agent
+  backend:
+    name: openrouter
+  explore_model: openai/gpt-oss-20b:free
+  orchestrator_model: openai/gpt-oss-20b:free
+  cache_dir: ../analysis/cache/hle/openrouter_gpt-oss-20b_free_low/gold
+  no_integrate: true
+  num_explores: 4
+# num=20 to exercise pipeline; precache for 100 still in flight
+num: 20
+num_workers: 2
+seed: 42
+log_dir: ../analysis/run/hle/openrouter_gpt-oss-20b_free_low_smoke20

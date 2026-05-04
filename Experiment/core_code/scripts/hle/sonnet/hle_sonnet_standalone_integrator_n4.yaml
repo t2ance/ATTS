@@ -1,0 +1,34 @@
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+  judge:
+    name: claude
+    model: claude-haiku-4-5-20251001
+    # Override default judge thinking budget. Without `effort:`, Haiku 4.5 runs
+    # at thinking.enabled=true / budget_tokens=32000, producing ~4K avg output
+    # tokens per verdict (max 45K) -> $0.029/call. effort=low caps thinking and
+    # cuts cost roughly 5-10x for the 100 NEW integrator-result judges in this
+    # run. Coupling: 800 pre-existing explore-judge bundles cached without
+    # `effort` are reused via find_cached_judge's best-effort match (logs a
+    # warning each, no re-judge). Risk: tacit assumption that the missing-field
+    # cache build-time defaults would have produced equivalent verdicts to the
+    # explicit effort=low spec; this run does NOT validate that assumption.
+    # Owner-decision 2026-05-03: accept the risk for cost.
+    effort: low
+method:
+  name: standalone-integrator
+  backend:
+    name: claude
+  integrate_model: claude-sonnet-4-6
+  cache_dir: ../analysis/cache/hle/sonnet/gold
+  # Override default 8 -> 4. Halved candidate budget for a cost-vs-accuracy
+  # Pareto point on the same fixed cache. Reuses the 800 cached Haiku grade
+  # bundles (judge_spec unchanged), so only 100 integrator-result judges incur
+  # new API spend. Coupling: paper main.tex tab:main-results panel (a) gets a
+  # new "LLM Selection (N=4)" row sibling to the existing N=8 row at line 241.
+  num_explores: 4
+num: 100
+num_workers: 16
+seed: 42
+log_dir: ../analysis/run/hle/sonnet_standalone_integrator_n4
