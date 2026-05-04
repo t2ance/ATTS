@@ -82,10 +82,23 @@ async def main() -> None:
 
     cfg = load_config(config_path=args.config, schema=EvalConfig)
     judge_spec = cfg.benchmark.judge.model_dump()
-    cache_dir = Path(cfg.method.cache_dir)
+    # TODO(modelconfig-refactor 2026-05-04): cfg.method.cache_dir no longer
+    # exists on the unified TTSAgentSpec; the cache lives at
+    # spec.explore[0].cache_dir (single-variant) or spec.explore[i].cache_dir
+    # (multi-variant). For self-refine etc.: spec.explore.cache_dir. Walk the
+    # variants instead of treating cache_dir as a single Path. Until this is
+    # reworked, this script is broken on tts-agent yamls. Rerank yamls still
+    # have a top-level cache_dir field and should still work.
+    if hasattr(cfg.method, "cache_dir"):
+        cache_dir = Path(cfg.method.cache_dir)
+    else:
+        raise NotImplementedError(
+            "regrade_cache.py needs an update for the unified TTSAgentSpec; "
+            "see TODO in source. As of 2026-05-04 it works only for rerank yamls."
+        )
     if not cache_dir.is_absolute():
         cache_dir = (REPO / cache_dir).resolve()
-    backend = judge_spec["name"]
+    backend = judge_spec["backend"]
 
     bench = get_benchmark(cfg.benchmark.name, judge_spec=judge_spec)
     label = judge_label(judge_spec)

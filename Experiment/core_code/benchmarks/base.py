@@ -23,13 +23,17 @@ from prompts import format_claude_structured_suffix
 # Used by eval.py to locate (or report-missing) the cached judge bundle for a
 # given (explore_dir, judge_spec). Layout:
 #   explore_dir/judges/<label>/{config.json, grade.json, input.md, output.md, result.json}
-# where <label> = f"{judge_spec['name']}__{judge_spec['model']}".
-# `config.json` carries the full JudgeSpec dump; the source of truth for judge
+# where <label> = f"{judge_spec['backend']}__{judge_spec['model']}".
+# `config.json` carries the full ModelConfig dump; the source of truth for judge
 # identity is the dict-equality of config.json against the requested spec.
+# Migration note: pre-2026-05-04 caches stored `name` instead of `backend`;
+# the on-disk label string is identical (e.g. claude__claude-haiku-4-5-20251001),
+# but the config.json field name changed. scripts/maintenance/migrate_judge_cache_keys.py
+# renames the field in-place. Run that before this code path is exercised.
 
 def judge_label(judge_spec: dict) -> str:
     """Stable, human-readable label for a judge bundle directory."""
-    return f"{judge_spec['name']}__{judge_spec['model']}"
+    return f"{judge_spec['backend']}__{judge_spec['model']}"
 
 
 # Process-level counters for run-end banner aggregation. Per-call warnings

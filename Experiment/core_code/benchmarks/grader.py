@@ -127,9 +127,9 @@ async def judge_answer(
       - output.md     (judge raw output of the successful attempt)
       - result.json   (judge structured verdict of the successful attempt)
     """
-    backend = judge_spec["name"]
+    backend = judge_spec["backend"]
     model = judge_spec["model"]
-    sampling = judge_spec.get("sampling")
+    sampling = judge_spec.get("vllm_sampling")
     # Optional thinking-budget knobs (claude backend only). Fall back to
     # call_sub_model's defaults (budget_tokens=32000, effort=None) when the
     # judge_spec doesn't set them, preserving the original cache build-time
