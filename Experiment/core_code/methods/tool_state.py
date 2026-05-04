@@ -28,7 +28,7 @@ any divergence is caught by the import-time `_self_check()` below and by
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 
 @dataclass(frozen=True)
@@ -39,18 +39,32 @@ class ExploreStepState:
     - `max_explores >= 1`
     - `0 <= call_count <= max_explores`
 
-    The ONLY legal transition is `advance(state)`. `frozen=True` makes
-    hand-written `state.call_count += 1` raise `FrozenInstanceError`,
+    The ONLY legal transition is `advance(state, label=...)`. `frozen=True`
+    makes hand-written `state.call_count += 1` raise `FrozenInstanceError`,
     which structurally prevents the UI/behavior divergence bug class
     where rendered text and candidate-picking read from different counters.
 
     Fields:
     - `max_explores`: hard cap on explore calls per rollout/question.
     - `call_count`: number of advances completed so far.
+    - `variant_call_counts`: per-label in-variant counter for the unified
+      TTSAgentSpec multi/effort paths (label -> int). Empty dict for
+      length-1 (single-variant) runs; in that case the existing
+      `call_count` indexing of cache_keys still applies.
+    - `variant_caps`: per-label budget cap, populated at solver init from
+      each ExploreVariant.num_explores. Used by variant_exhausted().
+
+    Mutability convention: although Python's `frozen=True` does not stop
+    in-place dict mutation, the project convention is that BOTH dicts are
+    only ever replaced (not mutated) by `advance()`. Treat them as
+    structurally immutable. The same convention that protects call_count
+    against hand-bumping protects the per-variant counters.
     """
 
     max_explores: int
     call_count: int = 0
+    variant_call_counts: dict[str, int] = field(default_factory=dict)
+    variant_caps: dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         assert self.max_explores >= 1, (
@@ -79,18 +93,25 @@ class ExploreStepState:
     def is_exhausted(self) -> bool:
         return self.call_count >= self.max_explores
 
+    def variant_exhausted(self, label: str) -> bool:
+        """Per-variant budget guard for unified multi/effort runs."""
+        used = self.variant_call_counts.get(label, 0)
+        cap = self.variant_caps.get(label, 0)
+        return used >= cap
 
-def advance(state: ExploreStepState) -> ExploreStepState:
+
+def advance(state: ExploreStepState, label: str | None = None) -> ExploreStepState:
     """Advance the explore-step counter by exactly one.
 
-    Single source of truth for explore-state transition. All three paths
+    Single source of truth for explore-state transition. All paths
     (eval runtime, GRPO rollout tool, SFT data builder) MUST call this
-    function; none may hand-increment or hand-assign the counter.
+    function; none may hand-increment or hand-assign any counter.
 
     Postconditions:
     - returned.call_count == state.call_count + 1
     - returned.max_explores == state.max_explores
-    - all other fields unchanged
+    - if label is None: variant_call_counts unchanged
+    - if label is set: variant_call_counts[label] == prev + 1, others unchanged
 
     Precondition:
     - state.is_exhausted is False (asserts otherwise)
@@ -99,7 +120,17 @@ def advance(state: ExploreStepState) -> ExploreStepState:
         f"explore budget exhausted: "
         f"call_count={state.call_count}, max={state.max_explores}"
     )
-    return replace(state, call_count=state.call_count + 1)
+    if label is None:
+        return replace(state, call_count=state.call_count + 1)
+    new_counts = {
+        **state.variant_call_counts,
+        label: state.variant_call_counts.get(label, 0) + 1,
+    }
+    return replace(
+        state,
+        call_count=state.call_count + 1,
+        variant_call_counts=new_counts,
+    )
 
 
 def _self_check() -> None:
@@ -166,6 +197,26 @@ def _self_check() -> None:
         pass
     else:
         raise AssertionError("negative call_count must be rejected")
+
+    # Per-variant counters (unified TTSAgentSpec path)
+    sm = ExploreStepState(
+        max_explores=24,
+        variant_caps={"haiku": 8, "sonnet": 8, "opus": 8},
+    )
+    assert not sm.variant_exhausted("haiku")
+    assert sm.variant_call_counts == {}
+    sm = advance(sm, label="haiku")
+    assert sm.call_count == 1
+    assert sm.variant_call_counts == {"haiku": 1}
+    sm = advance(sm, label="haiku")
+    sm = advance(sm, label="sonnet")
+    assert sm.variant_call_counts == {"haiku": 2, "sonnet": 1}
+    assert sm.call_count == 3
+    # Exhaust haiku and verify variant_exhausted flips
+    for _ in range(6):
+        sm = advance(sm, label="haiku")
+    assert sm.variant_exhausted("haiku")
+    assert not sm.variant_exhausted("sonnet")
 
 
 _self_check()
