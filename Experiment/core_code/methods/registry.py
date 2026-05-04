@@ -33,17 +33,14 @@ class MethodConfig(ABC):
 
     @abstractmethod
     def build_solve_fn(self, spec: MethodSpec) -> Callable:
-        """Return the partialed solve function for this method, bound to spec fields."""
+        """Return the partialed solve function for this method, bound to spec.
 
-    def derive_evaluate_args(self, spec: MethodSpec) -> dict:
-        """Return kwargs for evaluate(): orchestrator_model / explore_model /
-        integrate_model / cache_dirs_multi. Each method picks what makes sense."""
-        return {
-            "orchestrator_model": getattr(spec, "orchestrator_model", "") or "",
-            "explore_model": getattr(spec, "explore_model", "") or "",
-            "integrate_model": getattr(spec, "integrate_model", "") or "",
-            "cache_dirs_multi": getattr(spec, "cache_dirs", None),
-        }
+        Post-modelconfig-refactor (2026-05-04): every solve_fn is partialed
+        with spec=spec. Solvers read everything (model, cache_dir, num_explores,
+        budget, effort, sampling, provider routing) off the spec — no more
+        flat orchestrator_model/explore_model/integrate_model/cache_dirs_multi
+        kwargs flowing through evaluate().
+        """
 
     def filter_rows(self, rows: list[dict], cache_dir: Path | None, benchmark) -> list[dict]:
         """Default: pass-through. Override in pre_filter_by_cache methods."""
@@ -98,7 +95,7 @@ class TTSAgentMethod(MethodConfig):
 
     def build_solve_fn(self, spec: TTSAgentSpec):
         from methods.tts_agent import solve
-        return solve
+        return functools.partial(solve, spec=spec)
 
 
 class SelfRefineMethod(MethodConfig):
@@ -108,7 +105,7 @@ class SelfRefineMethod(MethodConfig):
 
     def build_solve_fn(self, spec: SelfRefineSpec):
         from methods.self_refine import solve
-        return solve
+        return functools.partial(solve, spec=spec)
 
 
 class SocraticSelfRefineMethod(MethodConfig):
@@ -118,7 +115,7 @@ class SocraticSelfRefineMethod(MethodConfig):
 
     def build_solve_fn(self, spec: SocraticSelfRefineSpec):
         from methods.socratic_self_refine import solve
-        return solve
+        return functools.partial(solve, spec=spec)
 
 
 class BudgetForcingMethod(MethodConfig):
@@ -128,7 +125,7 @@ class BudgetForcingMethod(MethodConfig):
 
     def build_solve_fn(self, spec: BudgetForcingSpec):
         from methods.budget_forcing import solve
-        return solve
+        return functools.partial(solve, spec=spec)
 
 
 class RerankMethod(MethodConfig):
@@ -148,11 +145,7 @@ class StandaloneIntegratorMethod(MethodConfig):
 
     def build_solve_fn(self, spec: StandaloneIntegratorSpec):
         from methods.standalone_integrator import solve
-        return functools.partial(
-            solve,
-            integrate_model=spec.integrate_model,
-            num_explores=spec.num_explores,
-        )
+        return functools.partial(solve, spec=spec)
 
 
 METHODS: dict[str, type[MethodConfig]] = {
