@@ -1,30 +1,33 @@
-"""Verify num_explores plumbing for standalone-integrator.
+"""Verify num_explores plumbing for standalone-integrator (post-modelconfig refactor).
 
 - spec accepts num_explores with default 8
 - spec accepts override (e.g. 4)
 - spec rejects unknown fields (Pydantic extra=forbid)
-- registry's partialed solve carries num_explores
+- registry's partialed solve carries spec
 - load_cached_candidates + slicing produces a kept-cost equal to sum of first N
 """
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 
-import pytest
-import yaml
-from pydantic import TypeAdapter
+_CORE_CODE_DIR = Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_CORE_CODE_DIR))
 
-from methods.specs import MethodSpec, StandaloneIntegratorSpec
+import pytest
+
+from methods.specs import StandaloneIntegratorSpec
 from methods.registry import METHODS
 
 
 def _make_spec(num_explores: int | None = None) -> dict:
     spec = {
         "name": "standalone-integrator",
-        "backend": {"name": "claude"},
-        "integrate_model": "claude-sonnet-4-6",
-        "cache_dir": "/tmp/fake-cache",
+        "integrate": {
+            "model": {"backend": "claude", "model": "claude-sonnet-4-6"},
+            "cache_dir": "/tmp/fake-cache",
+        },
     }
     if num_explores is not None:
         spec["num_explores"] = num_explores
@@ -32,13 +35,14 @@ def _make_spec(num_explores: int | None = None) -> dict:
 
 
 def test_spec_default_is_eight():
-    parsed = TypeAdapter(MethodSpec).validate_python(_make_spec())
-    assert isinstance(parsed, StandaloneIntegratorSpec)
+    parsed = StandaloneIntegratorSpec.model_validate(_make_spec())
     assert parsed.num_explores == 8
+    assert parsed.integrate.model.model == "claude-sonnet-4-6"
+    assert parsed.integrate.cache_dir == Path("/tmp/fake-cache")
 
 
 def test_spec_accepts_override():
-    parsed = TypeAdapter(MethodSpec).validate_python(_make_spec(num_explores=4))
+    parsed = StandaloneIntegratorSpec.model_validate(_make_spec(num_explores=4))
     assert parsed.num_explores == 4
 
 
@@ -46,15 +50,31 @@ def test_spec_rejects_unknown_field():
     bad = _make_spec()
     bad["explore_model"] = "claude-sonnet-4-6"  # not a standalone-integrator field
     with pytest.raises(Exception):
-        TypeAdapter(MethodSpec).validate_python(bad)
+        StandaloneIntegratorSpec.model_validate(bad)
 
 
-def test_registry_partial_carries_num_explores():
-    parsed = TypeAdapter(MethodSpec).validate_python(_make_spec(num_explores=4))
+def test_spec_rejects_old_flat_shape():
+    """Old yamls had backend / integrate_model / cache_dir at the method level.
+    Migration must transform them; the post-refactor schema rejects them."""
+    bad = {
+        "name": "standalone-integrator",
+        "backend": {"name": "claude"},
+        "integrate_model": "claude-sonnet-4-6",
+        "cache_dir": "/tmp/fake-cache",
+    }
+    with pytest.raises(Exception):
+        StandaloneIntegratorSpec.model_validate(bad)
+
+
+def test_registry_partial_carries_spec():
+    parsed = StandaloneIntegratorSpec.model_validate(_make_spec(num_explores=4))
     method_cls = METHODS["standalone-integrator"]
     partial = method_cls().build_solve_fn(parsed)
-    assert partial.keywords["num_explores"] == 4
-    assert partial.keywords["integrate_model"] == "claude-sonnet-4-6"
+    # build_solve_fn returns functools.partial(solve, spec=parsed); the
+    # spec object is the single source of truth carrying integrate role +
+    # num_explores into the solver.
+    assert partial.keywords["spec"] is parsed
+    assert partial.keywords["spec"].num_explores == 4
 
 
 def test_load_and_truncate_with_fixture_cache(tmp_path: Path):
@@ -82,7 +102,6 @@ def test_load_and_truncate_with_fixture_cache(tmp_path: Path):
     assert len(candidates) == 6
     assert total == pytest.approx(sum(costs))
 
-    # truncation behavior expected of solve() after the new edit:
     n = 4
     kept = candidates[:n]
     kept_cost = sum(c.cost_usd for c in kept)

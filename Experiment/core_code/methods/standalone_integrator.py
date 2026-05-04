@@ -9,7 +9,6 @@ the value of LLM-based aggregation from sequential adaptive exploration.
 from __future__ import annotations
 
 import logging
-from dataclasses import replace
 
 logger = logging.getLogger(__name__)
 
@@ -20,29 +19,41 @@ from trajectory import CostTracker, RoundLog, SolveResult
 async def solve(
     infra: InfraConfig,
     problem: str,
+    *,
+    spec,  # methods.specs.StandaloneIntegratorSpec
     image_data_url: str | None = None,
     question_id: str | None = None,
-    integrate_model: str = "claude-sonnet-4-6",
-    num_explores: int = 8,
+    rollout_idx: int | None = None,
     **_extra,
 ) -> SolveResult:
     """Synthesize from up to `num_explores` pre-cached candidates in one LLM call."""
+    integrate_role = spec.integrate  # RoleSlot
+    num_explores = spec.num_explores
+    backend = integrate_role.model.backend
     assert infra.cache_dir is not None, "cache_dir is required for standalone-integrator"
     assert question_id is not None, "question_id is required for standalone-integrator"
     assert num_explores >= 1, f"num_explores must be >= 1, got {num_explores}"
 
     ctx = create_solve_context(
-        infra=replace(infra, timeout=None),
-        problem=problem, image_data_url=image_data_url,
+        infra=infra,
+        backend=backend,
+        # Single-shot integrator: keep old "no wall-clock timeout" behavior
+        # (paper main runs use this path; long-tail synthesis on hard rows
+        # can exceed the per-explore timeout). Pass None so make_sub_model_caller
+        # disables the asyncio.wait_for guard.
+        timeout=None,
+        problem=problem,
+        image_data_url=image_data_url,
         question_id=question_id,
         writer_system_prompt="(standalone integrator -- single-call synthesis)",
         writer_user_message=problem,
         writer_header_lines=[
-            f"**Integrate Model**: {integrate_model}",
+            f"**Integrate Model**: {backend}/{integrate_role.model.model}",
             f"**Method**: standalone-integrator",
             f"**num_explores**: {num_explores}",
         ],
         writer_title_suffix="(standalone-integrator)",
+        rollout_idx=rollout_idx,
     )
 
     candidates, _ = load_cached_candidates(
@@ -61,9 +72,9 @@ async def solve(
     ctx.cost.add(explore_cost_total, {}, component="explorer")
 
     result, traj, cost_usd, usage, dur = await ctx.call_sub_model(
-        system_prompt=ctx.benchmark.get_integrator_system_prompt(ctx.backend),
+        system_prompt=ctx.benchmark.get_integrator_system_prompt(backend),
         user_message=ctx.benchmark.build_integrator_message(problem, candidates),
-        model=integrate_model,
+        model_cfg=integrate_role.model,
         output_schema=ctx.benchmark.get_integrate_schema(),
         cache_key=f"integrate_standalone_{len(candidates)}",
     )
