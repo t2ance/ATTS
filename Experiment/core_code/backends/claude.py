@@ -113,6 +113,8 @@ async def call_sub_model(
     budget_tokens: int = 32000,
     effort: str | None = None,
     sampling: dict | None = None,
+    provider_order: list[str] | None = None,
+    provider_allow_fallbacks: bool = True,
 ) -> tuple[dict[str, Any], str, float, dict[str, Any]]:
     """Call a sub-model via Claude Agent SDK.
 
@@ -121,6 +123,10 @@ async def call_sub_model(
     `sampling` is accepted for dispatch uniformity with backends/vllm.py but
     has no effect here; Claude controls decoding via `thinking.budget_tokens`
     and `effort`, not OpenAI-style sampling knobs.
+
+    `provider_order` / `provider_allow_fallbacks` are accepted for dispatch
+    uniformity with backends/openrouter.py and silently ignored here —
+    Claude has no upstream provider routing concept.
     """
     assert sampling is None or all(v is None for v in sampling.values()), (
         f"claude backend ignores sampling; got non-None entries: {sampling}"
@@ -250,8 +256,15 @@ async def run_tool_conversation(
     on_structured_output: Callable[[dict], None] | None = None,
     max_output_tokens: int | None = None,
     temperature: float | None = None,
+    sampling: dict | None = None,
+    provider_order: list[str] | None = None,
+    provider_allow_fallbacks: bool = True,
 ) -> tuple[float, dict[str, Any], bool]:
     """Run a multi-turn tool-calling conversation via Claude Agent SDK.
+
+    `sampling` / `provider_order` / `provider_allow_fallbacks` are accepted
+    for dispatch uniformity with backends/openrouter.py and backends/vllm.py;
+    silently ignored here.
 
     tool_handler(name, args) -> (result_text, should_stop)
     writer: if provided, automatically writes all events to the trajectory.

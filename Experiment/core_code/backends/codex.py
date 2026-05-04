@@ -170,6 +170,8 @@ async def call_sub_model(
     budget_tokens: int = 32000,
     effort: str | None = None,
     sampling: dict | None = None,
+    provider_order: list[str] | None = None,
+    provider_allow_fallbacks: bool = True,
 ) -> tuple[dict[str, Any], str, float, dict[str, Any]]:
     """Call a sub-model via Codex Responses API.
 
@@ -225,6 +227,11 @@ async def run_tool_conversation(
     output_format: dict[str, Any] | None = None,
     writer=None,
     on_structured_output: Callable[[dict], None] | None = None,
+    max_output_tokens: int | None = None,
+    temperature: float | None = None,
+    sampling: dict | None = None,
+    provider_order: list[str] | None = None,
+    provider_allow_fallbacks: bool = True,
 ) -> tuple[float, dict[str, Any], str]:
     """Run a multi-turn tool-calling conversation via Codex Responses API.
 

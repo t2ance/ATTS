@@ -220,6 +220,8 @@ async def call_sub_model(
     budget_tokens: int = 32000,
     effort: str | None = None,
     sampling: dict | None = None,
+    provider_order: list[str] | None = None,
+    provider_allow_fallbacks: bool = True,
 ) -> tuple[dict[str, Any], str, float, dict[str, Any]]:
     """Single structured query. Returns (result_dict, trajectory, cost, usage).
 
@@ -427,6 +429,8 @@ async def run_tool_conversation(
     temperature: float | None = None,
     max_output_tokens: int | None = None,
     sampling: dict | None = None,
+    provider_order: list[str] | None = None,
+    provider_allow_fallbacks: bool = True,
     **kwargs,
 ) -> tuple[float, dict[str, Any], bool]:
     """Run a multi-turn tool-calling conversation via vLLM.

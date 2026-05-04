@@ -50,13 +50,16 @@ _TRANSIENT_API_ERRORS = (RateLimitError, APIConnectionError, APITimeoutError, AP
 logger = logging.getLogger(__name__)
 
 
-# Module-level OpenRouter provider routing config. Set once at process startup
-# from PrecacheConfig.provider_order or BackendConfig.provider_order yaml fields
-# via set_provider(...). When set, both call_sub_model and run_tool_conversation
-# inject `extra_body.provider = {"order": [...], "allow_fallbacks": bool}` into
-# every chat.completions request.
+# OpenRouter provider routing.
 #
-# Why this exists (incident 2026-05-04): OpenRouter `/api/v1/models` returns
+# Why per-call (post-modelconfig refactor 2026-05-04): every role's ModelConfig
+# carries its own openrouter_provider_order / openrouter_provider_allow_fallbacks.
+# Routing is injected into extra_body.provider at the per-call level via the
+# kwargs threaded through methods.base.make_sub_model_caller. Module-level
+# globals + set_provider() were deleted because they couldn't represent
+# different roles wanting different providers within one eval.
+#
+# Background incident 2026-05-04: OpenRouter `/api/v1/models` returns
 # `tools=True` for `deepseek/deepseek-v4-flash`, but the model is routed to 7
 # upstream providers and 2-3 of them (DeepSeek's own deepseek-reasoner endpoint,
 # AtlasCloud, Novita) reject the forced `tool_choice={"type":"function",...}`
@@ -64,31 +67,6 @@ logger = logging.getLogger(__name__)
 # pinning, ~33% of explore calls cache as timed_out — far over the 5% red line.
 # Pinning to a tool_choice-compatible provider (e.g. Parasail) eliminates this
 # routing-flake mode while leaving the model identity untouched.
-_PROVIDER_ORDER: list[str] | None = None
-_PROVIDER_ALLOW_FALLBACKS: bool = True
-
-
-def set_provider(order: list[str] | None, allow_fallbacks: bool = True) -> None:
-    """Configure the OpenRouter provider routing for this process.
-
-    `order` is an ordered list of provider names (as they appear in OpenRouter's
-    `/api/v1/models/<model>/endpoints` response, e.g. "Parasail", "DeepInfra").
-    `allow_fallbacks=False` strictly pins; True allows OpenRouter to fall back
-    to off-list providers if the pinned ones are unavailable. Default True for
-    safety.
-    """
-    global _PROVIDER_ORDER, _PROVIDER_ALLOW_FALLBACKS
-    _PROVIDER_ORDER = list(order) if order else None
-    _PROVIDER_ALLOW_FALLBACKS = allow_fallbacks
-
-
-def _maybe_inject_provider(extra_body: dict) -> None:
-    """Inject `provider` block into extra_body if `set_provider` was called."""
-    if _PROVIDER_ORDER:
-        extra_body["provider"] = {
-            "order": _PROVIDER_ORDER,
-            "allow_fallbacks": _PROVIDER_ALLOW_FALLBACKS,
-        }
 
 assert "OPENROUTER_API_KEY" in os.environ, (
     "backends.openrouter requires OPENROUTER_API_KEY in env; export it before "
@@ -155,6 +133,8 @@ async def call_sub_model(
     budget_tokens: int = 32000,
     effort: str | None = None,
     sampling: dict | None = None,
+    provider_order: list[str] | None = None,
+    provider_allow_fallbacks: bool = True,
 ) -> tuple[dict[str, Any], str, float, dict[str, Any]]:
     """Single structured query via OpenRouter chat/completions + forced StructuredOutput tool.
 
@@ -188,7 +168,11 @@ async def call_sub_model(
     if effort:
         extra_body["reasoning"] = {"effort": effort}
     extra_body["usage"] = {"include": True}
-    _maybe_inject_provider(extra_body)
+    if provider_order:
+        extra_body["provider"] = {
+            "order": list(provider_order),
+            "allow_fallbacks": provider_allow_fallbacks,
+        }
 
     # Force the model to call StructuredOutput (function tool) so the response
     # arrives as parsed structured args, not free-form JSON in content.
@@ -344,6 +328,8 @@ async def run_tool_conversation(
     max_output_tokens: int | None = None,
     temperature: float | None = None,
     sampling: dict | None = None,
+    provider_order: list[str] | None = None,
+    provider_allow_fallbacks: bool = True,
 ) -> tuple[float, dict[str, Any], str]:
     """Multi-turn tool-calling via OpenRouter chat/completions + tools=[...] + tool_choice='auto'.
 
@@ -372,7 +358,11 @@ async def run_tool_conversation(
     if effort:
         extra_body["reasoning"] = {"effort": effort}
     extra_body["usage"] = {"include": True}
-    _maybe_inject_provider(extra_body)
+    if provider_order:
+        extra_body["provider"] = {
+            "order": list(provider_order),
+            "allow_fallbacks": provider_allow_fallbacks,
+        }
 
     # Append StructuredOutput protocol block to system prompt — matches the
     # defense-in-depth pattern from backends/vllm.py:485-513. Even though the
