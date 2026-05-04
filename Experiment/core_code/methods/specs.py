@@ -54,6 +54,75 @@ class SamplingConfig(BaseModel):
     disable_response_format: bool | None = None
 
 
+class ModelConfig(BaseModel):
+    """Per-role backend invocation config.
+
+    Replaces the shared method-level BackendConfig + bare-string model name
+    pattern. Each model role (orchestrator, explore variant, integrate, judge)
+    carries its own complete invocation parameters, including optional
+    backend-specific blocks (vllm_sampling for vllm, openrouter_provider_*
+    for openrouter). The model_validator hard-fails when a backend-specific
+    field is set on the wrong backend, replacing the prior silent-no-op
+    behavior of BackendConfig.
+    """
+    model_config = {"extra": "forbid"}
+
+    backend: Literal["codex", "claude", "vllm", "openrouter"]
+    model: str
+    budget_tokens: int = 32000
+    effort: Literal["low", "medium", "high", "max"] = "low"
+    timeout: float = 1200.0
+    max_output_tokens: int | None = None
+
+    vllm_sampling: SamplingConfig | None = None
+
+    openrouter_provider_order: list[str] | None = None
+    openrouter_provider_allow_fallbacks: bool = True
+
+    @model_validator(mode="after")
+    def _check_backend_specific(self):
+        if self.backend != "vllm":
+            assert self.vllm_sampling is None, (
+                f"vllm_sampling is vllm-only but backend={self.backend!r}; remove from yaml"
+            )
+        if self.backend != "openrouter":
+            assert self.openrouter_provider_order is None, (
+                f"openrouter_provider_order is openrouter-only but backend={self.backend!r}"
+            )
+            assert self.openrouter_provider_allow_fallbacks is True, (
+                f"openrouter_provider_allow_fallbacks is openrouter-only but "
+                f"backend={self.backend!r}"
+            )
+        return self
+
+
+class RoleSlot(BaseModel):
+    """A model invocation + the cache_dir its outputs land in.
+
+    Used by single-call cached roles (e.g. integrate). Pydantic extra="forbid"
+    rejects num_explores or other ExploreVariant-shaped fields at config-load.
+    """
+    model_config = {"extra": "forbid"}
+    model: ModelConfig
+    cache_dir: Path
+
+
+class ExploreVariant(BaseModel):
+    """One explore-pass: model + its cache_dir + how many candidates to draw.
+
+    The label is required and serves as the orchestrator-visible identifier
+    (the unified explore tool exposes `variant: enum[<labels>]` when there
+    is more than one variant in a TTSAgentSpec.explore list). Cache layout
+    on disk is per-variant via cache_dir, so cache_keys remain
+    `f"explore_{idx}"` within each variant.
+    """
+    model_config = {"extra": "forbid"}
+    label: str
+    model: ModelConfig
+    cache_dir: Path
+    num_explores: int = 8
+
+
 class BackendConfig(BaseModel):
     model_config = {"extra": "forbid"}
     # "openrouter" added 2026-05-03: dispatches via the OpenRouter Anthropic-Skin
