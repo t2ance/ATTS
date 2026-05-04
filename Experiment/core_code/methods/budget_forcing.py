@@ -22,29 +22,37 @@ from trajectory import RoundLog, SolveResult
 async def solve(
     infra: InfraConfig,
     problem: str,
+    *,
+    spec,  # methods.specs.BudgetForcingSpec
     image_data_url: str | None = None,
     question_id: str | None = None,
-    explore_model: str = "gpt-5.2",
+    rollout_idx: int | None = None,
     **_extra,
 ) -> SolveResult:
     """Solve via Budget Forcing: Generate -> (Wait -> Regenerate)*."""
+    variant = spec.explore  # ExploreVariant
     ctx = create_solve_context(
-        infra=infra, problem=problem, image_data_url=image_data_url,
+        infra=infra,
+        backend=variant.model.backend,
+        timeout=variant.model.timeout,
+        problem=problem,
+        image_data_url=image_data_url,
         question_id=question_id,
-        writer_system_prompt=infra.benchmark.get_explorer_system_prompt(infra.backend),
+        writer_system_prompt=infra.benchmark.get_explorer_system_prompt(variant.model.backend),
         writer_user_message=infra.benchmark.build_explorer_message(problem),
         writer_header_lines=[
-            f"**Backend**: {infra.backend}",
-            f"**Model**: {explore_model}",
+            f"**Backend**: {variant.model.backend}",
+            f"**Model**: {variant.model.model}",
             f"**Max iterations**: {infra.max_iterations}",
             f"**Method**: budget-forcing",
         ],
         writer_title_suffix="(budget-forcing)",
+        rollout_idx=rollout_idx,
     )
 
     # get_explorer_system_prompt(backend) already includes Claude structured
     # suffix when backend == "claude", so no manual suffix append needed.
-    system_prompt = ctx.benchmark.get_explorer_system_prompt(ctx.backend)
+    system_prompt = ctx.benchmark.get_explorer_system_prompt(variant.model.backend)
     explore_schema = ctx.benchmark.get_explore_schema()
     user_msg = ctx.benchmark.build_explorer_message(problem)
 
@@ -56,7 +64,7 @@ async def solve(
         result, trajectory_text, r_cost, usage, duration = await ctx.call_sub_model(
             system_prompt=system_prompt,
             user_message=msg,
-            model=explore_model,
+            model_cfg=variant.model,
             output_schema=explore_schema,
             cache_key=f"explore_{i}",
             writer=ctx.writer,

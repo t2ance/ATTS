@@ -42,7 +42,6 @@ logger = logging.getLogger(__name__)
 
 from methods.base import Candidate, InfraConfig, create_solve_context
 from methods.tool_state import advance
-from methods.tts_agent import run_explore
 from trajectory import RoundLog, SolveResult
 from prompts import format_claude_structured_suffix
 from benchmarks.base import ANSWER_FORMAT_RULES
@@ -279,36 +278,66 @@ class IterationHistory:
 async def solve(
     infra: InfraConfig,
     problem: str,
+    *,
+    spec,  # methods.specs.SocraticSelfRefineSpec
     image_data_url: str | None = None,
     question_id: str | None = None,
-    explore_model: str = "gpt-5.2",
+    rollout_idx: int | None = None,
     **_extra,
 ) -> SolveResult:
     """Solve via Socratic Self-Refine: Generate -> (Socratic Feedback -> Refine)*."""
+    variant = spec.explore  # ExploreVariant
+    backend = variant.model.backend
     ctx = create_solve_context(
-        infra=infra, problem=problem, image_data_url=image_data_url,
+        infra=infra,
+        backend=backend,
+        timeout=variant.model.timeout,
+        problem=problem,
+        image_data_url=image_data_url,
         question_id=question_id,
-        writer_system_prompt=infra.benchmark.get_explorer_system_prompt(infra.backend),
+        writer_system_prompt=infra.benchmark.get_explorer_system_prompt(backend),
         writer_user_message=infra.benchmark.build_explorer_message(problem),
         writer_header_lines=[
-            f"**Backend**: {infra.backend}",
-            f"**Model**: {explore_model}",
+            f"**Backend**: {backend}",
+            f"**Model**: {variant.model.model}",
             f"**Max iterations**: {infra.max_iterations}",
             f"**Method**: socratic-self-refine",
         ],
         writer_title_suffix="(socratic-self-refine)",
+        rollout_idx=rollout_idx,
     )
 
     history = IterationHistory()
 
-    # -- Step 1: Generator (Draft 0) via run_explore --
-    await run_explore(ctx, explore_model)
+    # -- Step 1: Generator (Draft 0) — inline explore call --
+    explorer_system_prompt = ctx.benchmark.get_explorer_system_prompt(backend)
+    explore_schema = ctx.benchmark.get_explore_schema()
+    user_msg = ctx.benchmark.build_explorer_message(problem)
 
-    if not ctx.state.candidates:
+    gen_result, _gen_traj, gen_cost, gen_usage, _gen_dur = await ctx.call_sub_model(
+        system_prompt=explorer_system_prompt,
+        user_message=user_msg,
+        model_cfg=variant.model,
+        output_schema=explore_schema,
+        cache_key="explore_1",
+        writer=ctx.writer,
+    )
+
+    if gen_result.get("timed_out"):
         logger.info("  [socratic-self-refine] Draft 0 TIMED OUT, no answer")
         return ctx.result("")
 
-    draft0 = ctx.state.candidates[-1]
+    ctx.cost.add(gen_cost, gen_usage, component="explorer")
+    gen_answer = ctx.benchmark.get_answer_from_explore(gen_result)
+    draft0 = Candidate(
+        answer=gen_answer,
+        reasoning=gen_result.get("reasoning", ""),
+        approach=gen_result.get("approach", ""),
+        confidence=gen_result.get("confidence", 0.0),
+        cost_usd=gen_cost,
+    )
+    ctx.state.candidates.append(draft0)
+    ctx.state.explore = advance(ctx.state.explore)
     history.drafts.append(Draft(
         reasoning=draft0.reasoning,
         answer=draft0.answer,
@@ -336,12 +365,11 @@ async def solve(
     # These are custom prompts (not from benchmark), so we manually add the
     # Claude structured suffix when needed.
     feedback_prompt = FEEDBACK_SYSTEM_PROMPT
-    if ctx.backend == "claude":
+    if backend == "claude":
         feedback_prompt += format_claude_structured_suffix(FEEDBACK_SCHEMA)
 
-    explore_schema = ctx.benchmark.get_explore_schema()
     refiner_prompt = REFINER_SYSTEM_PROMPT
-    if ctx.backend == "claude":
+    if backend == "claude":
         refiner_prompt += format_claude_structured_suffix(explore_schema)
 
     for i in range(2, infra.max_iterations + 1):
@@ -351,7 +379,7 @@ async def solve(
         fb_result, fb_traj, fb_cost, fb_usage, fb_dur = await ctx.call_sub_model(
             system_prompt=feedback_prompt,
             user_message=fb_msg,
-            model=explore_model,
+            model_cfg=variant.model,
             output_schema=FEEDBACK_SCHEMA,
             cache_key=f"feedback_{i}",
             writer=ctx.writer,
@@ -387,7 +415,7 @@ async def solve(
         ref_result, ref_traj, ref_cost, ref_usage, ref_dur = await ctx.call_sub_model(
             system_prompt=refiner_prompt,
             user_message=ref_msg,
-            model=explore_model,
+            model_cfg=variant.model,
             output_schema=explore_schema,
             cache_key=f"explore_{i}",
             writer=ctx.writer,
