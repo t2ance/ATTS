@@ -27,10 +27,81 @@ from benchmarks.base import (
 )
 from benchmarks.specs import BenchmarkSpec
 from methods import MethodSpec, get_method
-from methods.specs import SamplingConfig
+from methods.specs import (
+    SamplingConfig, TTSAgentSpec,
+    SelfRefineSpec, SocraticSelfRefineSpec, BudgetForcingSpec,
+    StandaloneIntegratorSpec, RerankSpec,
+)
 from methods.base import InfraConfig
 from multimodal_input import redact_image_for_logs
 from logger import RunLogger, now_str, setup_console_logging
+
+
+# ---------------------------------------------------------------------------
+# Spec accessor helpers (post-modelconfig refactor 2026-05-04)
+# ---------------------------------------------------------------------------
+
+def _primary_backend(spec) -> str:
+    """The 'orchestrator-side' backend identifier for a method spec.
+
+    Used for run-banner logging and as the legacy `backend=` kwarg into
+    benchmark.grade() (which ignores it; judge backend lives in judge_spec).
+    Per spec type:
+      TTSAgentSpec       -> spec.orchestrator.backend
+      SelfRefine/Socratic/BudgetForcing -> spec.explore.model.backend
+      StandaloneIntegrator -> spec.integrate.model.backend
+      Rerank             -> "" (no backend dispatch; local PyTorch reward model)
+    """
+    if isinstance(spec, TTSAgentSpec):
+        return spec.orchestrator.backend
+    if isinstance(spec, (SelfRefineSpec, SocraticSelfRefineSpec, BudgetForcingSpec)):
+        return spec.explore.model.backend
+    if isinstance(spec, StandaloneIntegratorSpec):
+        return spec.integrate.model.backend
+    if isinstance(spec, RerankSpec):
+        return ""
+    raise AssertionError(f"unknown spec type: {type(spec).__name__}")
+
+
+def _spec_cache_dir(spec):
+    """Single cache_dir for cache-pre-flight + cached-explore reads.
+
+    For multi-variant TTSAgentSpec we use the FIRST variant's cache_dir as
+    the pre-flight check target; per-variant grading uses _spec_multi_cache_dirs
+    instead. Other method types have one canonical cache_dir.
+    """
+    if isinstance(spec, TTSAgentSpec):
+        return spec.explore[0].cache_dir
+    if isinstance(spec, (SelfRefineSpec, SocraticSelfRefineSpec, BudgetForcingSpec)):
+        return spec.explore.cache_dir
+    if isinstance(spec, StandaloneIntegratorSpec):
+        return spec.integrate.cache_dir
+    if isinstance(spec, RerankSpec):
+        return spec.cache_dir
+    raise AssertionError(f"unknown spec type: {type(spec).__name__}")
+
+
+def _spec_multi_cache_dirs(spec) -> dict[str, "Path"] | None:
+    """For multi-variant tts-agent: {label: cache_dir} mapping.
+
+    Replaces the pre-refactor TTSAgentMultiMethod / TTSAgentEffortMethod
+    derive_evaluate_args which returned spec.cache_dirs. Length-1 single-
+    variant returns None (no multi grading needed)."""
+    if isinstance(spec, TTSAgentSpec) and len(spec.explore) > 1:
+        return {v.label: v.cache_dir for v in spec.explore}
+    return None
+
+
+def _spec_num_explores(spec) -> int:
+    if isinstance(spec, TTSAgentSpec):
+        return sum(v.num_explores for v in spec.explore)
+    if isinstance(spec, (SelfRefineSpec, SocraticSelfRefineSpec, BudgetForcingSpec)):
+        return spec.explore.num_explores
+    if isinstance(spec, StandaloneIntegratorSpec):
+        return spec.num_explores
+    if isinstance(spec, RerankSpec):
+        return 8  # rerank reads up to 8 cached explores per question by convention
+    raise AssertionError(f"unknown spec type: {type(spec).__name__}")
 
 
 # ---------------------------------------------------------------------------
@@ -248,18 +319,24 @@ async def evaluate(
     infra: InfraConfig,
     rows: list[dict],
     solve_fn,
+    spec,                                 # MethodSpec — for logging banner + spec-derived deps
     num: int | None = None,
     num_workers: int = 1,
     resume_run_dir: str | None = None,
     log_dir: str = "logs",
-    orchestrator_model: str = "gpt-5.2",
-    explore_model: str = "gpt-5.2",
-    integrate_model: str = "gpt-5.2",
     dataset_config: dict | None = None,
-    cache_dirs_multi: dict[str, Path] | None = None,
-    sampling: dict | None = None,
 ) -> dict:
-    """Run the TTS agent on dataset rows and record results."""
+    """Run the TTS agent on dataset rows and record results.
+
+    `spec` is the method spec (post-modelconfig refactor); the bare
+    orchestrator_model/explore_model/integrate_model/sampling kwargs are
+    gone. solve_fn is partialed with spec=spec by registry.build_solve_fn,
+    so all per-role dispatch flows from spec internally. We keep `spec`
+    here for run-banner logging and to derive cache_dirs_multi for the
+    multi-variant grading path.
+    """
+    backend = _primary_backend(spec)
+    cache_dirs_multi = _spec_multi_cache_dirs(spec)
     # Resume uses composite key (qid, rollout_idx) so K>1 runs with duplicate
     # qids can be resumed correctly. K=1 records persist rollout_idx as null
     # (see line ~476), so dict.get returns None, not the default 0. Coerce
@@ -280,7 +357,6 @@ async def evaluate(
 
     benchmark = infra.benchmark
     cache_dir = infra.cache_dir
-    backend = infra.backend
     num_explores = infra.max_iterations
 
     def _row_key(r: dict) -> tuple[str, int]:
@@ -304,16 +380,16 @@ async def evaluate(
             config={
                 "total_questions": total,
                 "backend": backend,
-                "orchestrator_model": orchestrator_model,
-                "explore_model": explore_model,
-                "integrate_model": integrate_model,
+                # Post-modelconfig-refactor: per-role invocation params live
+                # inside the method spec (orchestrator/explore/integrate each
+                # carries its own ModelConfig). Dump the whole spec so the run
+                # is reproducible from run_config.json alone.
+                "method_spec": spec.model_dump(exclude_none=True, mode="json"),
                 "num_explores": num_explores,
                 "num_workers": num_workers,
                 "cache_dir": str(cache_dir) if cache_dir else None,
                 "cache_only": infra.cache_only,
                 "judge_spec": benchmark.judge_spec,
-                "budget_tokens": infra.budget_tokens,
-                "effort": infra.effort,
                 **(dataset_config or {}),
             },
         )
@@ -321,7 +397,8 @@ async def evaluate(
 
     logger.info(f"\n{'=' * 60}")
     logger.info(f"{benchmark.name.upper()} Evaluation")
-    logger.info(f"Backend: {backend} | Orchestrator: {orchestrator_model} | Explorer: {explore_model} | Integrator: {integrate_model}")
+    logger.info(f"Method: {spec.name} | Primary backend: {backend}")
+    logger.info(f"Spec: {json.dumps(spec.model_dump(exclude_none=True, mode='json'))}")
     logger.info(f"Grading: {benchmark.grading_summary}")
     logger.info(f"Questions to run: {len(pending)} ({len(done_records)} already completed, {total} total)")
     logger.info(f"Max iterations per question: {num_explores} | Workers: {num_workers}")
@@ -490,12 +567,8 @@ async def evaluate(
                 problem=question,
                 image_data_url=image_data_url,
                 question_id=qid,
-                orchestrator_model=orchestrator_model,
-                explore_model=explore_model,
-                integrate_model=integrate_model,
                 temperature=temperature,
                 rollout_idx=rollout_idx,
-                sampling=sampling,
             )
             # Normalize at source: gold_answer is always str, str-ops downstream
             # (logger.startswith, normalize_answer, judge prompts) assume str. HLE
@@ -711,12 +784,13 @@ async def async_main() -> None:
 
     method = get_method(cfg.method.name)
     solve = method.build_solve_fn(cfg.method)
-    runtime = method.derive_evaluate_args(cfg.method)
-    integrate_model = runtime["integrate_model"]
-    cache_dirs_multi = runtime["cache_dirs_multi"]
-    cache_dir = getattr(cfg.method, "cache_dir", None)
-    num_explores = getattr(cfg.method, "num_explores", 8)
-    num_rollouts = getattr(cfg.method, "num_rollouts", 1)
+    spec = cfg.method
+    # Post-modelconfig-refactor: cache_dir / num_explores live inside the spec
+    # at different depths depending on method shape. Centralize lookup via the
+    # _spec_* helpers above so InfraConfig stays method-shape-agnostic.
+    cache_dir = _spec_cache_dir(spec)
+    num_explores = _spec_num_explores(spec)
+    num_rollouts = getattr(spec, "num_rollouts", 1)
 
     logger.info(f"Loading {benchmark.name.upper()} dataset...")
     all_rows = benchmark.load_dataset()
@@ -760,50 +834,34 @@ async def async_main() -> None:
     else:
         effective_num = cfg.num
 
-    # Rerank has no backend (scores cached candidates with a local reward model);
-    # for it we fall through to a sentinel backend="" and default knobs --
-    # rerank.solve never invokes ctx.call_sub_model so the backend module is unused.
-    backend_block = getattr(cfg.method, "backend", None)
+    # Slim InfraConfig: per-role backend/effort/budget/timeout/sampling/provider
+    # routing all moved inside the spec's per-role ModelConfig. InfraConfig now
+    # only carries cross-role context. enable_integrate is the orchestrator-tool
+    # gate consumed by tts_agent.solve; for non-tts-agent specs it has no effect.
     infra = InfraConfig(
-        backend=backend_block.name if backend_block else "",
         max_iterations=num_explores,
         cache_dir=cache_dir,
         cache_only=method.cache_only,
-        budget_tokens=backend_block.budget_tokens if backend_block else 32000,
-        effort=backend_block.effort if backend_block else "low",
-        timeout=backend_block.timeout if backend_block else 1200.0,
         benchmark=benchmark,
         logger=None,
-        enable_integrate=not getattr(cfg.method, "no_integrate", False),
-        max_output_tokens=backend_block.max_output_tokens if backend_block else None,
-        # orchestrator_effort: only TTSAgentSpec carries this field; getattr
-        #   with default None so other method specs don't fail. Plumbs to
-        #   SolveContext.orchestrator_effort, used at tts_agent.py:~285 to
-        #   override `effort` on the orchestrator turn ONLY (cached explores
-        #   keep their original effort because cache_only=True prevents new
-        #   explore calls).
-        orchestrator_effort=getattr(cfg.method, "orchestrator_effort", None),
+        enable_integrate=not getattr(spec, "no_integrate", False),
     )
 
-    # If the yaml pinned an OpenRouter provider via method.backend.provider_order,
-    # configure the backend module before any explore / orchestrator call fires.
-    # No-op for other backends.
-    if backend_block and backend_block.name == "openrouter" and backend_block.provider_order is not None:
-        from backends import openrouter as _openrouter
-        _openrouter.set_provider(backend_block.provider_order, backend_block.provider_allow_fallbacks)
+    # Provider routing was previously injected once at startup via
+    # backends.openrouter.set_provider. Post-refactor, every ModelConfig with
+    # name="openrouter" carries its own openrouter_provider_order and is
+    # threaded per-call into call_sub_model / run_tool_conversation. No
+    # module-globals here; nothing to set.
 
-    sampling = getattr(cfg.method, "sampling", None)
     await evaluate(
         infra=infra,
         rows=filtered,
         solve_fn=solve,
+        spec=spec,
         num=effective_num,
         num_workers=cfg.num_workers,
         resume_run_dir=cfg.resume,
         log_dir=cfg.log_dir,
-        orchestrator_model=runtime["orchestrator_model"],
-        explore_model=runtime["explore_model"],
-        integrate_model=integrate_model,
         dataset_config={
             "benchmark": benchmark.name,
             **bench_filters,
@@ -812,8 +870,6 @@ async def async_main() -> None:
             "num": cfg.num,
             "num_rollouts": num_rollouts,
         },
-        cache_dirs_multi=cache_dirs_multi,
-        sampling=sampling.model_dump() if sampling else None,
     )
 
 

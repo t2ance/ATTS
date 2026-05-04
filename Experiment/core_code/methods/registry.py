@@ -29,7 +29,6 @@ class MethodConfig(ABC):
     pre_flight_check: bool = False                # banner-time cache completeness?
     pre_filter_by_cache: bool = False             # drop rows with no cache before run?
     supports_num_rollouts: bool = False           # rejection-sampling K>1?
-    consumes_sampling_block: bool = False         # YAML sampling block transparently passed?
 
     @abstractmethod
     def build_solve_fn(self, spec: MethodSpec) -> Callable:
@@ -91,7 +90,6 @@ class TTSAgentMethod(MethodConfig):
     cache_only = True
     pre_flight_check = True
     supports_num_rollouts = True
-    consumes_sampling_block = True
 
     def build_solve_fn(self, spec: TTSAgentSpec):
         from methods.tts_agent import solve
