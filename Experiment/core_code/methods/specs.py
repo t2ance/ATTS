@@ -183,47 +183,36 @@ class TTSAgentSpec(_MethodSpec):
 
 class SelfRefineSpec(_MethodSpec):
     name: Literal["self-refine"]
-    backend: BackendConfig
-    explore_model: str
-    cache_dir: Path
-    num_explores: int = 8
+    explore: ExploreVariant
 
 
 class SocraticSelfRefineSpec(_MethodSpec):
     name: Literal["socratic-self-refine"]
-    backend: BackendConfig
-    explore_model: str
-    cache_dir: Path
-    num_explores: int = 8
+    explore: ExploreVariant
 
 
 class BudgetForcingSpec(_MethodSpec):
     name: Literal["budget-forcing"]
-    backend: BackendConfig
-    explore_model: str
-    cache_dir: Path
-    num_explores: int = 8
+    explore: ExploreVariant
 
 
 class RerankSpec(_MethodSpec):
     name: Literal["rerank"]
     reward_model: str
     cache_dir: Path
-    # No explore_model / integrate_model / num_explores: rerank reads cached
-    # explores and scores them with a reward model, no LLM call, no new explore.
+    # Kept asymmetric: reward_model is a HuggingFace model id loaded by
+    # transformers, not a backend-routed remote call. Forcing through
+    # ModelConfig would require adding a "local" backend Literal which
+    # mixes "remote backend" and "local PyTorch" semantics.
 
 
 class StandaloneIntegratorSpec(_MethodSpec):
     name: Literal["standalone-integrator"]
-    backend: BackendConfig
-    integrate_model: str
-    cache_dir: Path
+    integrate: RoleSlot
     # Default 8 reproduces the paper's "LLM Selection (N=8)" baseline (main.tex
     # tab:main-results). Override e.g. `num_explores: 4` in yaml to take only
     # the first N cached candidates per question -- enables cost-vs-accuracy
     # Pareto sweeps on the same fixed cache without regenerating explores.
-    # Coupling: integrator response cache key is `integrate_standalone_{N}` so
-    # different N values do NOT collide on the cached integrator output.
     num_explores: int = 8
 
 
