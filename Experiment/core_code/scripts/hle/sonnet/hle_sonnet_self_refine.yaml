@@ -3,15 +3,17 @@ benchmark:
   subset: gold
   text_only: true
   judge:
-    name: claude
     model: claude-haiku-4-5-20251001
+    backend: claude
 method:
   name: self-refine
-  backend:
-    name: claude
-  explore_model: claude-sonnet-4-6
-  cache_dir: ../analysis/cache/hle/sonnet_self_refine/gold
-  num_explores: 8
+  explore:
+    label: default
+    model:
+      backend: claude
+      model: claude-sonnet-4-6
+    cache_dir: ../analysis/cache/hle/sonnet_self_refine/gold
+    num_explores: 8
 num: 100
 num_workers: 16
 seed: 42

@@ -3,18 +3,29 @@ benchmark:
   subset: gold
   text_only: true
   judge:
-    name: claude
     model: claude-haiku-4-5-20251001
+    backend: claude
 method:
   name: tts-agent
-  backend:
-    name: codex
+  orchestrator_prompt: single
+  orchestrator:
+    backend: codex
+    model: gpt-5.2
     effort: low
-  explore_model: gpt-5.2
-  orchestrator_model: gpt-5.2
-  integrate_model: gpt-5.2
-  cache_dir: ../analysis/cache/hle/gpt5.2_low/gold
-  num_explores: 8
+  explore:
+    - label: default
+      model:
+        backend: codex
+        model: gpt-5.2
+        effort: low
+      cache_dir: ../analysis/cache/hle/gpt5.2_low/gold
+      num_explores: 8
+  integrate:
+    model:
+      backend: codex
+      model: gpt-5.2
+      effort: low
+    cache_dir: ../analysis/cache/hle/gpt5.2_low/gold
 num: 200
 num_workers: 8
 seed: 42

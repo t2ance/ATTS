@@ -3,31 +3,32 @@ benchmark:
   subset: gold
   text_only: true
   judge:
-    name: vllm
     model: gptoss-20b
-    sampling:
+    backend: vllm
+    vllm_sampling:
       temperature: 1.0
       top_p: 1.0
       max_tokens: 4096
 method:
   name: tts-agent
-  backend:
-    name: vllm
-  explore_model: gptoss-20b
-  orchestrator_model: gptoss-20b
-  cache_dir: ../analysis/cache/hle/gptoss20b/gold
-  no_integrate: true
-  num_explores: 8
-  # Sampling: MUST match hle_gptoss20b_precache.yaml.sampling exactly except
-  # max_tokens (smaller for orchestrator = leaves headroom for accumulated
-  # multi-turn explore tool_response inputs in the orchestrator's context).
-  sampling:
-    temperature: 1.0
-    top_p: 1.0
+  orchestrator_prompt: single
+  orchestrator:
+    backend: vllm
+    model: gptoss-20b
+    vllm_sampling:
+      temperature: 1.0
+      top_p: 1.0
     # max_tokens=32768: matches the Qwen/Gemma archetype for orchestrator turn.
     # max-model-len=131072 → input budget = 131072-32768 = 98304 tokens; ample
     # for 8 cached explore reads (each ~10K typical).
-    max_tokens: 32768
+      max_tokens: 32768
+  explore:
+    - label: default
+      model:
+        backend: vllm
+        model: gptoss-20b
+      cache_dir: ../analysis/cache/hle/gptoss20b/gold
+      num_explores: 8
 num: 100
 num_workers: 64
 seed: 42

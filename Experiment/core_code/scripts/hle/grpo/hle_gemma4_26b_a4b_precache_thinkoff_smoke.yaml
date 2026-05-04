@@ -3,31 +3,26 @@ benchmark:
   subset: gold
   text_only: true
   judge:
-    name: vllm
     model: gemma4-26b-a4b-it
-    sampling:
+    backend: vllm
+    vllm_sampling:
       temperature: 1.0
       top_p: 0.95
       top_k: 64
       enable_thinking: true
       max_tokens: 1024
-backend: vllm
-explore_model: gemma4-26b-a4b-it
-# Separate cache_dir so smoke does NOT pollute the production 800-result.json cache.
-cache_dir: ../analysis/cache/hle/gemma4_26b_a4b_it_thinkoff_smoke/gold
-num_explores: 8
-# num=2 smoke: 2 questions x 8 explores = 16 calls. Same scale as item 14
-# baseline smoke (which measured 80% timeout under enable_thinking=true).
-# Direct A/B comparison: same 2 qids (seed=42), same DP=4 serve, only
-# enable_thinking flag flips.
-num: 2
-num_workers: 16
-seed: 42
-explore_timeout: 1200.0
-sampling:
-  temperature: 1.0
-  top_p: 0.95
-  top_k: 64
+explore:
+  label: default
+  model:
+    backend: vllm
+    model: gemma4-26b-a4b-it
+    budget_tokens: 32000
+    effort: low
+    timeout: 1200.0
+    vllm_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
   # enable_thinking=false (override of production yaml's default `true`):
   # 2026-05-03 user-driven hypothesis test. Production HLE precache hit 80%
   # timeout (643/800). Phase 3 of todo_inf_gemma_thinking_budget.md proved
@@ -40,5 +35,10 @@ sampling:
   # chat_completions endpoint is genuinely dead-end and we pick option A
   # (patch backends/vllm.py to /v1/completions) or option E (switch to
   # gpt-oss-20b backbone).
-  enable_thinking: false
-  max_tokens: 60000
+      enable_thinking: false
+      max_tokens: 60000
+  cache_dir: ../analysis/cache/hle/gemma4_26b_a4b_it_thinkoff_smoke/gold
+  num_explores: 8
+num_workers: 16
+num: 2
+seed: 42

@@ -4,22 +4,26 @@ benchmark:
   # via extra: forbid. No judge block here, by design.
 method:
   name: tts-agent
-  backend:
-    name: vllm
-  explore_model: gemma4-26b-a4b-it
-  orchestrator_model: gemma4-26b-a4b-it
-  cache_dir: ../analysis/cache/gpqa/gemma4_26b_a4b_it
-  no_integrate: true
-  num_explores: 8
-  sampling:
-    temperature: 1.0
-    top_p: 0.95
-    top_k: 64
-    enable_thinking: true
+  orchestrator_prompt: single
+  orchestrator:
+    backend: vllm
+    model: gemma4-26b-a4b-it
+    vllm_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
+      enable_thinking: true
     # max_tokens=32768: matches Qwen archetype (gpqa_qwen36_35b_a3b_exp_orch.yaml).
     # Prior 20000 was an unjustified discount; restored 2026-05-02 to keep Gemma
     # vs Qwen GPQA rows comparable in the paper backbone-ablation table.
-    max_tokens: 32768
+      max_tokens: 32768
+  explore:
+    - label: default
+      model:
+        backend: vllm
+        model: gemma4-26b-a4b-it
+      cache_dir: ../analysis/cache/gpqa/gemma4_26b_a4b_it
+      num_explores: 8
 num_workers: 128
 seed: 42
 log_dir: ../analysis/run/gpqa/gemma4_26b_a4b_it_gemma_exp_orch

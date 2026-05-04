@@ -1,26 +1,20 @@
-# HLE precache for openai/gpt-oss-20b:free via OpenRouter (free tier).
-# Phase 1 item 04 of todo_openrouter_hle_models.md.
-# Generates 8 explore candidates per question for 100 HLE-Verified gold questions.
-# Cost: $0 (verified per-call usage.cost==0 on free model).
 benchmark:
   name: hle
   subset: gold
   text_only: true
   judge:
-    name: claude
     model: claude-haiku-4-5-20251001
-backend: openrouter
-explore_model: openai/gpt-oss-20b:free
-# effort: low — match what we used for gpt-oss-120b probes; routes via
-#   extra_body={"reasoning":{"effort":"low"}} in backends/openrouter.py.
-effort: low
-cache_dir: ../analysis/cache/hle/openrouter_gpt-oss-20b_free_low/gold
-num: 100
-num_explores: 4
-# num_workers: 4 — start conservative against OpenRouter free-tier 20 rpm cap;
-#   8 workers × 9 calls/q could spike past 20 rpm during burst. 4 workers
-#   × max ~9 in-flight ~36 calls/min is still over but staggers better.
-#   If we see 429s in log, drop to 2.
+    backend: claude
+explore:
+  label: default
+  model:
+    backend: openrouter
+    model: openai/gpt-oss-20b:free
+    budget_tokens: 32000
+    effort: low
+    timeout: 600.0
+  cache_dir: ../analysis/cache/hle/openrouter_gpt-oss-20b_free_low/gold
+  num_explores: 4
 num_workers: 4
+num: 100
 seed: 42
-explore_timeout: 600.0

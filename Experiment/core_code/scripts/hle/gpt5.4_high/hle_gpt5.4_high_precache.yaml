@@ -3,25 +3,18 @@ benchmark:
   subset: gold
   text_only: true
   judge:
-    name: claude
     model: claude-haiku-4-5-20251001
-backend: codex
-explore_model: gpt-5.4
-# effort: high — scheme B (full high effort) per user directive 2026-05-03:
-# prioritize absolute acc over methodology match with 5.2 (which was low explore
-# + high orch). Smoke (24 calls) measured: $0.13/call, 176s/call, no 429.
-effort: high
-cache_dir: ../analysis/cache/hle/gpt5.4_high/gold
-# num: 100 — match 5.2-high HLE row size (5.2 effectively ran 100 questions
-# despite num=200 in yaml). Keeps Table 3 row size consistent.
-num: 100
-num_explores: 8
-# num_workers: 1 — workers=4 attempted 2026-05-03 06:58 hit codex 429 cascade
-# at the 86th call (4 workers all stuck in 60s/120s/240s exponential retry
-# loops; no forward progress for 7+ min). Smoke at workers=2 had zero 429,
-# so rate limit boundary is between workers=2 and workers=4. User directive
-# 2026-05-03 07:45: pick workers=1 — slow but no thrash. ETA ~32h wall time
-# for the remaining 663 calls (vs ~16h at workers=2). Coupling: must use
-# --resume / cache hit on restart so the 113 already-cached explores skip.
+    backend: claude
+explore:
+  label: default
+  model:
+    backend: codex
+    model: gpt-5.4
+    budget_tokens: 32000
+    effort: high
+    timeout: 1200.0
+  cache_dir: ../analysis/cache/hle/gpt5.4_high/gold
+  num_explores: 8
 num_workers: 1
+num: 100
 seed: 42

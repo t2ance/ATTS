@@ -2,13 +2,17 @@ benchmark:
   name: lcb
 method:
   name: tts-agent
-  backend:
-    name: vllm
-  explore_model: claude-sonnet-4-6
-  orchestrator_model: qwen36-35b-a3b-fp8
-  cache_dir: ../analysis/cache/lcb/sonnet
-  no_integrate: true
-  num_explores: 8
+  orchestrator_prompt: single
+  orchestrator:
+    backend: vllm
+    model: qwen36-35b-a3b-fp8
+  explore:
+    - label: default
+      model:
+        backend: vllm
+        model: claude-sonnet-4-6
+      cache_dir: ../analysis/cache/lcb/sonnet
+      num_explores: 8
 num_workers: 8
 seed: 42
 log_dir: ../analysis/run/lcb/qwen36_35b_a3b_fp8_baseline

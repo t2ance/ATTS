@@ -4,32 +4,33 @@ benchmark:
   # extra: forbid. No judge block, by design.
 method:
   name: tts-agent
-  backend:
-    name: vllm
-  # Variant B: Sonnet-cached explorer + Gemma orchestrator.
-  explore_model: claude-sonnet-4-6
-  orchestrator_model: gemma4-26b-a4b-it
-  cache_dir: ../analysis/cache/lcb/sonnet
-  # cache_only hardcoded True at TTSAgentMethod (methods/registry.py:94).
-  no_integrate: true
-  num_explores: 8
-  sampling:
-    temperature: 1.0
-    top_p: 0.95
-    top_k: 64
+  orchestrator_prompt: single
+  orchestrator:
+    backend: vllm
+    model: gemma4-26b-a4b-it
+    vllm_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
     # enable_thinking=false (override default true; 2026-05-03):
     # Variant B is Sonnet-cached aggregator — thinking-on caused 28% empty
     # predicted_answer on HLE 100Q (archived run_20260503_051610). Disabling
     # restores the explorer-thinks / orchestrator-aggregates split. Compare
     # new run Acc to archived thinking-on baseline at
     # analysis/archive/gemma_sonnet_orch_thinking_on_2026-05-03/.
-    enable_thinking: false
+      enable_thinking: false
     # max_tokens=20000 (NOT 32768): LCB orchestrator headroom convention from
     # exp_orch — leaves room for accumulated multi-turn explore tool_response
     # inputs (LCB explores can be longer than HLE/GPQA).
-    max_tokens: 20000
+      max_tokens: 20000
+  explore:
+    - label: default
+      model:
+        backend: vllm
+        model: claude-sonnet-4-6
+      cache_dir: ../analysis/cache/lcb/sonnet
+      num_explores: 8
 num: 175
-# num_workers=16: Gemma DP=1 KV pool conservative default.
 num_workers: 16
 seed: 42
 log_dir: ../analysis/run/lcb/gemma4_26b_a4b_it_sonnet_orch

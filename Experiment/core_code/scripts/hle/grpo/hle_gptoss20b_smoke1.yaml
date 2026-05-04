@@ -3,28 +3,31 @@ benchmark:
   subset: gold
   text_only: true
   judge:
-    name: vllm
     model: gptoss-20b
-    sampling:
+    backend: vllm
+    vllm_sampling:
       temperature: 1.0
       top_p: 1.0
       max_tokens: 4096
 method:
   name: tts-agent
-  backend:
-    name: vllm
-  explore_model: gptoss-20b
-  orchestrator_model: gptoss-20b
-  cache_dir: ../analysis/cache/hle/gptoss20b/gold
-  no_integrate: true
-  num_explores: 8
-  sampling:
-    temperature: 1.0
-    top_p: 1.0
-    max_tokens: 32768
+  orchestrator_prompt: single
+  orchestrator:
+    backend: vllm
+    model: gptoss-20b
+    vllm_sampling:
+      temperature: 1.0
+      top_p: 1.0
+      max_tokens: 32768
 # num=1: smoke test to verify reasoning-parser fix + reasoning capture in trajectory.md
+  explore:
+    - label: default
+      model:
+        backend: vllm
+        model: gptoss-20b
+      cache_dir: ../analysis/cache/hle/gptoss20b/gold
+      num_explores: 8
 num: 1
-# num_workers=1: serial single-question run, makes trajectory.md easy to read without log interleaving
 num_workers: 1
 seed: 42
 log_dir: ../analysis/run/hle/gptoss20b_smoke1

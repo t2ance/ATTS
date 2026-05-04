@@ -2,15 +2,19 @@ benchmark:
   name: gpqa
 method:
   name: tts-agent
-  backend:
-    name: codex
+  orchestrator_prompt: single
+  orchestrator:
+    backend: codex
+    model: gpt-5.2
     effort: low
-  explore_model: gpt-5.2
-  orchestrator_model: gpt-5.2
-  integrate_model: gpt-5.2
-  no_integrate: true
-  cache_dir: ../analysis/cache/gpqa/gpt5.2
-  num_explores: 8
+  explore:
+    - label: default
+      model:
+        backend: codex
+        model: gpt-5.2
+        effort: low
+      cache_dir: ../analysis/cache/gpqa/gpt5.2
+      num_explores: 8
 num_workers: 4
 seed: 42
 log_dir: ../analysis/run/gpqa/gpt5.2_no_integrate

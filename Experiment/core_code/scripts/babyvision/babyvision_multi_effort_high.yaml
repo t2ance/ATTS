@@ -1,23 +1,36 @@
 benchmark:
   name: babyvision
   judge:
-    name: claude
     model: claude-haiku-4-5-20251001
+    backend: claude
 method:
-  name: tts-agent-multi
-  backend:
-    name: claude
-  orchestrator_model: claude-sonnet-4-6
-  cache_dirs:
-    haiku: ../analysis/cache/babyvision/haiku
-    sonnet: ../analysis/cache/babyvision/sonnet
-    opus: ../analysis/cache/babyvision/opus
-  model_budgets:
-    haiku: 8
-    sonnet: 8
-    opus: 2
-  exploration_effort: high
-  num_explores: 16
+  name: tts-agent
+  orchestrator_prompt: multi_model
+  orchestrator:
+    backend: claude
+    model: claude-sonnet-4-6
+  explore:
+    - label: haiku
+      model:
+        backend: claude
+        model: claude-haiku-4-5-20251001
+        effort: high
+      cache_dir: ../analysis/cache/babyvision/haiku
+      num_explores: 8
+    - label: sonnet
+      model:
+        backend: claude
+        model: claude-sonnet-4-6
+        effort: high
+      cache_dir: ../analysis/cache/babyvision/sonnet
+      num_explores: 8
+    - label: opus
+      model:
+        backend: claude
+        model: claude-opus-4-6
+        effort: high
+      cache_dir: ../analysis/cache/babyvision/opus
+      num_explores: 2
 seed: 42
 num_workers: 8
 log_dir: ../analysis/run/babyvision/multi_model_effort_high

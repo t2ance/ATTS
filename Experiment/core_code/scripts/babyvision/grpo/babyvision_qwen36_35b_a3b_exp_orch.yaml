@@ -1,34 +1,38 @@
 benchmark:
   name: babyvision
   judge:
-    name: claude
     model: claude-haiku-4-5-20251001
+    backend: claude
 method:
   name: tts-agent
-  backend:
-    name: vllm
-  explore_model: qwen36-35b-a3b-fp8
-  orchestrator_model: qwen36-35b-a3b-fp8
-  cache_dir: ../analysis/cache/babyvision/qwen36_35b_a3b_fp8
-  no_integrate: true
-  num_explores: 8
-  sampling:
-    temperature: 1.0
-    top_p: 0.95
-    top_k: 20
-    min_p: 0.0
-    presence_penalty: 1.5
-    repetition_penalty: 1.0
-    enable_thinking: true
+  orchestrator_prompt: single
+  orchestrator:
+    backend: vllm
+    model: qwen36-35b-a3b-fp8
+    vllm_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 20
+      min_p: 0.0
+      presence_penalty: 1.5
+      repetition_penalty: 1.0
+      enable_thinking: true
     # max_tokens=20000: orchestrator multi-turn input growth absorbs cached
     # explore tool_responses (BV explorer mean ~2.2K, p99 ~10K, max 14K
     # output). 8-turn accumulated input ~20-40K. With max-model-len=65536,
     # max_tokens=20000 leaves max_input=45000 → all explores fit. Per-call
     # generation rarely exceeds 20K; soft-skip catches context overflow.
     # Set 2026-05-02.
-    max_tokens: 20000
+      max_tokens: 20000
 # 128 client-side asyncio tasks. See gpqa_qwen36_35b_a3b_exp_orch.yaml for
 # the server cap math. User-directed 2026-05-02.
+  explore:
+    - label: default
+      model:
+        backend: vllm
+        model: qwen36-35b-a3b-fp8
+      cache_dir: ../analysis/cache/babyvision/qwen36_35b_a3b_fp8
+      num_explores: 8
 num_workers: 128
 seed: 42
 log_dir: ../analysis/run/babyvision/qwen36_35b_a3b_fp8_exp_orch

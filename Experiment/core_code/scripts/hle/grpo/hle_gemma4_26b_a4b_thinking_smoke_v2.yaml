@@ -3,41 +3,39 @@ benchmark:
   subset: gold
   text_only: true
   judge:
-    name: vllm
     model: gemma4-26b-a4b-it
-    sampling:
+    backend: vllm
+    vllm_sampling:
       temperature: 1.0
       top_p: 0.95
       top_k: 64
       enable_thinking: true
       max_tokens: 1024
-backend: vllm
-explore_model: gemma4-26b-a4b-it
-# cache_dir: thinking_smoke_v2 — fresh isolated dir for the post-thinking-fix
-# smoke (todo_inf_gemma_A_exp_orch.md Phase 5 item 14). v1 cache (pre-fix) was
-# archived 2026-05-03 to analysis/archive/gemma_pre_thinking_fix_2026-05-03/
-# along with the pre-fix run dirs. v2 cache_dir keeps any new evidence isolated
-# until the smoke gates pass; production HLE precache (item 15) uses the
-# canonical `gemma4_26b_a4b_it/gold` path.
-cache_dir: ../analysis/cache/hle/gemma4_26b_a4b_it_thinking_smoke_v2/gold
-num_explores: 8
-# num=2 → 16 explores total, matches todo Phase 5 item 14 smoke spec.
-num: 2
-num_workers: 16
-seed: 42
-explore_timeout: 1200.0
-sampling:
-  temperature: 1.0
-  top_p: 0.95
-  top_k: 64
+explore:
+  label: default
+  model:
+    backend: vllm
+    model: gemma4-26b-a4b-it
+    budget_tokens: 32000
+    effort: low
+    timeout: 1200.0
+    vllm_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
   # enable_thinking=true intentionally retained: post-fix the thinking trace
   # lands in `message.reasoning` (an independent channel from `message.content`),
   # so the historical concern that thinking eats into JSON budget no longer
   # applies. Layer-1 fix (`--chat-template tool_chat_template_gemma4_fixed.jinja`)
   # ensures the channel actually opens; Layer-2 fix (`backends/vllm.py` reads
   # `getattr(msg, "reasoning", None)`) plumbs the trace into trajectory.
-  enable_thinking: true
+      enable_thinking: true
   # max_tokens kept at 60000 from production yaml. Post-fix this caps only the
   # `message.content` (post-thinking) length; the channel-thinking length is
   # bounded by the model's natural distribution ≤ p99 ~25K observed pre-fix.
-  max_tokens: 60000
+      max_tokens: 60000
+  cache_dir: ../analysis/cache/hle/gemma4_26b_a4b_it_thinking_smoke_v2/gold
+  num_explores: 8
+num_workers: 16
+num: 2
+seed: 42

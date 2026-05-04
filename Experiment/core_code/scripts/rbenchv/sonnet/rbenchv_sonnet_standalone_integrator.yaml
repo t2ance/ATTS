@@ -1,14 +1,16 @@
 benchmark:
   name: rbenchv
   judge:
-    name: claude
     model: claude-haiku-4-5-20251001
+    backend: claude
 method:
   name: standalone-integrator
-  backend:
-    name: claude
-  integrate_model: claude-sonnet-4-6
-  cache_dir: ../analysis/cache/rbenchv/sonnet
+  integrate:
+    model:
+      backend: claude
+      model: claude-sonnet-4-6
+    cache_dir: ../analysis/cache/rbenchv/sonnet
+  num_explores: 8
 num_workers: 4
 seed: 42
 log_dir: ../analysis/run/rbenchv/sonnet_standalone_integrator

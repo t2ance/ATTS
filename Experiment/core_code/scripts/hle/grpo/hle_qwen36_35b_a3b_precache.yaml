@@ -3,46 +3,31 @@ benchmark:
   subset: gold
   text_only: true
   judge:
-    name: claude
     model: claude-haiku-4-5-20251001
-backend: vllm
-# Explorer = orchestrator: same Qwen3.6-35B-A3B-FP8 alias served on :8000-:8002.
-# This is the `_exp_orch` arm of the ablation -- explorer model swapped from
-# Sonnet to the same Qwen used by the orchestrator. Cache distribution must
-# match what the orchestrator would produce on a cache miss; see `sampling`
-# block below (mirrored from hle_qwen36_35b_a3b_temp.yaml).
-explore_model: qwen36-35b-a3b-fp8
-# Distinct cache dir from sonnet (../analysis/cache/hle/sonnet/gold) -- swapping
-# explorer model invalidates every prior explore. Per cache_discipline memory:
-# new (model, sampling) tuple = new cache dir, no reuse.
-cache_dir: ../analysis/cache/hle/qwen36_35b_a3b_fp8/gold
-num: 100
-num_explores: 8
-# 128 client workers across 3 TP=1 vLLM replicas (port 8000/8001/8002,
-# each max_num_seqs default 256). 128/3 ≈ 43 in-flight per replica, well
-# below server cap. User-directed parallelism; lower values silently
-# under-utilize the 3-replica serve (observed at num_workers=8/16/32 in
-# the sonnet precache rounds).
-num_workers: 128
-seed: 42
-# MUST match hle_qwen36_35b_a3b_exp_orch.yaml.sampling exactly. Mismatch
-# would cause cache-only orchestrator runs to be served pre-cooked explores
-# from a different decoding regime than the orchestrator itself uses,
-# silently invalidating the like-for-like guarantee. Per-key rationale:
-# vLLM defaults (greedy temperature=0, top_p=1, top_k=-1, no penalties,
-# chat_template enable_thinking default=true for Qwen3.6, max_tokens=
-# budget_tokens fallback) produce greedy explores; we override to the
-# Qwen3.6-Thinking recipe so explorer behavior matches the orchestrator.
-sampling:
-  temperature: 1.0          # vLLM default 0.0 (greedy). Qwen3.6-Thinking recipe.
-  top_p: 0.95               # vLLM default 1.0. Qwen3.6 recipe.
-  top_k: 20                 # vLLM default -1 (disabled). Qwen3.6 recipe.
-  min_p: 0.0                # vLLM default 0.0; pinned for explicit self-doc.
-  presence_penalty: 1.5     # vLLM default 0.0. Qwen3.6 recipe (anti-repeat under thinking).
-  repetition_penalty: 1.0   # vLLM default 1.0; pinned for explicit self-doc.
-  enable_thinking: true     # Qwen3.6 chat_template default = true; pinned so cache invalidates if flipped.
+    backend: claude
+explore:
+  label: default
+  model:
+    backend: vllm
+    model: qwen36-35b-a3b-fp8
+    budget_tokens: 32000
+    effort: low
+    timeout: 1200.0
+    vllm_sampling:
+      temperature: 1.0      # vLLM default 0.0 (greedy). Qwen3.6-Thinking recipe.
+      top_p: 0.95           # vLLM default 1.0. Qwen3.6 recipe.
+      top_k: 20             # vLLM default -1 (disabled). Qwen3.6 recipe.
+      min_p: 0.0            # vLLM default 0.0; pinned for explicit self-doc.
+      presence_penalty: 1.5 # vLLM default 0.0. Qwen3.6 recipe (anti-repeat under thinking).
+      repetition_penalty: 1.0 # vLLM default 1.0; pinned for explicit self-doc.
+      enable_thinking: true # Qwen3.6 chat_template default = true; pinned so cache invalidates if flipped.
   # max_tokens=32768: vLLM serve --max-model-len=131072 gives 128K input+output
   # ceiling; HLE explorer prompts are short (<2K), so 32K output budget covers
   # the long-tail thinking decode while leaving 96K headroom. Mirrors the
   # orchestrator yaml; both must match to keep cache identity.
-  max_tokens: 32768
+      max_tokens: 32768
+  cache_dir: ../analysis/cache/hle/qwen36_35b_a3b_fp8/gold
+  num_explores: 8
+num_workers: 128
+num: 100
+seed: 42

@@ -3,30 +3,31 @@ benchmark:
   subset: gold
   text_only: true
   judge:
-    name: claude
     model: claude-haiku-4-5-20251001
+    backend: claude
 method:
   name: tts-agent
-  backend:
-    name: vllm
-  explore_model: qwen36-35b-a3b-fp8
-  orchestrator_model: qwen36-35b-a3b-fp8
-  cache_dir: ../analysis/cache/hle/qwen36_35b_a3b_fp8/gold
-  no_integrate: true
-  num_explores: 8
-  sampling:
-    temperature: 1.0
-    top_p: 0.95
-    top_k: 20
-    min_p: 0.0
-    presence_penalty: 1.5
-    repetition_penalty: 1.0
-    enable_thinking: true
-    max_tokens: 32768
+  orchestrator_prompt: single
+  orchestrator:
+    backend: vllm
+    model: qwen36-35b-a3b-fp8
+    vllm_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 20
+      min_p: 0.0
+      presence_penalty: 1.5
+      repetition_penalty: 1.0
+      enable_thinking: true
+      max_tokens: 32768
+  explore:
+    - label: default
+      model:
+        backend: vllm
+        model: qwen36-35b-a3b-fp8
+      cache_dir: ../analysis/cache/hle/qwen36_35b_a3b_fp8/gold
+      num_explores: 8
 num: 100
-# 128 client-side asyncio tasks. See gpqa_qwen36_35b_a3b_exp_orch.yaml for
-# the server cap math (vllm DP=4 at 131K -> ~83 in-flight cluster-wide;
-# 128 fills cap + small queue buffer). User-directed 2026-05-02.
 num_workers: 128
 seed: 42
 log_dir: ../analysis/run/hle/qwen36_35b_a3b_fp8_exp_orch

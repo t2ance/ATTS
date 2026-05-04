@@ -1,9 +1,3 @@
-# HLE precache for google/gemma-4-26b-a4b-it:free via OpenRouter (free tier).
-# Replaces a previously-failed local vLLM-serve attempt of the same model
-# (jinja chat-template + skip_special_tokens stripping bug per
-# todo_gemma4_thinking_fix.md). OpenRouter terminates the call upstream
-# (Anthropic-Skin route), bypassing local jinja entirely.
-# Companion todo: ../../todo_openrouter_hle_gemma-4-26b-a4b-it_free.md
 benchmark:
   name: hle
   subset: gold
@@ -15,9 +9,9 @@ benchmark:
   # (curl http://localhost:8000/v1/models). Per CLAUDE.md "always use
   # non-thinking judge" rule: enable_thinking=false.
   judge:
-    name: vllm
     model: qwen36-35b-a3b-fp8
-    sampling:
+    backend: vllm
+    vllm_sampling:
       # vLLM defaults are greedy (temperature=0); judge prompt is short
       # and benefits from mild stochastic to break tie-strings between
       # similar gold/predicted spans. Mirrors hle_gemma4_26b_a4b_sonnet_orch_smoke.yaml.
@@ -32,25 +26,17 @@ benchmark:
       # reasoning + correct" JSON. With enable_thinking=false this is a
       # safe ceiling.
       max_tokens: 4096
-backend: openrouter
-explore_model: google/gemma-4-26b-a4b-it:free
-# effort: medium — user directive 2026-05-04: "如果你只用 low 的话，可能效果
-# 不太好". Routes via extra_body={"reasoning":{"effort":"medium"}} in
-# backends/openrouter.py. Free-tier max_completion_tokens=32768 (verified
-# /api/v1/models 2026-05-04) leaves >16K headroom even at medium reasoning,
-# unlike gpt-oss-20b:free where 8192 cap forced effort=low. Auto-fallback
-# to effort=low if Phase 2 G3 measures timed_out > 10% (see todo G3 On-fail).
-effort: medium
-cache_dir: ../analysis/cache/hle/openrouter_google_gemma-4-26b-a4b-it_free/gold
-num: 100
-# num_explores: 4 — user directive 2026-05-04: "之前的 8 个样本好像有点太多
-# 了，没有必要. 我们其实跑 4 个就够了". Total explores = 100 × 4 = 400 (vs
-# 800 at n=8). Wall-clock ~halved. Oracle Pass@k bounded at k=4.
-num_explores: 4
-# num_workers: 4 — same as gpt-oss-20b LOW (which absorbed 11/11 429s with
-# 0 escalations at this concurrency on 2026-05-04). Free-tier 20 rpm cap
-# shared globally; 4 workers × ~9 calls/q ≈ 36 in-flight per min staggers
-# under SDK max_retries=8 absorption.
+explore:
+  label: default
+  model:
+    backend: openrouter
+    model: google/gemma-4-26b-a4b-it:free
+    budget_tokens: 32000
+    effort: medium
+    timeout: 600.0
+  cache_dir: 
+    ../analysis/cache/hle/openrouter_google_gemma-4-26b-a4b-it_free/gold
+  num_explores: 4
 num_workers: 4
+num: 100
 seed: 42
-explore_timeout: 600.0

@@ -2,14 +2,17 @@ benchmark:
   name: rbenchv
   category: Counting
   judge:
-    name: claude
     model: claude-haiku-4-5-20251001
-backend: claude
-explore_model: claude-sonnet-4-6
-cache_dir: ../analysis/cache/rbenchv/sonnet
-num_explores: 8
-# Library default: 8. Override to 1 because rbenchv precaches share the same
-# Anthropic per-account rate limit with concurrent socratic-SR jobs (see
-# run_precache_physics.sh). Restore to 8 only when running standalone.
+    backend: claude
+explore:
+  label: default
+  model:
+    backend: claude
+    model: claude-sonnet-4-6
+    budget_tokens: 32000
+    effort: low
+    timeout: 1200.0
+  cache_dir: ../analysis/cache/rbenchv/sonnet
+  num_explores: 8
 num_workers: 1
 seed: 42

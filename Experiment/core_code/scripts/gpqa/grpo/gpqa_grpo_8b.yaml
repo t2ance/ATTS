@@ -2,14 +2,17 @@ benchmark:
   name: gpqa
 method:
   name: tts-agent
-  backend:
-    name: vllm
-  explore_model: grpo-8b
-  orchestrator_model: grpo-8b
-  integrate_model: grpo-8b
-  cache_dir: ../analysis/cache/gpqa/sonnet
-  no_integrate: true
-  num_explores: 8
+  orchestrator_prompt: single
+  orchestrator:
+    backend: vllm
+    model: grpo-8b
+  explore:
+    - label: default
+      model:
+        backend: vllm
+        model: grpo-8b
+      cache_dir: ../analysis/cache/gpqa/sonnet
+      num_explores: 8
 num_workers: 1
 seed: 42
 log_dir: ../analysis/run/gpqa/grpo_8b_step78

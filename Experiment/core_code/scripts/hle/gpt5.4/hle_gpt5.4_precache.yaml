@@ -3,12 +3,18 @@ benchmark:
   subset: gold
   text_only: true
   judge:
-    name: claude
     model: claude-haiku-4-5-20251001
-backend: codex
-explore_model: gpt-5.4
-cache_dir: ../analysis/cache/hle/gpt5.4/gold
-num: 200
-num_explores: 8
+    backend: claude
+explore:
+  label: default
+  model:
+    backend: codex
+    model: gpt-5.4
+    budget_tokens: 32000
+    effort: low
+    timeout: 1200.0
+  cache_dir: ../analysis/cache/hle/gpt5.4/gold
+  num_explores: 8
 num_workers: 4
+num: 200
 seed: 42

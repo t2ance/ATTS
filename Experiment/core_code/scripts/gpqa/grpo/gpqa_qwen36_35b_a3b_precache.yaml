@@ -1,41 +1,25 @@
 benchmark:
   name: gpqa
-backend: vllm
-# Explorer = orchestrator: same Qwen3.6-35B-A3B-FP8 alias served as a single
-# DP=4 endpoint on :8000 (vllm internally fans out to 4 GPU workers). The
-# `_exp_orch` arm uses the same Qwen for explorer + orchestrator. See
-# hle_qwen36_35b_a3b_precache.yaml for full rationale.
-explore_model: qwen36-35b-a3b-fp8
-# Distinct from sonnet (../analysis/cache/gpqa/sonnet); fresh cache for the
-# new (model, sampling) tuple per cache_discipline memory.
-cache_dir: ../analysis/cache/gpqa/qwen36_35b_a3b_fp8
-num_explores: 8
-# 192 client-side asyncio tasks. Under DP=4 with --max-model-len=40960,
-# vllm reports max concurrency 63x per worker × 4 = 252 in-flight. The
-# previous 128 ceiling was filling up with thinking-mode long-tail explores
-# (5+ min each on hard GPQA Diamond), starving easy/fast explores. 192
-# keeps slot count under vllm's 252 cap with margin while letting easy
-# tasks flow alongside the long-tail. Bumped 2026-05-02 mid-run after
-# observing rate drop from 0.4/s → 0.13/s once all 128 slots filled with
-# multi-minute generations.
-num_workers: 192
-# Default is 1200s (20 min). Bumped DOWN to 600s (10 min) after observing
-# the same 192-slot saturation: a sub-10% pathological tail of GPQA Diamond
-# questions hits max_tokens=32768 in thinking mode, taking 10-30+ min per
-# explore and starving the rest. 600s lets ATTS still receive 6-7 of 8
-# explores per question (timed-out explore is excluded from candidate set;
-# integrator works on whatever cached + non-timed candidates exist).
-explore_timeout: 600.0
-seed: 42
-# MUST match gpqa_qwen36_35b_a3b_exp_orch.yaml.sampling exactly.
-sampling:
-  temperature: 1.0
-  top_p: 0.95
-  top_k: 20
-  min_p: 0.0
-  presence_penalty: 1.5
-  repetition_penalty: 1.0
-  enable_thinking: true
+explore:
+  label: default
+  model:
+    backend: vllm
+    model: qwen36-35b-a3b-fp8
+    budget_tokens: 32000
+    effort: low
+    timeout: 600.0
+    vllm_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 20
+      min_p: 0.0
+      presence_penalty: 1.5
+      repetition_penalty: 1.0
+      enable_thinking: true
   # max_tokens=32768 mirrors the GPQA orchestrator yaml; GPQA prompts are short
   # multiple-choice (<3K), thinking decode tail fits comfortably under 32K.
-  max_tokens: 32768
+      max_tokens: 32768
+  cache_dir: ../analysis/cache/gpqa/qwen36_35b_a3b_fp8
+  num_explores: 8
+num_workers: 192
+seed: 42

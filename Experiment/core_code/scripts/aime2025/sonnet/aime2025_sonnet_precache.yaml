@@ -1,8 +1,14 @@
 benchmark:
   name: aime2025
-backend: claude
-explore_model: claude-sonnet-4-6
-cache_dir: ../analysis/cache/aime2025/sonnet
-num_explores: 8
+explore:
+  label: default
+  model:
+    backend: claude
+    model: claude-sonnet-4-6
+    budget_tokens: 32000
+    effort: low
+    timeout: 1200.0
+  cache_dir: ../analysis/cache/aime2025/sonnet
+  num_explores: 8
 num_workers: 8
 seed: 42

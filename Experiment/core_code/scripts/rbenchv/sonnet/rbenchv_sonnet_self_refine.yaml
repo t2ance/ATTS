@@ -1,15 +1,17 @@
 benchmark:
   name: rbenchv
   judge:
-    name: claude
     model: claude-haiku-4-5-20251001
+    backend: claude
 method:
   name: self-refine
-  backend:
-    name: claude
-  explore_model: claude-sonnet-4-6
-  cache_dir: ../analysis/cache/rbenchv/sonnet_self_refine
-  num_explores: 8
+  explore:
+    label: default
+    model:
+      backend: claude
+      model: claude-sonnet-4-6
+    cache_dir: ../analysis/cache/rbenchv/sonnet_self_refine
+    num_explores: 8
 num_workers: 16
 seed: 42
 log_dir: ../analysis/run/rbenchv/sonnet_self_refine

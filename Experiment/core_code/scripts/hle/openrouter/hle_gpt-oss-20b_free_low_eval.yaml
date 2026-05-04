@@ -1,6 +1,3 @@
-# HLE eval (ATTS orchestrator over precached explores) for openai/gpt-oss-20b:free.
-# Reads explores from cache, runs orchestrator turns, grades via judge.
-# Phase 1 item 04 of todo_openrouter_hle_models.md.
 benchmark:
   name: hle
   subset: gold
@@ -13,27 +10,23 @@ benchmark:
   # rule "ALWAYS non-thinking judge to save money"). No explicit `effort:`
   # needed here — fall through to the spec default.
   judge:
-    name: claude
     model: claude-haiku-4-5-20251001
+    backend: claude
 method:
   name: tts-agent
-  backend:
-    name: openrouter
-  explore_model: openai/gpt-oss-20b:free
-  orchestrator_model: openai/gpt-oss-20b:free
-  cache_dir: ../analysis/cache/hle/openrouter_gpt-oss-20b_free_low/gold
-  no_integrate: true
-  num_explores: 4
+  orchestrator_prompt: single
+  orchestrator:
+    backend: openrouter
+    model: openai/gpt-oss-20b:free
+  explore:
+    - label: default
+      model:
+        backend: openrouter
+        model: openai/gpt-oss-20b:free
+      cache_dir: ../analysis/cache/hle/openrouter_gpt-oss-20b_free_low/gold
+      num_explores: 4
 num: 100
 num_workers: 4
 seed: 42
 log_dir: ../analysis/run/hle/openrouter_gpt-oss-20b_free_low
-# Resume from run_20260504_054504 which crashed at 56/100 with NameError on
-# `asyncio.sleep` in `backends/openrouter.py:406` — the empty_choices retry
-# block added 2026-05-04 05:16 used `asyncio.sleep` without importing asyncio
-# at module top. Import added 2026-05-04 06:21; resume preserves the 56
-# already-graded results (Haiku-cached at <run>/grading/<qid>/judges/claude__.../grade.json),
-# only 44 questions remain. Earlier broken runs (run_20260504_051728_BROKEN_orch401,
-# run_20260504_054240_BROKEN_orch401_2) archived for forensics; both used the
-# stale ~/.bashrc line-146 key and produced empty predicted= rows.
 resume: ../analysis/run/hle/openrouter_gpt-oss-20b_free_low/run_20260504_054504

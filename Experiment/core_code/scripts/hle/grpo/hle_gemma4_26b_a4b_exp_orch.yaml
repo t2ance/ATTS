@@ -6,9 +6,9 @@ benchmark:
   # Switching judge_spec from {claude, haiku} to {vllm, gemma4} auto-invalidates
   # the prior Haiku judge cache via benchmarks/base.py::find_cached_judge.
   judge:
-    name: vllm
     model: gemma4-26b-a4b-it
-    sampling:
+    backend: vllm
+    vllm_sampling:
       temperature: 1.0
       top_p: 0.95
       top_k: 64
@@ -25,26 +25,28 @@ benchmark:
       max_tokens: 4096
 method:
   name: tts-agent
-  backend:
-    name: vllm
-  explore_model: gemma4-26b-a4b-it
-  orchestrator_model: gemma4-26b-a4b-it
-  cache_dir: ../analysis/cache/hle/gemma4_26b_a4b_it/gold
-  no_integrate: true
-  num_explores: 8
-  # Sampling: Gemma-standard block (user-pinned 2026-05-02). MUST match
-  # hle_gemma4_26b_a4b_precache.yaml.sampling exactly except max_tokens.
-  sampling:
-    temperature: 1.0
-    top_p: 0.95
-    top_k: 64
-    enable_thinking: true
+  orchestrator_prompt: single
+  orchestrator:
+    backend: vllm
+    model: gemma4-26b-a4b-it
+    vllm_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
+      enable_thinking: true
     # max_tokens=32768: matches Qwen archetype (hle_qwen36_35b_a3b_exp_orch.yaml).
     # Prior 20000 caused 17% (17/100) of orchestrator outputs to hit the cap and
     # be truncated mid-text on the previous Gemma HLE run. With max-model-len=
     # 65536, 32768 leaves max_input=32768 — enough for 8 cached explore reads
     # (BV/HLE explorer p99 ~10K, 8-turn accumulated typically <30K).
-    max_tokens: 32768
+      max_tokens: 32768
+  explore:
+    - label: default
+      model:
+        backend: vllm
+        model: gemma4-26b-a4b-it
+      cache_dir: ../analysis/cache/hle/gemma4_26b_a4b_it/gold
+      num_explores: 8
 num: 100
 num_workers: 128
 seed: 42

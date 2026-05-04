@@ -2,13 +2,22 @@ benchmark:
   name: lcb
 method:
   name: tts-agent
-  backend:
-    name: claude
-  explore_model: claude-sonnet-4-6
-  orchestrator_model: claude-sonnet-4-6
-  integrate_model: claude-sonnet-4-6
-  cache_dir: ../analysis/cache/lcb/sonnet
-  num_explores: 8
+  orchestrator_prompt: single
+  orchestrator:
+    backend: claude
+    model: claude-sonnet-4-6
+  explore:
+    - label: default
+      model:
+        backend: claude
+        model: claude-sonnet-4-6
+      cache_dir: ../analysis/cache/lcb/sonnet
+      num_explores: 8
+  integrate:
+    model:
+      backend: claude
+      model: claude-sonnet-4-6
+    cache_dir: ../analysis/cache/lcb/sonnet
 num_workers: 16
 seed: 42
 log_dir: ../analysis/run/lcb/sonnet

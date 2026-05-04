@@ -3,15 +3,17 @@ benchmark:
   subset: gold
   text_only: true
   judge:
-    name: claude
     model: claude-haiku-4-5-20251001
+    backend: claude
 method:
   name: budget-forcing
-  backend:
-    name: claude
-  explore_model: claude-sonnet-4-6
-  cache_dir: ../analysis/cache/hle/sonnet_budget_forcing/gold
-  num_explores: 8
+  explore:
+    label: default
+    model:
+      backend: claude
+      model: claude-sonnet-4-6
+    cache_dir: ../analysis/cache/hle/sonnet_budget_forcing/gold
+    num_explores: 8
 num: 100
 num_workers: 4
 seed: 42

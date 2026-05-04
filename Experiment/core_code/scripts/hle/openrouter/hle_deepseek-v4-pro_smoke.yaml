@@ -1,35 +1,29 @@
-# HLE smoke for deepseek/deepseek-v4-pro via OpenRouter (paid).
-# Pre-flight: num=2 questions × n_explore=2 = 4 explores total. Goal: validate
-# end-to-end ATTS works (tool_call routing, structured output, judge wiring)
-# BEFORE committing to the full 800-explore precache + 100-question eval.
-# Cache_dir is SEPARATE from production to avoid pollution.
 benchmark:
   name: hle
   subset: gold
   text_only: true
   judge:
-    name: claude
     model: claude-haiku-4-5-20251001
+    backend: claude
 method:
   name: tts-agent
-  backend:
-    name: openrouter
-    # timeout: 1200.0 — explicit per user 2026-05-04 directive "Timeout 写成
-    #   1200 秒"; matches BackendConfig default in methods/specs.py:66 but
-    #   documenting the choice.
-    timeout: 1200.0
-    # max_output_tokens: 384000 — explicit per user 2026-05-04 directive
-    #   "Max Token 设成 384k"; matches OpenRouter-reported max_completion_tokens
-    #   for deepseek/deepseek-v4-pro (paid tier has 384K, no 8192 free cap).
-    #   Default in methods/specs.py:67 is None → SDK fallback to provider cap;
-    #   making it explicit prevents drift if model spec changes upstream.
-    max_output_tokens: 384000
+  orchestrator_prompt: single
+  orchestrator:
+    backend: openrouter
+    model: deepseek/deepseek-v4-pro
     effort: low
-  explore_model: deepseek/deepseek-v4-pro
-  orchestrator_model: deepseek/deepseek-v4-pro
-  cache_dir: ../analysis/cache/hle/openrouter_deepseek-v4-pro_smoke/gold
-  no_integrate: true
-  num_explores: 2
+    timeout: 1200.0
+    max_output_tokens: 384000
+  explore:
+    - label: default
+      model:
+        backend: openrouter
+        model: deepseek/deepseek-v4-pro
+        effort: low
+        timeout: 1200.0
+        max_output_tokens: 384000
+      cache_dir: ../analysis/cache/hle/openrouter_deepseek-v4-pro_smoke/gold
+      num_explores: 2
 num: 2
 num_workers: 2
 seed: 42

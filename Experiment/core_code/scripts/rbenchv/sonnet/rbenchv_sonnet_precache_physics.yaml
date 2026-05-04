@@ -2,19 +2,17 @@ benchmark:
   name: rbenchv
   category: Physics
   judge:
-    name: claude
     model: claude-haiku-4-5-20251001
-backend: claude
-explore_model: claude-sonnet-4-6
-cache_dir: ../analysis/cache/rbenchv/sonnet
-# 2026-05-04: switched 8->4 to halve remaining budget. Of 1256 explore slots in
-# Physics (157 qids x 8), 250 fall in slots 1-4 of qids that already have >=4
-# real explores, so cache_skip absorbs them; only 378 new calls actually fire
-# (94 untouched qids x 4 + physics_63 2/4 -> +2). Est. spend $80-110 at observed
-# $0.21-0.29/explore. The 5-8 slots of already-cached qids stay on disk untouched.
-# DO NOT raise back to 8 mid-run -- doing so would re-attempt slots 5-8 for the
-# 62 already-fully-cached qids (cache will hit) but would also re-attempt slots
-# 5-8 for any qids covered by this 4-explore pass, doubling spend retroactively.
-num_explores: 4
+    backend: claude
+explore:
+  label: default
+  model:
+    backend: claude
+    model: claude-sonnet-4-6
+    budget_tokens: 32000
+    effort: low
+    timeout: 1200.0
+  cache_dir: ../analysis/cache/rbenchv/sonnet
+  num_explores: 4
 num_workers: 4
 seed: 42

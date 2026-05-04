@@ -1,11 +1,17 @@
 benchmark:
   name: babyvision
   judge:
-    name: claude
     model: claude-haiku-4-5-20251001
-backend: claude
-explore_model: claude-opus-4-6
-cache_dir: ../analysis/cache/babyvision/opus
-num_explores: 2
+    backend: claude
+explore:
+  label: default
+  model:
+    backend: claude
+    model: claude-opus-4-6
+    budget_tokens: 32000
+    effort: low
+    timeout: 1200.0
+  cache_dir: ../analysis/cache/babyvision/opus
+  num_explores: 2
 num_workers: 8
 seed: 42

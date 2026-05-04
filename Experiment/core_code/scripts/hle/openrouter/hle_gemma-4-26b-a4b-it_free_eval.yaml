@@ -1,7 +1,3 @@
-# HLE eval (ATTS orchestrator over precached explores) for
-# google/gemma-4-26b-a4b-it:free. Reads explores from cache, runs orchestrator
-# turns, grades via Qwen3.6 self-hosted judge. Phase 3 of
-# ../../todo_openrouter_hle_gemma-4-26b-a4b-it_free.md.
 benchmark:
   name: hle
   subset: gold
@@ -10,9 +6,9 @@ benchmark:
   # find_cached_judge so verdicts already produced during precache (if any)
   # are reused.
   judge:
-    name: vllm
     model: qwen36-35b-a3b-fp8
-    sampling:
+    backend: vllm
+    vllm_sampling:
       temperature: 1.0
       top_p: 0.95
       top_k: 64
@@ -20,16 +16,18 @@ benchmark:
       max_tokens: 4096
 method:
   name: tts-agent
-  backend:
-    name: openrouter
-  explore_model: google/gemma-4-26b-a4b-it:free
-  orchestrator_model: google/gemma-4-26b-a4b-it:free
-  # MUST match production precache cache_dir exactly. Cache discipline
-  # asserts cache_only=True on tts-agent → any cache miss crashes.
-  cache_dir: ../analysis/cache/hle/openrouter_google_gemma-4-26b-a4b-it_free/gold
-  no_integrate: true
-  # Mirrors precache yaml. Each question reads 4 cached explores.
-  num_explores: 4
+  orchestrator_prompt: single
+  orchestrator:
+    backend: openrouter
+    model: google/gemma-4-26b-a4b-it:free
+  explore:
+    - label: default
+      model:
+        backend: openrouter
+        model: google/gemma-4-26b-a4b-it:free
+      cache_dir: 
+        ../analysis/cache/hle/openrouter_google_gemma-4-26b-a4b-it_free/gold
+      num_explores: 4
 num: 100
 num_workers: 4
 seed: 42

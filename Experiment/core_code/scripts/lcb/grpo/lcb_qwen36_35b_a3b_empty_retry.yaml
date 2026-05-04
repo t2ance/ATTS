@@ -2,27 +2,24 @@ benchmark:
   name: lcb
 method:
   name: tts-agent
-  backend:
-    name: vllm
-  explore_model: claude-sonnet-4-6
-  orchestrator_model: qwen36-35b-a3b-fp8
-  cache_dir: ../analysis/cache/lcb/sonnet
-  no_integrate: true
-  num_explores: 8
-  sampling:
-    temperature: 1.0
-    top_p: 0.95
-    top_k: 20
-    min_p: 0.0
-    presence_penalty: 1.5
-    repetition_penalty: 1.0
-    enable_thinking: true
+  orchestrator_prompt: single
+  orchestrator:
+    backend: vllm
+    model: qwen36-35b-a3b-fp8
+    vllm_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 20
+      min_p: 0.0
+      presence_penalty: 1.5
+      repetition_penalty: 1.0
+      enable_thinking: true
     # max_tokens 4x of ORIGINAL 32768 from the run that produced pre_64K
     # backup (todo_lcb_empty_retry_4x.md Phase 1, user-directed). Goal: give
     # the 12 EMPTY-row qids enough decode budget to emit StructuredOutput.
     # vLLM serve on GPU 0 has --max-model-len 163840, leaving ~32K headroom
     # for prompt + tool definitions on top of this 128K output budget.
-    max_tokens: 131072
+      max_tokens: 131072
 # 4 specific qids only; the retry driver monkey-patches LCB.load_dataset to
 # filter to the qids in tmp/lcb_empty_retry_qids.json. Set was reduced from
 # 12 -> 4 on 2026-05-03: an audit of cache/lcb/sonnet/<qid>/explore_<n>/result.json
@@ -30,11 +27,14 @@ method:
 # timed_out=True (Sonnet explorer aborted before emitting any candidate), so
 # the orchestrator can never see usable candidates regardless of its decode
 # budget. Only the 4 with >=1 non-timed-out cache entry are tried here.
-num: null
-# 4 qids / 4 workers = 1 round; one concurrent seq per qid, plenty of KV pool
-# headroom on a single A100 at 128K context.
+  explore:
+    - label: default
+      model:
+        backend: vllm
+        model: claude-sonnet-4-6
+      cache_dir: ../analysis/cache/lcb/sonnet
+      num_explores: 8
+num:
 num_workers: 4
 seed: 42
-# NEW log_dir (do NOT resume into qwen36_35b_a3b_fp8_temp/run_20260501_042951
-# — that run is in a half-overwritten state from the failed 64K retry).
 log_dir: ../analysis/run/lcb/qwen36_35b_a3b_fp8_empty_retry_4x

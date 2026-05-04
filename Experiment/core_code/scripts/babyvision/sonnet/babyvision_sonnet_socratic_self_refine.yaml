@@ -1,16 +1,19 @@
 benchmark:
   name: babyvision
   judge:
-    name: claude
     model: claude-haiku-4-5-20251001
+    backend: claude
 method:
   name: socratic-self-refine
-  backend:
-    name: claude
-  explore_model: claude-sonnet-4-6
-  cache_dir: ../analysis/cache/babyvision/sonnet_socratic_self_refine
-  num_explores: 8
+  explore:
+    label: default
+    model:
+      backend: claude
+      model: claude-sonnet-4-6
+    cache_dir: ../analysis/cache/babyvision/sonnet_socratic_self_refine
+    num_explores: 8
 num_workers: 1
 seed: 42
 log_dir: ../analysis/run/babyvision/sonnet_socratic_self_refine
-resume: ../analysis/run/babyvision/sonnet_socratic_self_refine/run_20260428_075116
+resume: 
+  ../analysis/run/babyvision/sonnet_socratic_self_refine/run_20260428_075116

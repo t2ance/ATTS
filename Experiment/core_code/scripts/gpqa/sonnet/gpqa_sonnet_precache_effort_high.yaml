@@ -1,10 +1,14 @@
 benchmark:
   name: gpqa
-backend: claude
-explore_model: claude-sonnet-4-6
-effort: high
-cache_dir: ../analysis/cache/gpqa/sonnet_effort_high
-num_explores: 8
+explore:
+  label: default
+  model:
+    backend: claude
+    model: claude-sonnet-4-6
+    budget_tokens: 32000
+    effort: high
+    timeout: 1200
+  cache_dir: ../analysis/cache/gpqa/sonnet_effort_high
+  num_explores: 8
 num_workers: 1
 seed: 42
-explore_timeout: 1200

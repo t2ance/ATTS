@@ -4,19 +4,14 @@ benchmark:
   # extra: forbid. No judge block here, by design.
 method:
   name: tts-agent
-  backend:
-    name: vllm
-  # Variant B: Sonnet-cached explorer + Gemma orchestrator.
-  explore_model: claude-sonnet-4-6
-  orchestrator_model: gemma4-26b-a4b-it
-  cache_dir: ../analysis/cache/gpqa/sonnet
-  # cache_only hardcoded True at TTSAgentMethod (methods/registry.py:94).
-  no_integrate: true
-  num_explores: 8
-  sampling:
-    temperature: 1.0
-    top_p: 0.95
-    top_k: 64
+  orchestrator_prompt: single
+  orchestrator:
+    backend: vllm
+    model: gemma4-26b-a4b-it
+    vllm_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
     # enable_thinking=false (override default true; 2026-05-03):
     # Variant B is Sonnet-cached aggregator — thinking-on caused 28% empty
     # predicted_answer on HLE 100Q (archived run_20260503_051610) and was
@@ -24,13 +19,18 @@ method:
     # deterministic 74.24%. Disabling thinking restores the explorer-thinks
     # / orchestrator-aggregates split. Compare new run Acc to archived
     # thinking-on baseline at analysis/archive/gemma_sonnet_orch_thinking_on_2026-05-03/.
-    enable_thinking: false
+      enable_thinking: false
     # max_tokens=32768: matches Qwen archetype + exp_orch. Variant B keeps
     # orchestrator config identical between variants.
-    max_tokens: 32768
+      max_tokens: 32768
+  explore:
+    - label: default
+      model:
+        backend: vllm
+        model: claude-sonnet-4-6
+      cache_dir: ../analysis/cache/gpqa/sonnet
+      num_explores: 8
 num: 198
-# num_workers=16: Gemma DP=1 KV pool conservative default; see HLE yaml
-# rationale.
 num_workers: 16
 seed: 42
 log_dir: ../analysis/run/gpqa/gemma4_26b_a4b_it_sonnet_orch

@@ -5,9 +5,9 @@ benchmark:
   # Judge = Gemma-4 served via vLLM (matches exp_orch judge for apples-to-apples
   # comparison + judge cache reuse).
   judge:
-    name: vllm
     model: gemma4-26b-a4b-it
-    sampling:
+    backend: vllm
+    vllm_sampling:
       temperature: 1.0
       top_p: 0.95
       top_k: 64
@@ -19,33 +19,27 @@ benchmark:
       max_tokens: 4096
 method:
   name: tts-agent
-  backend:
-    name: vllm
-  # Variant B SMOKE: Sonnet-cached explorer + Gemma orchestrator. Per
-  # todo_inf_gemma_B_sonnet_orch.md Phase 1 item 06. Goal: confirm Gemma emits
-  # structured tool_calls (not text) so orchestrator can read cache.
-  explore_model: claude-sonnet-4-6
-  orchestrator_model: gemma4-26b-a4b-it
-  # cache_dir: read-only Sonnet cache populated by prior Sonnet runs that
-  # produced tab:main-results. Confirmed 100 qids × 8 explores intact 2026-05-03.
-  cache_dir: ../analysis/cache/hle/sonnet/gold
-  # cache_only is hardcoded True at TTSAgentMethod class level
-  # (methods/registry.py:94), enforced by pre_flight_check + the cache_only
-  # branch in methods/base.py:285. No YAML field needed.
-  no_integrate: true
-  num_explores: 8
-  sampling:
-    temperature: 1.0
-    top_p: 0.95
-    top_k: 64
-    enable_thinking: true
+  orchestrator_prompt: single
+  orchestrator:
+    backend: vllm
+    model: gemma4-26b-a4b-it
+    vllm_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 64
+      enable_thinking: true
     # max_tokens=32768: matches Qwen archetype + exp_orch. Smoke uses same
     # value to validate orchestrator behavior at production setting.
-    max_tokens: 32768
+      max_tokens: 32768
 # num=2: smoke = 2 questions × 8 cached Sonnet explores = 16 cache reads.
+  explore:
+    - label: default
+      model:
+        backend: vllm
+        model: claude-sonnet-4-6
+      cache_dir: ../analysis/cache/hle/sonnet/gold
+      num_explores: 8
 num: 2
-# num_workers=4: smoke uses minimal concurrency to make trajectory inspection
-# easier. Production will scale up.
 num_workers: 4
 seed: 42
 log_dir: ../analysis/run/hle/gemma4_26b_a4b_it_sonnet_orch_smoke

@@ -2,11 +2,13 @@ benchmark:
   name: aime2026
 method:
   name: budget-forcing
-  backend:
-    name: claude
-  explore_model: claude-sonnet-4-6
-  cache_dir: ../analysis/cache/aime2026/sonnet_budget_forcing
-  num_explores: 8
+  explore:
+    label: default
+    model:
+      backend: claude
+      model: claude-sonnet-4-6
+    cache_dir: ../analysis/cache/aime2026/sonnet_budget_forcing
+    num_explores: 8
 num_workers: 16
 seed: 42
 log_dir: ../analysis/run/aime2026/sonnet_budget_forcing

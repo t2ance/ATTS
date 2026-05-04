@@ -2,11 +2,13 @@ benchmark:
   name: lcb
 method:
   name: budget-forcing
-  backend:
-    name: claude
-  explore_model: claude-sonnet-4-6
-  cache_dir: ../analysis/cache/lcb/sonnet_budget_forcing
-  num_explores: 8
+  explore:
+    label: default
+    model:
+      backend: claude
+      model: claude-sonnet-4-6
+    cache_dir: ../analysis/cache/lcb/sonnet_budget_forcing
+    num_explores: 8
 num_workers: 4
 seed: 42
 log_dir: ../analysis/run/lcb/sonnet_budget_forcing

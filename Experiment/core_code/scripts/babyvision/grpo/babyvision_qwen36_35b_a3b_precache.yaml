@@ -1,34 +1,32 @@
 benchmark:
   name: babyvision
   judge:
-    name: claude
     model: claude-haiku-4-5-20251001
-backend: vllm
-# Explorer = orchestrator: same Qwen3.6-35B-A3B-FP8 alias served as a single
-# DP=4 endpoint on :8000 (vllm fans out to 4 GPU workers internally). See
-# hle_qwen36_35b_a3b_precache.yaml for the `_exp_orch` arm rationale.
-explore_model: qwen36-35b-a3b-fp8
-cache_dir: ../analysis/cache/babyvision/qwen36_35b_a3b_fp8
-num_explores: 8
-# 128 client-side asyncio tasks. Under DP=4 vllm queues to ~5-6 in-flight per
-# worker (KV-cache bound for 128K-context); the rest queue. BabyVision is
-# image-conditioned so vit + mm-encoder add CPU overhead per request, but
-# throughput is still memory-bandwidth-bound on 35B-A3B FP8 decode.
-num_workers: 128
-seed: 42
-# MUST match babyvision_qwen36_35b_a3b_exp_orch.yaml.sampling exactly.
-sampling:
-  temperature: 1.0
-  top_p: 0.95
-  top_k: 20
-  min_p: 0.0
-  presence_penalty: 1.5
-  repetition_penalty: 1.0
-  enable_thinking: true
+    backend: claude
+explore:
+  label: default
+  model:
+    backend: vllm
+    model: qwen36-35b-a3b-fp8
+    budget_tokens: 32000
+    effort: low
+    timeout: 1200.0
+    vllm_sampling:
+      temperature: 1.0
+      top_p: 0.95
+      top_k: 20
+      min_p: 0.0
+      presence_penalty: 1.5
+      repetition_penalty: 1.0
+      enable_thinking: true
   # max_tokens=60000: vllm enforces max_input = max-model-len - max_tokens.
   # With max-model-len=65536 (set 2026-05-02), max_tokens=65536 leaves 0
   # input budget which crashes every call. 60000 leaves 5536 input headroom.
   # BV input p50 = 577 tokens, single-turn precache inputs stay under 2K.
   # Observed BV explorer max output = 14179, p99=10398, so 60K is huge
   # ceiling; matches the matched-budget design (max_tokens ≈ max-model-len).
-  max_tokens: 60000
+      max_tokens: 60000
+  cache_dir: ../analysis/cache/babyvision/qwen36_35b_a3b_fp8
+  num_explores: 8
+num_workers: 128
+seed: 42

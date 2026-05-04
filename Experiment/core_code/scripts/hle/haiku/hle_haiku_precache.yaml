@@ -3,12 +3,19 @@ benchmark:
   subset: gold
   text_only: true
   judge:
-    name: claude
     model: claude-haiku-4-5-20251001
-backend: claude
-explore_model: claude-haiku-4-5-20251001
-cache_dir: /data3/peijia/dr-claw/Explain/Experiment/analysis/cache/hle/haiku/gold
-num: 400
-num_explores: 8
+    backend: claude
+explore:
+  label: default
+  model:
+    backend: claude
+    model: claude-haiku-4-5-20251001
+    budget_tokens: 32000
+    effort: low
+    timeout: 1200.0
+  cache_dir: 
+    /data3/peijia/dr-claw/Explain/Experiment/analysis/cache/hle/haiku/gold
+  num_explores: 8
 num_workers: 8
+num: 400
 seed: 42

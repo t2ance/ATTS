@@ -3,18 +3,21 @@ benchmark:
   subset: gold
   text_only: true
   judge:
-    name: claude
     model: claude-haiku-4-5-20251001
+    backend: claude
 method:
   name: tts-agent
-  backend:
-    name: vllm
-  explore_model: qwen3-8b-base
-  orchestrator_model: qwen3-8b-base
-  integrate_model: qwen3-8b-base
-  cache_dir: ../analysis/cache/hle/haiku/gold
-  no_integrate: true
-  num_explores: 8
+  orchestrator_prompt: single
+  orchestrator:
+    backend: vllm
+    model: qwen3-8b-base
+  explore:
+    - label: default
+      model:
+        backend: vllm
+        model: qwen3-8b-base
+      cache_dir: ../analysis/cache/hle/haiku/gold
+      num_explores: 8
 skip: 100
 num: 64
 num_workers: 16
