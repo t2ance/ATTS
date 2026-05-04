@@ -242,28 +242,6 @@ Schema:
 """
 
 
-_EXPLORATION_EFFORT = {
-    "low": (
-        "Exploration effort: LOW. "
-        "Stop as soon as 2 candidates from any model converge on the same answer."
-    ),
-    "medium": (
-        "Exploration effort: MEDIUM. "
-        "You MUST call explore at least 3 times before submitting. "
-        "You MUST use at least 2 different models. "
-        "Same-model agreement alone is never sufficient to submit."
-    ),
-    "high": (
-        "Exploration effort: HIGH. "
-        "You MUST call explore at least 5 times before submitting. "
-        "You MUST use all 3 available models (haiku, sonnet, opus). "
-        "Same-model agreement is never sufficient. "
-        "Do NOT stop at 2 or 3 explores -- that is too few for high effort. "
-        "Gather evidence from diverse models before concluding."
-    ),
-}
-
-
 ORCHESTRATOR_EFFORT_SYSTEM_PROMPT = """\
 You are a meta-reasoning orchestrator. You manage a pool of candidate solutions for a problem.
 
@@ -317,25 +295,55 @@ Example 2 (escalation needed):
 """
 
 
+def select_orchestrator_prompt(spec) -> str:
+    """Pick the orchestrator system prompt for a TTSAgentSpec.
+
+    Currently dispatches on (orchestrator_prompt, integrate is None). Future
+    routing axes (e.g. benchmark-family overrides, custom prompt registry)
+    can be added here without touching solver call sites.
+
+    The four prompt strings stay byte-identical with their pre-refactor form
+    so existing run trajectories (analysis/run/hle/multi_model_effort_*) can
+    be reproduced under the unified solver. The label-set assertions on the
+    multi_model and effort branches are spec-side validators in
+    methods.specs.TTSAgentSpec._check_consistency, not enforced here.
+    """
+    no_integrate = spec.integrate is None
+    if spec.orchestrator_prompt == "single":
+        return (
+            ORCHESTRATOR_NO_INTEGRATE_SYSTEM_PROMPT
+            if no_integrate
+            else ORCHESTRATOR_SYSTEM_PROMPT
+        )
+    if spec.orchestrator_prompt == "multi_model":
+        assert no_integrate
+        return ORCHESTRATOR_MULTI_MODEL_SYSTEM_PROMPT
+    if spec.orchestrator_prompt == "effort":
+        assert no_integrate
+        return ORCHESTRATOR_EFFORT_SYSTEM_PROMPT
+    raise AssertionError(
+        f"unknown orchestrator_prompt: {spec.orchestrator_prompt!r}"
+    )
+
+
 def build_user_message(
     problem: str,
     max_iterations: int,
-    model_budgets: dict[str, int] | None = None,
-    exploration_effort: str | None = None,
-    effort_budgets: dict[str, int] | None = None,
+    variant_budgets: dict[str, int] | None = None,
 ) -> str:
-    """Build the initial user message for the orchestrator."""
+    """Build the initial user message for the orchestrator.
+
+    `variant_budgets` (label -> num_explores) is rendered as a per-variant
+    limit list when set; absent for length-1 explore (single-variant ATTS).
+    The post-refactor unified TTSAgentSpec uses one `variant_budgets` dict
+    for both old multi-model and effort paths — labels are the source of
+    truth for the orchestrator's variant choice.
+    """
     budget_lines = f"You have up to {max_iterations} explore rounds in total."
-    if model_budgets:
-        per_model = ", ".join(f"{alias}: max {limit}" for alias, limit in model_budgets.items())
-        budget_lines += f"\nPer-model limits: {per_model}."
-        budget_lines += "\nOnce a model's limit is reached, you cannot use it again."
-    if effort_budgets:
-        per_effort = ", ".join(f"{level}: max {limit}" for level, limit in effort_budgets.items())
-        budget_lines += f"\nPer-effort limits: {per_effort}."
-        budget_lines += "\nOnce an effort level's limit is reached, you cannot use it again."
-    if exploration_effort and exploration_effort in _EXPLORATION_EFFORT:
-        budget_lines += f"\n{_EXPLORATION_EFFORT[exploration_effort]}"
+    if variant_budgets:
+        per_variant = ", ".join(f"{lab}: max {n}" for lab, n in variant_budgets.items())
+        budget_lines += f"\nPer-variant limits: {per_variant}."
+        budget_lines += "\nOnce a variant's limit is reached, you cannot use it again."
     budget_lines += "\nBegin by calling explore to dispatch the first solver."
     return (
         f"## Problem\n\n{problem}\n\n"
