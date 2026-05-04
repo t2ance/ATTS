@@ -26,10 +26,11 @@ from prompts import format_claude_structured_suffix
 # where <label> = f"{judge_spec['backend']}__{judge_spec['model']}".
 # `config.json` carries the full ModelConfig dump; the source of truth for judge
 # identity is the dict-equality of config.json against the requested spec.
-# Migration note: pre-2026-05-04 caches stored `name` instead of `backend`;
-# the on-disk label string is identical (e.g. claude__claude-haiku-4-5-20251001),
-# but the config.json field name changed. scripts/maintenance/migrate_judge_cache_keys.py
-# renames the field in-place. Run that before this code path is exercised.
+# Migration note: pre-2026-05-04 caches stored `name` instead of `backend` and
+# (vllm only) `sampling` instead of `vllm_sampling`. The on-disk label string
+# is identical (e.g. claude__claude-haiku-4-5-20251001) since the values match.
+# Run scripts/maintenance/migrate_judge_cache_keys.py to rename the field in
+# every judges/<label>/config.json before this code path is exercised.
 
 def judge_label(judge_spec: dict) -> str:
     """Stable, human-readable label for a judge bundle directory."""
