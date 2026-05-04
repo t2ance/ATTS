@@ -22,6 +22,11 @@ method:
   cache_dir: ../analysis/cache/hle/openrouter_grok-4.1-fast/gold
   no_integrate: true
   num_explores: 4
+  # orchestrator_effort: high — per-role override (TTSAgentSpec, 2026-05-04
+  #   patch). Cached 400 explores stay at backend.effort=low (cache_only=True
+  #   prevents re-explore); only orchestrator turn reasons at effort=high.
+  #   Goal: lift integrated 38% closer to oracle 62% on this fixed cache.
+  orchestrator_effort: high
 num: 100
 # num_workers: 16 — user directive 2026-05-04 21:05 UTC "并行开到 16". Daily
 #   Haiku quota reset at 21:00 UTC, so previous burst-rate-limit (run_20260504_

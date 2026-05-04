@@ -269,6 +269,11 @@ async def _run_orchestrator(
         tools = [EXPLORE_TOOL]
         output_format = {"type": "json_schema", "schema": ctx.benchmark.get_explore_schema()}
 
+    # effort: orchestrator turn uses ctx.orchestrator_effort if set (per-role
+    #   override from TTSAgentSpec.orchestrator_effort), else falls back to
+    #   ctx.effort (backend default). Explore tool calls inside tool_handler
+    #   stay on ctx.effort regardless. Cache-only mode (registry.py:94)
+    #   prevents new explore calls from being triggered.
     cost, usage, exit_reason = await backend_mod.run_tool_conversation(
         system_prompt=system_prompt,
         user_message=user_message_text,
@@ -277,7 +282,7 @@ async def _run_orchestrator(
         tools=tools,
         max_turns=ctx.state.explore.max_explores + 2,
         tool_handler=tool_handler,
-        effort=ctx.effort,
+        effort=ctx.orchestrator_effort or ctx.effort,
         output_format=output_format,
         writer=ctx.writer,
         on_structured_output=make_structured_output_handler(ctx),

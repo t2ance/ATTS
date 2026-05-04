@@ -39,6 +39,10 @@ class InfraConfig:
     logger: RunLogger | None
     enable_integrate: bool = True
     max_output_tokens: int | None = None
+    # orchestrator_effort: only consumed by tts-agent (TTSAgentSpec); other
+    #   methods leave this None. Plumbed into SolveContext and used at
+    #   tts_agent.py:280 to override `effort` on orchestrator turn ONLY.
+    orchestrator_effort: str | None = None
 
 
 @dataclass
@@ -83,6 +87,9 @@ class SolveContext:
     question_id: str | None
     max_output_tokens: int | None = None
     rollout_idx: int | None = None
+    # orchestrator_effort: tts-agent-only override; orchestrator turn uses
+    #   `self.orchestrator_effort or self.effort`. None = unchanged behavior.
+    orchestrator_effort: str | None = None
 
     async def call_sub_model(
         self,
@@ -396,4 +403,5 @@ def create_solve_context(
         question_id=question_id,
         max_output_tokens=infra.max_output_tokens,
         rollout_idx=rollout_idx,
+        orchestrator_effort=infra.orchestrator_effort,
     )

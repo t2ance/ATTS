@@ -92,6 +92,14 @@ class TTSAgentSpec(_MethodSpec):
     num_explores: int = 8
     num_rollouts: int = 1
     sampling: SamplingConfig | None = None
+    # orchestrator_effort: per-role override of backend.effort, applied ONLY
+    #   to the orchestrator turn (run_tool_conversation in tts_agent.py:~280),
+    #   NOT to explore tool calls. Use case: cached explores at effort=low
+    #   are reused; orchestrator at effort=high reasons more deeply when
+    #   selecting/integrating among them. None = inherit backend.effort.
+    #   Coupling: cache_only=True (registry.py:94) prevents new explore calls,
+    #   so cache effort consistency is preserved regardless of this setting.
+    orchestrator_effort: Literal["low", "medium", "high", "max"] | None = None
 
     @model_validator(mode="after")
     def _check_integrate(self):

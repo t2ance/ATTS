@@ -776,6 +776,13 @@ async def async_main() -> None:
         logger=None,
         enable_integrate=not getattr(cfg.method, "no_integrate", False),
         max_output_tokens=backend_block.max_output_tokens if backend_block else None,
+        # orchestrator_effort: only TTSAgentSpec carries this field; getattr
+        #   with default None so other method specs don't fail. Plumbs to
+        #   SolveContext.orchestrator_effort, used at tts_agent.py:~285 to
+        #   override `effort` on the orchestrator turn ONLY (cached explores
+        #   keep their original effort because cache_only=True prevents new
+        #   explore calls).
+        orchestrator_effort=getattr(cfg.method, "orchestrator_effort", None),
     )
 
     # If the yaml pinned an OpenRouter provider via method.backend.provider_order,
