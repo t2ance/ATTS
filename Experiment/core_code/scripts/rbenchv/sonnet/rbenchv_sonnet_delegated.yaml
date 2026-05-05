@@ -23,3 +23,10 @@ method:
 num_workers: 16
 seed: 42
 log_dir: ../analysis/run/rbenchv/sonnet
+
+# Smoke pin (2026-05-05 explore-cache-owner refactor):
+#   cache_only=false enables online-cache mode (preflight skipped, miss -> API
+#   -> writeback). num=5 caps blast radius (~$5) for the post-refactor smoke
+#   run. Remove these two lines for full-cache production runs.
+# cache_only: false
+# num: 5
