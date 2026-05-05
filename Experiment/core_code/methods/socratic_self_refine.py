@@ -40,9 +40,14 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+import asyncio
+import time
+from importlib import import_module
+
+from cache_types import Exploration
 from methods.base import Candidate, InfraConfig, create_solve_context
 from methods.tool_state import advance
-from trajectory import RoundLog, SolveResult
+from trajectory import RoundLog, SolveResult, TrajectoryWriter
 from prompts import format_claude_structured_suffix
 from benchmarks.base import ANSWER_FORMAT_RULES
 
@@ -309,31 +314,77 @@ async def solve(
 
     history = IterationHistory()
 
-    # -- Step 1: Generator (Draft 0) — inline explore call --
+    # -- Step 1: Generator (Draft 0) -- explore call via ExploreVariant --
     explorer_system_prompt = ctx.benchmark.get_explorer_system_prompt(backend)
     explore_schema = ctx.benchmark.get_explore_schema()
     user_msg = ctx.benchmark.build_explorer_message(problem)
 
-    gen_result, _gen_traj, gen_cost, gen_usage, _gen_dur = await ctx.call_sub_model(
-        system_prompt=explorer_system_prompt,
-        user_message=user_msg,
-        model_cfg=variant.model,
-        output_schema=explore_schema,
-        cache_key="explore_1",
-        writer=ctx.writer,
-    )
+    qid = question_id or ""
 
-    if gen_result.get("timed_out"):
+    def _make_explore_gen_fn(idx: int, system_prompt: str, user_message: str, schema: dict):
+        async def gen() -> Exploration:
+            if infra.cache_only:
+                raise AssertionError(
+                    f"cache_only mode: explore cache miss at {variant._explore_dir(qid, idx, rollout_idx)}"
+                )
+            backend_mod = import_module(f"backends.{variant.model.backend}")
+            t0 = time.time()
+            api_coro = backend_mod.call_sub_model(
+                system_prompt, user_message, image_data_url,
+                variant.model.model, schema,
+                TrajectoryWriter.noop(),
+                budget_tokens=variant.model.budget_tokens,
+                effort=variant.model.effort,
+                sampling=(variant.model.vllm_sampling.model_dump()
+                          if variant.model.vllm_sampling is not None else None),
+                provider_order=variant.model.openrouter_provider_order,
+                provider_allow_fallbacks=variant.model.openrouter_provider_allow_fallbacks,
+            )
+            timeout = variant.model.timeout
+            if timeout is not None:
+                try:
+                    result, traj, cost, usage = await asyncio.wait_for(api_coro, timeout=timeout)
+                except asyncio.TimeoutError:
+                    duration = time.time() - t0
+                    return Exploration(
+                        qid=qid, idx=idx, rollout_idx=rollout_idx,
+                        answer="", trajectory="", cost_usd=0.0, model=variant.model.model,
+                        timed_out=True,
+                        extra={"timeout_seconds": timeout, "duration_seconds": duration},
+                        system_prompt=system_prompt, user_message=user_message,
+                    )
+            else:
+                result, traj, cost, usage = await api_coro
+            answer = ctx.benchmark.get_answer_from_explore(result)
+            return Exploration(
+                qid=qid, idx=idx, rollout_idx=rollout_idx,
+                answer=answer, trajectory=traj, cost_usd=cost, model=variant.model.model,
+                timed_out=bool(result.get("timed_out", False)),
+                extra={"usage": usage, **{k: v for k, v in result.items() if k != "answer"}},
+                system_prompt=system_prompt, user_message=user_message,
+            )
+        return gen
+
+    exp1 = await variant.get_exploration(
+        qid, 1, rollout_idx=rollout_idx,
+        generate_fn=_make_explore_gen_fn(1, explorer_system_prompt, user_msg, explore_schema),
+    )
+    if ctx.traj_dir is not None:
+        exp1.persist(ctx.traj_dir / "explore_1")
+
+    if exp1.timed_out:
         logger.info("  [socratic-self-refine] Draft 0 TIMED OUT, no answer")
         return ctx.result("")
 
-    ctx.cost.add(gen_cost, gen_usage, component="explorer")
-    gen_answer = ctx.benchmark.get_answer_from_explore(gen_result)
+    ctx.cost.add(exp1.cost_usd, exp1.extra.get("usage", {}), component="explorer")
+    gen_answer = exp1.answer
+    gen_extra = exp1.extra
+    gen_cost = exp1.cost_usd
     draft0 = Candidate(
         answer=gen_answer,
-        reasoning=gen_result.get("reasoning", ""),
-        approach=gen_result.get("approach", ""),
-        confidence=gen_result.get("confidence", 0.0),
+        reasoning=gen_extra.get("reasoning", ""),
+        approach=gen_extra.get("approach", ""),
+        confidence=gen_extra.get("confidence", 0.0),
         cost_usd=gen_cost,
     )
     ctx.state.candidates.append(draft0)
@@ -409,21 +460,21 @@ async def solve(
         if is_correct:
             break
 
-        # -- Refiner call --
+        # -- Refiner call -- explore call via ExploreVariant --
         ref_msg = history.build_refiner_message(problem)
-
-        ref_result, ref_traj, ref_cost, ref_usage, ref_dur = await ctx.call_sub_model(
-            system_prompt=refiner_prompt,
-            user_message=ref_msg,
-            model_cfg=variant.model,
-            output_schema=explore_schema,
-            cache_key=f"explore_{i}",
-            writer=ctx.writer,
+        exp_i = await variant.get_exploration(
+            qid, i, rollout_idx=rollout_idx,
+            generate_fn=_make_explore_gen_fn(i, refiner_prompt, ref_msg, explore_schema),
         )
+        if ctx.traj_dir is not None:
+            exp_i.persist(ctx.traj_dir / f"explore_{i}")
 
-        ctx.cost.add(ref_cost, ref_usage, component="explorer")
+        ref_cost = exp_i.cost_usd
+        ref_extra = exp_i.extra
+        ref_result = {"answer": exp_i.answer, **ref_extra}
+        ctx.cost.add(ref_cost, ref_extra.get("usage", {}), component="explorer")
 
-        if ref_result.get("timed_out"):
+        if exp_i.timed_out:
             logger.info(f"  [socratic-self-refine] Refiner {i}: TIMED OUT")
             ctx.writer.write_text(f"## Draft {i - 1} (Refiner): TIMED OUT")
             break

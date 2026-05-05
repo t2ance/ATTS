@@ -14,9 +14,14 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+import asyncio
+import time
+from importlib import import_module
+
+from cache_types import Exploration
 from methods.base import Candidate, InfraConfig, create_solve_context
 from methods.tool_state import advance
-from trajectory import RoundLog, SolveResult
+from trajectory import RoundLog, SolveResult, TrajectoryWriter
 
 
 async def solve(
@@ -57,33 +62,78 @@ async def solve(
     user_msg = ctx.benchmark.build_explorer_message(problem)
 
     prev_trajectory = ""
+    qid = question_id or ""
+
+    def _make_explore_gen_fn(idx: int, system_prompt: str, user_message: str):
+        async def gen() -> Exploration:
+            if infra.cache_only:
+                raise AssertionError(
+                    f"cache_only mode: explore cache miss at {variant._explore_dir(qid, idx, rollout_idx)}"
+                )
+            backend_mod = import_module(f"backends.{variant.model.backend}")
+            t0 = time.time()
+            api_coro = backend_mod.call_sub_model(
+                system_prompt, user_message, image_data_url,
+                variant.model.model, explore_schema,
+                TrajectoryWriter.noop(),
+                budget_tokens=variant.model.budget_tokens,
+                effort=variant.model.effort,
+                sampling=(variant.model.vllm_sampling.model_dump()
+                          if variant.model.vllm_sampling is not None else None),
+                provider_order=variant.model.openrouter_provider_order,
+                provider_allow_fallbacks=variant.model.openrouter_provider_allow_fallbacks,
+            )
+            timeout = variant.model.timeout
+            if timeout is not None:
+                try:
+                    result, traj, cost, usage = await asyncio.wait_for(api_coro, timeout=timeout)
+                except asyncio.TimeoutError:
+                    duration = time.time() - t0
+                    return Exploration(
+                        qid=qid, idx=idx, rollout_idx=rollout_idx,
+                        answer="", trajectory="", cost_usd=0.0, model=variant.model.model,
+                        timed_out=True,
+                        extra={"timeout_seconds": timeout, "duration_seconds": duration},
+                        system_prompt=system_prompt, user_message=user_message,
+                    )
+            else:
+                result, traj, cost, usage = await api_coro
+            answer = ctx.benchmark.get_answer_from_explore(result)
+            return Exploration(
+                qid=qid, idx=idx, rollout_idx=rollout_idx,
+                answer=answer, trajectory=traj, cost_usd=cost, model=variant.model.model,
+                timed_out=bool(result.get("timed_out", False)),
+                extra={"usage": usage, **{k: v for k, v in result.items() if k != "answer"}},
+                system_prompt=system_prompt, user_message=user_message,
+            )
+        return gen
 
     for i in range(1, infra.max_iterations + 1):
         msg = user_msg if i == 1 else f"{user_msg}\n\n{prev_trajectory}\n\nWait"
 
-        result, trajectory_text, r_cost, usage, duration = await ctx.call_sub_model(
-            system_prompt=system_prompt,
-            user_message=msg,
-            model_cfg=variant.model,
-            output_schema=explore_schema,
-            cache_key=f"explore_{i}",
-            writer=ctx.writer,
+        exp_i = await variant.get_exploration(
+            qid, i, rollout_idx=rollout_idx,
+            generate_fn=_make_explore_gen_fn(i, system_prompt, msg),
         )
+        if ctx.traj_dir is not None:
+            exp_i.persist(ctx.traj_dir / f"explore_{i}")
 
-        ctx.cost.add(r_cost, usage, component="explorer")
+        r_cost = exp_i.cost_usd
+        extra = exp_i.extra
+        ctx.cost.add(r_cost, extra.get("usage", {}), component="explorer")
         ctx.state.explore = advance(ctx.state.explore)
 
-        if result.get("timed_out"):
+        if exp_i.timed_out:
             logger.info(f"  [budget-forcing] Round {i}: TIMED OUT")
             ctx.writer.write_text(f"## Round {i}: TIMED OUT")
             break
 
-        answer = ctx.benchmark.get_answer_from_explore(result)
+        answer = exp_i.answer
         ctx.state.candidates.append(Candidate(
             answer=answer,
-            reasoning=result.get("reasoning", ""),
-            approach=result.get("approach", ""),
-            confidence=result.get("confidence", 0.0),
+            reasoning=extra.get("reasoning", ""),
+            approach=extra.get("approach", ""),
+            confidence=extra.get("confidence", 0.0),
             cost_usd=r_cost,
         ))
 
@@ -96,15 +146,15 @@ async def solve(
         label = "Initial" if i == 1 else "Budget Forcing"
         ctx.writer.write_text(
             f"## Round {i} ({label})\n\n"
-            f"- **Approach**: {result.get('approach', '')}\n"
+            f"- **Approach**: {extra.get('approach', '')}\n"
             f"- **Answer**: {answer}\n"
-            f"- **Confidence**: {result.get('confidence', 'N/A')}\n"
+            f"- **Confidence**: {extra.get('confidence', 'N/A')}\n"
             f"- **Cost**: ${r_cost}"
         )
 
-        logger.info(f"  [budget-forcing] Round {i}: answer={answer}, confidence={result.get('confidence', 'N/A')}")
+        logger.info(f"  [budget-forcing] Round {i}: answer={answer}, confidence={extra.get('confidence', 'N/A')}")
 
-        prev_trajectory = trajectory_text
+        prev_trajectory = exp_i.trajectory
 
     final_answer = ctx.state.candidates[-1].answer if ctx.state.candidates else ""
 
