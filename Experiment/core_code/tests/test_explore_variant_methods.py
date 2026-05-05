@@ -202,6 +202,66 @@ def test_get_exploration_with_rule_based_grader_skips_judge_persist(tmp_path):
     assert not (v._explore_dir("q1", 1) / "judges").exists()
 
 
+# ---- Task 7: get_all_explorations -------------------------------------------
+
+
+def test_get_all_explorations_empty(tmp_path):
+    v = _make_variant(tmp_path)
+    explorations = _run(v.get_all_explorations("nonexistent_qid"))
+    assert explorations == []
+
+
+def test_get_all_explorations_sorted(tmp_path):
+    v = _make_variant(tmp_path)
+    for i in [3, 1, 2]:
+        Exploration(qid="q1", idx=i, rollout_idx=None,
+                    answer=f"ans{i}", trajectory="", cost_usd=0.0, model="m"
+                   ).persist(v._explore_dir("q1", i))
+    explorations = _run(v.get_all_explorations("q1"))
+    assert [e.idx for e in explorations] == [1, 2, 3]
+    assert [e.answer for e in explorations] == ["ans1", "ans2", "ans3"]
+
+
+def test_get_all_explorations_with_grader_attaches_verdicts(tmp_path):
+    class FakeGrader:
+        judge_spec = {"backend": "claude", "model": "claude-haiku-4-5-20251001"}
+        async def __call__(self, answer, qid):
+            return JudgeOutcome(is_correct=(answer == "ans1"), cost_usd=0.001,
+                                judge_spec_snapshot=self.judge_spec,
+                                input_md="i", output_md="o",
+                                result_dict={"correct": True})
+
+    v = _make_variant(tmp_path)
+    for i in [1, 2]:
+        Exploration(qid="q1", idx=i, rollout_idx=None,
+                    answer=f"ans{i}", trajectory="", cost_usd=0.0, model="m"
+                   ).persist(v._explore_dir("q1", i))
+
+    explorations = _run(v.get_all_explorations("q1", grader=FakeGrader()))
+    assert len(explorations) == 2
+    assert explorations[0].verdict.is_correct is True
+    assert explorations[1].verdict.is_correct is False
+
+
+def test_get_exploration_isolates_rollouts(tmp_path):
+    v = _make_variant(tmp_path)
+
+    async def gen0():
+        return Exploration(qid="q1", idx=1, rollout_idx=0,
+                           answer="rollout0_ans", trajectory="", cost_usd=0.0, model="m")
+
+    async def gen1():
+        return Exploration(qid="q1", idx=1, rollout_idx=1,
+                           answer="rollout1_ans", trajectory="", cost_usd=0.0, model="m")
+
+    exp0 = _run(v.get_exploration("q1", 1, rollout_idx=0, generate_fn=gen0))
+    exp1 = _run(v.get_exploration("q1", 1, rollout_idx=1, generate_fn=gen1))
+    assert exp0.answer == "rollout0_ans"
+    assert exp1.answer == "rollout1_ans"
+    assert (tmp_path / "q1" / "rollout_0" / "explore_1" / "result.json").exists()
+    assert (tmp_path / "q1" / "rollout_1" / "explore_1" / "result.json").exists()
+
+
 def test_load_judge_narrowing_raises(tmp_path):
     """Stored has key absent from requested: refuse to inherit verdict."""
     v = _make_variant(tmp_path)

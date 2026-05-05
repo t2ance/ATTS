@@ -301,6 +301,56 @@ class ExploreVariant(BaseModel):
                     outcome.persist(self._judge_dir(qid, idx, outcome.label, rollout_idx))
         return exp
 
+    async def get_all_explorations(
+        self,
+        qid: str,
+        *,
+        rollout_idx: int | None = None,
+        grader=None,
+    ) -> list["Exploration"]:
+        """Pure read of cached explorations under (qid, rollout_idx).
+
+        Walks the directory, returns Explorations in ascending idx order.
+        Empty list is a legitimate result, not an error.
+
+        If grader provided, attach verdict to each Exploration (using judge
+        cache when present; calling grader on miss).
+        """
+        from cache_types import Exploration
+
+        base = self.cache_dir / qid
+        if rollout_idx is not None:
+            base = base / f"rollout_{rollout_idx}"
+        if not base.exists():
+            return []
+        found: list[int] = []
+        for p in base.iterdir():
+            if not (p.is_dir() and p.name.startswith("explore_")):
+                continue
+            if not (p / "result.json").exists():
+                continue
+            try:
+                found.append(int(p.name.split("_", 1)[1]))
+            except ValueError:
+                continue
+        found.sort()
+
+        explorations: list[Exploration] = []
+        for idx in found:
+            exp = self._load_explore(qid, idx, rollout_idx)
+            assert exp is not None
+            if grader is not None:
+                cached_outcome = self._load_judge(qid, idx, grader.judge_spec, rollout_idx)
+                if cached_outcome is not None:
+                    exp.verdict = cached_outcome
+                else:
+                    outcome = await grader(exp.answer, qid)
+                    exp.verdict = outcome
+                    if outcome.label is not None:
+                        outcome.persist(self._judge_dir(qid, idx, outcome.label, rollout_idx))
+            explorations.append(exp)
+        return explorations
+
 
 class _MethodSpec(BaseModel):
     model_config = {"extra": "forbid"}
