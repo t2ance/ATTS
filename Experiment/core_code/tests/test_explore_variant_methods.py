@@ -126,6 +126,82 @@ def test_load_judge_conflict_raises(tmp_path):
         v._load_judge("q1", 1, requested)
 
 
+# ---- Task 6: get_exploration -------------------------------------------------
+
+
+def test_get_exploration_cache_hit_does_not_call_generate(tmp_path):
+    v = _make_variant(tmp_path)
+    cached = Exploration(
+        qid="q1", idx=1, rollout_idx=None,
+        answer="cached", trajectory="t", cost_usd=0.0, model="m",
+    )
+    cached.persist(v._explore_dir("q1", 1))
+
+    called = False
+    async def gen():
+        nonlocal called
+        called = True
+        raise AssertionError("generate_fn should not be called on cache hit")
+
+    exp = _run(v.get_exploration("q1", 1, generate_fn=gen))
+    assert exp.answer == "cached"
+    assert called is False
+
+
+def test_get_exploration_cache_miss_calls_generate_and_persists(tmp_path):
+    v = _make_variant(tmp_path)
+
+    async def gen():
+        return Exploration(
+            qid="q1", idx=1, rollout_idx=None,
+            answer="fresh", trajectory="generated", cost_usd=0.05, model="m",
+        )
+
+    exp = _run(v.get_exploration("q1", 1, generate_fn=gen))
+    assert exp.answer == "fresh"
+    assert (v._explore_dir("q1", 1) / "result.json").exists()
+
+
+def test_get_exploration_with_grader_attaches_verdict(tmp_path):
+    class FakeGrader:
+        judge_spec = {"backend": "claude", "model": "claude-haiku-4-5-20251001"}
+        async def __call__(self, answer, qid):
+            return JudgeOutcome(
+                is_correct=True, cost_usd=0.001,
+                judge_spec_snapshot=self.judge_spec,
+                input_md="i", output_md="o", result_dict={"correct": True},
+            )
+
+    v = _make_variant(tmp_path)
+    async def gen():
+        return Exploration(qid="q1", idx=1, rollout_idx=None,
+                           answer="42", trajectory="t", cost_usd=0.0, model="m")
+
+    exp = _run(v.get_exploration("q1", 1, generate_fn=gen, grader=FakeGrader()))
+    assert exp.verdict is not None
+    assert exp.verdict.is_correct is True
+    assert (v._judge_dir("q1", 1, exp.verdict.label) / "grade.json").exists()
+
+
+def test_get_exploration_with_rule_based_grader_skips_judge_persist(tmp_path):
+    class RuleBasedGrader:
+        judge_spec = None
+        async def __call__(self, answer, qid):
+            return JudgeOutcome(is_correct=True, cost_usd=0.0,
+                                judge_spec_snapshot=None, input_md="", output_md="",
+                                result_dict={"correct": True})
+
+    v = _make_variant(tmp_path)
+    async def gen():
+        return Exploration(qid="q1", idx=1, rollout_idx=None,
+                           answer="A", trajectory="", cost_usd=0.0, model="m")
+
+    exp = _run(v.get_exploration("q1", 1, generate_fn=gen, grader=RuleBasedGrader()))
+    assert exp.verdict is not None
+    assert exp.verdict.is_correct is True
+    assert not (v._explore_dir("q1", 1) / "judges").exists()
+
+
 def test_load_judge_narrowing_raises(tmp_path):
     """Stored has key absent from requested: refuse to inherit verdict."""
     v = _make_variant(tmp_path)

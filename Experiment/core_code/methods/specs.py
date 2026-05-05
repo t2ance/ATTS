@@ -262,6 +262,45 @@ class ExploreVariant(BaseModel):
             result_dict=json.loads(rp.read_text(encoding="utf-8")) if rp.exists() else {},
         )
 
+    # ---- Public intent-driven API --------------------------------------
+
+    async def get_exploration(
+        self,
+        qid: str,
+        idx: int,
+        *,
+        rollout_idx: int | None = None,
+        generate_fn,
+        grader=None,
+    ) -> "Exploration":
+        """Cache hit -> return cached Exploration. Cache miss -> call generate_fn,
+        persist, return. Optional grader -> also produce + persist verdict.
+
+        Always returns Exploration. Never None. Cache miss with a generate_fn
+        that fails (raises) propagates that failure -- there is no silent
+        degradation.
+        """
+        from cache_types import Exploration
+        exp = self._load_explore(qid, idx, rollout_idx)
+        if exp is None:
+            exp = await generate_fn()
+            assert isinstance(exp, Exploration), (
+                f"generate_fn must return Exploration, got {type(exp).__name__}"
+            )
+            exp.qid, exp.idx, exp.rollout_idx = qid, idx, rollout_idx
+            exp.persist(self._explore_dir(qid, idx, rollout_idx))
+
+        if grader is not None:
+            cached_outcome = self._load_judge(qid, idx, grader.judge_spec, rollout_idx)
+            if cached_outcome is not None:
+                exp.verdict = cached_outcome
+            else:
+                outcome = await grader(exp.answer, qid)
+                exp.verdict = outcome
+                if outcome.label is not None:
+                    outcome.persist(self._judge_dir(qid, idx, outcome.label, rollout_idx))
+        return exp
+
 
 class _MethodSpec(BaseModel):
     model_config = {"extra": "forbid"}
