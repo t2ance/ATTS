@@ -70,3 +70,54 @@ class JudgeOutcome:
             }, indent=2, ensure_ascii=False),
             encoding="utf-8",
         )
+
+
+@dataclass
+class Exploration:
+    """One explore call's full record. Self-describing schema.
+
+    On-disk layout under target_dir:
+      input.md         -- the prompt sent (rendered markdown)
+      output.md        -- the model's raw trajectory text
+      result.json      -- structured: answer, cost_usd, model, timed_out, ...
+    """
+    qid: str
+    idx: int
+    rollout_idx: int | None
+    answer: str
+    trajectory: str
+    cost_usd: float
+    model: str
+    timed_out: bool = False
+    # Optional grading layer attached by ExploreVariant when grader is provided.
+    verdict: JudgeOutcome | None = None
+    # Free-form fields preserved from backend response (usage, finish_reason, ...)
+    extra: dict[str, Any] = field(default_factory=dict)
+    # Inputs needed to write input.md (caller fills these in before persist).
+    system_prompt: str = ""
+    user_message: str = ""
+
+    def persist(self, target_dir: Path) -> None:
+        """Write input.md / output.md / result.json into target_dir.
+
+        Used by ExploreVariant for cache_dir persistence and by callers
+        for run_dir/trajectories/ mirror writes -- same schema, different
+        target.
+        """
+        target_dir.mkdir(parents=True, exist_ok=True)
+        (target_dir / "input.md").write_text(
+            f"## System Prompt\n\n{self.system_prompt}\n\n## User Message\n\n{self.user_message}",
+            encoding="utf-8",
+        )
+        (target_dir / "output.md").write_text(self.trajectory, encoding="utf-8")
+        result_payload = {
+            "answer": self.answer,
+            "cost_usd": self.cost_usd,
+            "model": self.model,
+            "timed_out": self.timed_out,
+            **self.extra,
+        }
+        (target_dir / "result.json").write_text(
+            json.dumps(result_payload, indent=2, ensure_ascii=False),
+            encoding="utf-8",
+        )

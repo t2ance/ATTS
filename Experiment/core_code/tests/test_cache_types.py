@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from cache_types import JudgeOutcome
+from cache_types import Exploration, JudgeOutcome
 
 
 def test_label_for_with_spec():
@@ -51,3 +51,50 @@ def test_persist_asserts_when_rule_based(tmp_path):
     )
     with pytest.raises(AssertionError, match="rule-based grading"):
         outcome.persist(tmp_path / "judges" / "should_not_exist")
+
+
+def test_exploration_persist_writes_three_files(tmp_path):
+    exp = Exploration(
+        qid="abc",
+        idx=3,
+        rollout_idx=None,
+        answer="42",
+        trajectory="reasoning here",
+        cost_usd=0.05,
+        model="claude-sonnet-4-6",
+        timed_out=False,
+        verdict=None,
+    )
+    exp.persist(tmp_path / "explore_3")
+    assert (tmp_path / "explore_3" / "result.json").exists()
+    assert (tmp_path / "explore_3" / "input.md").exists()
+    assert (tmp_path / "explore_3" / "output.md").read_text() == "reasoning here"
+    payload = json.loads((tmp_path / "explore_3" / "result.json").read_text())
+    assert payload["answer"] == "42"
+    assert payload["cost_usd"] == 0.05
+    assert payload["model"] == "claude-sonnet-4-6"
+    assert payload.get("timed_out") is False
+
+
+def test_exploration_with_verdict_field():
+    spec = {"backend": "claude", "model": "claude-haiku-4-5-20251001"}
+    verdict = JudgeOutcome(
+        is_correct=True,
+        cost_usd=0.001,
+        judge_spec_snapshot=spec,
+        input_md="...",
+        output_md="...",
+        result_dict={"correct": True},
+    )
+    exp = Exploration(
+        qid="q1",
+        idx=1,
+        rollout_idx=None,
+        answer="42",
+        trajectory="...",
+        cost_usd=0.05,
+        model="m",
+        verdict=verdict,
+    )
+    assert exp.verdict is verdict
+    assert exp.verdict.is_correct is True
