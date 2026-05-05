@@ -72,6 +72,29 @@ class JudgeOutcome:
         )
 
 
+# Process-level counters mirroring the original benchmarks/base.py policy.
+# Banner-aggregated to avoid 800 per-call warning lines per HLE run.
+_JUDGE_CACHE_STATS: dict = {
+    "exact_hits": 0,
+    "best_effort_hits": 0,
+    "best_effort_extras": set(),
+}
+
+
+def reset_judge_cache_stats() -> None:
+    _JUDGE_CACHE_STATS["exact_hits"] = 0
+    _JUDGE_CACHE_STATS["best_effort_hits"] = 0
+    _JUDGE_CACHE_STATS["best_effort_extras"] = set()
+
+
+def summarize_judge_cache() -> dict:
+    return {
+        "exact_hits": _JUDGE_CACHE_STATS["exact_hits"],
+        "best_effort_hits": _JUDGE_CACHE_STATS["best_effort_hits"],
+        "best_effort_extras": sorted(_JUDGE_CACHE_STATS["best_effort_extras"]),
+    }
+
+
 @dataclass
 class Exploration:
     """One explore call's full record. Self-describing schema.

@@ -9,10 +9,17 @@ Pairs with methods/registry.py (the runtime behavior layer).
 """
 from __future__ import annotations
 
+import json
+import logging
 from pathlib import Path
-from typing import Annotated, Literal, Union
+from typing import Annotated, Literal, Union, TYPE_CHECKING
 
 from pydantic import BaseModel, Field, model_validator
+
+if TYPE_CHECKING:
+    from cache_types import Exploration, JudgeOutcome
+
+logger = logging.getLogger(__name__)
 
 
 class SamplingConfig(BaseModel):
@@ -70,7 +77,22 @@ class ModelConfig(BaseModel):
     backend: Literal["codex", "claude", "vllm", "openrouter"]
     model: str
     budget_tokens: int = 32000
-    effort: Literal["low", "medium", "high", "max"] = "low"
+    # effort default went from "low" to None on 2026-05-05. Rationale: yaml
+    # users wanted a way to say "don't override the API/backend's own default".
+    # None is the only value Claude Agent SDK / Codex / OpenRouter / vLLM
+    # all interpret as "omit the reasoning.effort param entirely" — claude
+    # backend skips `--effort` flag (claude_agent_sdk subprocess_cli.py:315),
+    # codex/openrouter skip the `extra_body['reasoning']` block (their
+    # `if effort:` guards), vllm just doesn't pass it. With effort=None,
+    # the Anthropic API server applies its own model-builtin default = "high"
+    # for Opus 4.6/4.7 and Sonnet 4.6 (verified 2026-05-05 via official docs:
+    # https://platform.claude.com/docs/en/build-with-claude/effort —
+    # "By default, Claude uses high effort"; "Setting effort to high produces
+    # exactly the same behavior as omitting the effort parameter entirely").
+    # Codex/OpenRouter/vLLM defaults are model-dependent. Warning is emitted
+    # at validate-time so the user cannot quietly miss the silent jump from
+    # the historical "low" to the API-default "high" (~2-5x token cost).
+    effort: Literal["low", "medium", "high", "max"] | None = None
     timeout: float = 1200.0
     max_output_tokens: int | None = None
 
@@ -92,6 +114,19 @@ class ModelConfig(BaseModel):
             assert self.openrouter_provider_allow_fallbacks is True, (
                 f"openrouter_provider_allow_fallbacks is openrouter-only but "
                 f"backend={self.backend!r}"
+            )
+        if self.effort is None:
+            logger.warning(
+                f"ModelConfig(backend={self.backend!r}, model={self.model!r}): "
+                f"effort=None (yaml omits the field or sets it to null). "
+                f"None is passed through unchanged: claude backend skips "
+                f"--effort CLI flag, codex/openrouter skip "
+                f"extra_body['reasoning']['effort'], vllm ignores it. "
+                f"For claude backend on Sonnet 4.6 / Opus 4.6 / 4.7, the API "
+                f"server then applies its model-builtin default = 'high' "
+                f"(see https://platform.claude.com/docs/en/build-with-claude/effort). "
+                f"This is ~2-5x the token cost of 'low'; if you want the "
+                f"old 'low' default, write effort: low explicitly."
             )
         return self
 
@@ -121,6 +156,111 @@ class ExploreVariant(BaseModel):
     model: ModelConfig
     cache_dir: Path
     num_explores: int = 8
+
+    # ---- Internal helpers (path construction + atomic I/O) ----
+
+    def _explore_dir(self, qid: str, idx: int, rollout_idx: int | None = None) -> Path:
+        """Path to one explore's bundle directory.
+        K=1 (rollout_idx=None) -> cache_dir/<qid>/explore_<idx>
+        K>1 (rollout_idx=k)    -> cache_dir/<qid>/rollout_<k>/explore_<idx>
+        """
+        base = self.cache_dir / qid
+        if rollout_idx is not None:
+            base = base / f"rollout_{rollout_idx}"
+        return base / f"explore_{idx}"
+
+    def _judge_dir(self, qid: str, idx: int, label: str,
+                   rollout_idx: int | None = None) -> Path:
+        return self._explore_dir(qid, idx, rollout_idx) / "judges" / label
+
+    def _has_explore(self, qid: str, idx: int, rollout_idx: int | None = None) -> bool:
+        return (self._explore_dir(qid, idx, rollout_idx) / "result.json").exists()
+
+    def _load_explore(self, qid: str, idx: int,
+                      rollout_idx: int | None = None) -> "Exploration | None":
+        """Load Exploration from disk; None if result.json missing."""
+        from cache_types import Exploration
+        d = self._explore_dir(qid, idx, rollout_idx)
+        rp = d / "result.json"
+        if not rp.exists():
+            return None
+        payload = json.loads(rp.read_text(encoding="utf-8"))
+        traj = (d / "output.md").read_text(encoding="utf-8") if (d / "output.md").exists() else ""
+        reserved = {"answer", "cost_usd", "model", "timed_out"}
+        return Exploration(
+            qid=qid, idx=idx, rollout_idx=rollout_idx,
+            answer=payload.get("answer", ""),
+            trajectory=traj,
+            cost_usd=payload.get("cost_usd", 0.0),
+            model=payload.get("model", ""),
+            timed_out=payload.get("timed_out", False),
+            extra={k: v for k, v in payload.items() if k not in reserved},
+        )
+
+    def _load_judge(self, qid: str, idx: int, judge_spec: dict | None,
+                    rollout_idx: int | None = None) -> "JudgeOutcome | None":
+        """Look up the cached judge bundle for (qid, idx) under this variant.
+
+        Match policy is UNIDIRECTIONAL by design (preserved verbatim from the
+        pre-refactor `benchmarks.base.find_cached_judge`):
+          - stored == spec                  -> exact hit
+          - stored is strict subset of spec -> best-effort hit (legitimate
+              schema evolution: cache predates a new optional field)
+          - shared key with disagreeing val -> RuntimeError (true conflict)
+          - stored has key absent from spec -> RuntimeError (cache was made
+              under stricter spec; refusing to inherit its verdict for a
+              less-specific request)
+          - config / grade missing          -> None (real cache miss)
+        """
+        from cache_types import JudgeOutcome, _JUDGE_CACHE_STATS
+        label = JudgeOutcome.label_for(judge_spec)
+        if label is None:
+            return None
+        jd = self._judge_dir(qid, idx, label, rollout_idx)
+        gp = jd / "grade.json"
+        cp = jd / "config.json"
+        rp = jd / "result.json"
+        if not (gp.exists() and cp.exists()):
+            return None
+        stored = json.loads(cp.read_text(encoding="utf-8"))
+
+        if stored == judge_spec:
+            _JUDGE_CACHE_STATS["exact_hits"] += 1
+        else:
+            shared = set(stored) & set(judge_spec)
+            conflicts = {k: (stored[k], judge_spec[k]) for k in shared
+                         if stored[k] != judge_spec[k]}
+            if conflicts:
+                raise RuntimeError(
+                    f"Judge config value conflict at {jd}.\n"
+                    f"  Conflicting keys (stored vs requested): {conflicts}\n"
+                    f"  Stored:    {stored}\n"
+                    f"  Requested: {judge_spec}\n"
+                    f"Wipe the bundle or rename the label before re-running."
+                )
+            only_stored = sorted(set(stored) - set(judge_spec))
+            if only_stored:
+                raise RuntimeError(
+                    f"Judge cache spec narrowing at {jd}.\n"
+                    f"  Stored has keys absent from requested: {only_stored}\n"
+                    f"  Stored:    {stored}\n"
+                    f"  Requested: {judge_spec}\n"
+                    f"Cached verdict was produced under a non-default spec; "
+                    f"refusing to reuse it for a less-specific request."
+                )
+            only_requested = sorted(set(judge_spec) - set(stored))
+            _JUDGE_CACHE_STATS["best_effort_hits"] += 1
+            _JUDGE_CACHE_STATS["best_effort_extras"].update(only_requested)
+
+        grade = json.loads(gp.read_text(encoding="utf-8"))
+        return JudgeOutcome(
+            is_correct=grade["is_correct"],
+            cost_usd=grade["cost_usd"],
+            judge_spec_snapshot=stored,
+            input_md=(jd / "input.md").read_text(encoding="utf-8") if (jd / "input.md").exists() else "",
+            output_md=(jd / "output.md").read_text(encoding="utf-8") if (jd / "output.md").exists() else "",
+            result_dict=json.loads(rp.read_text(encoding="utf-8")) if rp.exists() else {},
+        )
 
 
 class _MethodSpec(BaseModel):
