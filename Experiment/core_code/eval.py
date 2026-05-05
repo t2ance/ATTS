@@ -21,12 +21,9 @@ logger = logging.getLogger(__name__)
 os.environ.pop("CLAUDECODE", None)
 
 from benchmarks import get_benchmark
-from benchmarks.base import (
-    BenchmarkConfig, Candidate3, find_cached_judge, judge_label,
-    summarize_judge_cache,
-)
+from benchmarks.base import BenchmarkConfig, Candidate3
 from benchmarks.specs import BenchmarkSpec
-from cache_types import JudgeOutcome
+from cache_types import JudgeOutcome, summarize_judge_cache
 from methods import MethodSpec, get_method
 from methods.specs import (
     ExploreVariant, SamplingConfig, TTSAgentSpec,

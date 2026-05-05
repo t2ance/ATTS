@@ -18,122 +18,12 @@ from prompts import format_claude_structured_suffix
 
 
 # ---------------------------------------------------------------------------
-# Judge bundle lookup helpers
+# Judge bundle lookup helpers were here. As of 2026-05-05 explore-cache-owner
+# refactor, judge_label / find_cached_judge / _JUDGE_CACHE_STATS /
+# reset_judge_cache_stats / summarize_judge_cache moved to cache_types.py
+# (counters) and methods.specs.ExploreVariant._load_judge (matching logic).
+# This keeps the matching logic next to the judge-bundle owner.
 # ---------------------------------------------------------------------------
-# Used by eval.py to locate (or report-missing) the cached judge bundle for a
-# given (explore_dir, judge_spec). Layout:
-#   explore_dir/judges/<label>/{config.json, grade.json, input.md, output.md, result.json}
-# where <label> = f"{judge_spec['backend']}__{judge_spec['model']}".
-# `config.json` carries the full ModelConfig dump; the source of truth for judge
-# identity is the dict-equality of config.json against the requested spec.
-# Migration note: pre-2026-05-04 caches stored `name` instead of `backend` and
-# (vllm only) `sampling` instead of `vllm_sampling`. The on-disk label string
-# is identical (e.g. claude__claude-haiku-4-5-20251001) since the values match.
-# Run scripts/maintenance/migrate_judge_cache_keys.py to rename the field in
-# every judges/<label>/config.json before this code path is exercised.
-
-def judge_label(judge_spec: dict) -> str:
-    """Stable, human-readable label for a judge bundle directory."""
-    return f"{judge_spec['backend']}__{judge_spec['model']}"
-
-
-# Process-level counters for run-end banner aggregation. Per-call warnings
-# would flood logs (one line per cached explore-judge x N questions). eval.py
-# reads these via summarize_judge_cache() at run finalize and prints one line.
-_JUDGE_CACHE_STATS: dict = {
-    "exact_hits": 0,                # stored == requested
-    "best_effort_hits": 0,          # stored is a strict subset of requested
-    "best_effort_extras": set(),    # union of "only_in_requested" keys observed
-}
-
-
-def reset_judge_cache_stats() -> None:
-    _JUDGE_CACHE_STATS["exact_hits"] = 0
-    _JUDGE_CACHE_STATS["best_effort_hits"] = 0
-    _JUDGE_CACHE_STATS["best_effort_extras"] = set()
-
-
-def summarize_judge_cache() -> dict:
-    """Snapshot for eval.py's run-end banner."""
-    return {
-        "exact_hits": _JUDGE_CACHE_STATS["exact_hits"],
-        "best_effort_hits": _JUDGE_CACHE_STATS["best_effort_hits"],
-        "best_effort_extras": sorted(_JUDGE_CACHE_STATS["best_effort_extras"]),
-    }
-
-
-def find_cached_judge(judges_dir: Path, judge_spec: dict) -> Path | None:
-    """Unidirectional best-effort match: locate the cached bundle for judge_spec.
-
-    Match policy (UNIDIRECTIONAL by design — see policy rationale below):
-      - Exact dict equality                  -> hit (silent fast-path)
-      - Stored is a STRICT SUBSET of         -> hit (counted toward best-effort
-        requested (legacy bundle, requested      stats; banner-aggregated; no
-        adds new optional fields)                per-call log)
-      - Stored has any key absent from       -> RuntimeError (spec narrowing:
-        requested (i.e. cached run used         caller would silently inherit a
-        a non-default config the caller         non-default verdict produced
-        is no longer specifying)                under conditions they did not
-                                                request)
-      - Any SHARED key with disagreeing      -> RuntimeError (true conflict)
-        values
-      - Directory or config.json missing     -> None (real cache miss)
-
-    Why unidirectional: stored-superset-of-requested means the cached verdict
-    was made under stricter / non-default spec (e.g. a previous run had
-    `effort: low` but the caller is now requesting default thinking-on). Reusing
-    that verdict would hide a real spec change. Only stored-subset-of-requested
-    is the legitimate "schema evolution" case (cache predates a new optional
-    field, caller now sets the field explicitly).
-
-    Why aggregate stats instead of per-call warnings: 800 cached explore-judge
-    bundles per HLE run -> 800 warning lines would drown out signal. eval.py's
-    run finalizer reads summarize_judge_cache() and prints ONE banner line.
-    """
-    label = judge_label(judge_spec)
-    candidate = judges_dir / label
-    if not candidate.exists():
-        return None
-    config_path = candidate / "config.json"
-    if not config_path.exists():
-        return None
-    stored = json.loads(config_path.read_text(encoding="utf-8"))
-
-    if stored == judge_spec:
-        _JUDGE_CACHE_STATS["exact_hits"] += 1
-        return candidate
-
-    shared = set(stored) & set(judge_spec)
-    conflicts = {k: (stored[k], judge_spec[k]) for k in shared
-                 if stored[k] != judge_spec[k]}
-    if conflicts:
-        raise RuntimeError(
-            f"Judge config value conflict at {candidate}.\n"
-            f"  Conflicting keys (stored vs requested): {conflicts}\n"
-            f"  Stored:    {stored}\n"
-            f"  Requested: {judge_spec}\n"
-            f"Wipe the bundle or rename the label before re-running so the "
-            f"new spec gets a fresh judge bundle."
-        )
-
-    only_stored = sorted(set(stored) - set(judge_spec))
-    only_requested = sorted(set(judge_spec) - set(stored))
-    if only_stored:
-        raise RuntimeError(
-            f"Judge cache spec narrowing at {candidate}.\n"
-            f"  Stored has keys absent from requested: {only_stored}\n"
-            f"  Stored:    {stored}\n"
-            f"  Requested: {judge_spec}\n"
-            f"Cached verdict was produced under a non-default spec; refusing "
-            f"to reuse it for a less-specific request. Either add the missing "
-            f"fields to your spec to match the cache, or wipe the bundle to "
-            f"re-judge under the new spec."
-        )
-
-    # Only legitimate path: stored ⊂ requested. Schema evolution case.
-    _JUDGE_CACHE_STATS["best_effort_hits"] += 1
-    _JUDGE_CACHE_STATS["best_effort_extras"].update(only_requested)
-    return candidate
 
 
 # ---------------------------------------------------------------------------
