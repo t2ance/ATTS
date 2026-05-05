@@ -614,6 +614,12 @@ async def evaluate(
                     {"normalized_answer": na, "is_correct": ic, "cost_usd": c}
                     for na, ic, c in question_cands
                 ],
+                "per_variant_candidates": (
+                    {label: [{"normalized_answer": na, "is_correct": ic, "cost_usd": c}
+                             for na, ic, c in cands]
+                     for label, cands in pm_cands.items()}
+                    if pm_cands else None
+                ),
                 "exit_reason": result.exit_reason if result else "incomplete",
                 **image_meta,
             }
