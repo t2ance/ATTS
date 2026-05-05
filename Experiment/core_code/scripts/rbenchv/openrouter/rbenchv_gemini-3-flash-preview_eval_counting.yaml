@@ -1,0 +1,51 @@
+# R-Bench-V Counting (195 Qs) ATTS evaluation -- 1:1 copy of the Physics
+# yaml with only the subset/path swap. Single-variant tts-agent; integrate
+# omitted (default None) so the orchestrator self-synthesizes over the 4
+# cached candidates (paper main config). The cache_dir does NOT exist at
+# launch -- this run is the first to populate it. NO precache step is run
+# beforehand: tts-agent has cache_only=False by default
+# (methods/registry.py:90), so eval.py skips the cache pre-flight check
+# and the explore call goes cache miss -> live API -> writeback. This run
+# is the verification that the auto-cache pathway works end-to-end.
+benchmark:
+  name: rbenchv
+  category: Counting
+  judge:
+    model: claude-haiku-4-5-20251001
+    backend: claude
+method:
+  name: tts-agent
+  orchestrator_prompt: single
+  orchestrator:
+    backend: openrouter
+    model: google/gemini-3-flash-preview
+    # Override default (effort=low). Why: matches paper main config for the
+    # backbone-ablation row family (Sonnet/Opus/Qwen-FP8 all use effort=low
+    # for orchestrator). Coupled with explore.effort=low so this row is the
+    # same-effort condition; a high-effort orchestrator row would be a
+    # separate experiment (see grok-4.1-fast-high precedent 2026-05-05).
+    effort: low
+    timeout: 1200.0
+    # Override default (null). Why: defensive cap derived from grok HLE
+    # 2026-05-05 incident where 9/100 Qs hit an 8000 cap. 16000 absorbs
+    # gemini-3-flash reasoning traces with headroom; bounds blast radius.
+    max_output_tokens: 65536
+  explore:
+    - label: default
+      model:
+        backend: openrouter
+        model: google/gemini-3-flash-preview
+        effort: high
+        timeout: 1200.0
+        max_output_tokens: 65536
+      cache_dir: ../analysis/cache/rbenchv/openrouter_gemini-3-flash-preview/Counting
+      num_explores: 4
+  # Paper main config: orchestrator self-synthesizes the final answer over
+  # the cached candidates without a separate integrate sub-call. Encoded as
+  # integrate=None (default in TTSAgentSpec; methods/specs.py:380).
+# Smoke: only 4 questions out of 195 to verify the auto-cache pathway end-
+# to-end. After this lands clean, drop the `num: 4` line to run all 195.
+num: 4
+num_workers: 4
+seed: 42
+log_dir: ../analysis/run/rbenchv/openrouter_gemini-3-flash-preview/Counting

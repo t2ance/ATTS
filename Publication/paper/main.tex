@@ -42,10 +42,10 @@
 \newtheorem{definition}{Definition}
 
 \Urlmuskip=0mu plus 2mu\relax
-\pdfstringdefDisableCommands{\def\our{ATTS}\def\attsmm{ATTS-MM}\def\explore{explore}\def\integrate{integrate}}
+\pdfstringdefDisableCommands{\def\our{ATLAS}\def\attsmm{ATLAS-MM}\def\explore{explore}\def\integrate{integrate}}
 
-\newcommand\our{\makebox{\textsc{ATTS}}}
-\newcommand\attsmm{\makebox{\textsc{ATTS-MM}}}
+\newcommand\our{\makebox{\textsc{ATLAS}}}
+\newcommand\attsmm{\makebox{\textsc{ATLAS-MM}}}
 \newcommand\explore{\texttt{explore}}
 \newcommand\integrate{\texttt{integrate}}
 \newcommand{\groupheader}[2]{\rowcolor{gray!20}\multicolumn{#1}{c}{\textit{#2}}\\}
@@ -54,7 +54,7 @@
 \newcommand{\captionof}[1]{\def\@captype{#1}\caption}
 \makeatother
 
-\title{ATTS: Agentic Test-Time Scaling via Adaptive Exploration}
+\title{ATLAS: Agentic Test-time Learning-to-Allocate Scaling}
 \author{
   Peijia Qin \\
   University of California, San Diego \\
@@ -66,7 +66,7 @@
 \maketitle
 
 \begin{abstract}
-Test-time scaling has become a key lever for improving large language model reasoning, but existing approaches rely on rigid heuristic allocation or explicit search over intermediate reasoning steps. We introduce \our{}, a delegated sequential test-time scaling framework in which a lightweight orchestrator adaptively controls a pool of candidate solutions through a single action: \explore{}, which launches a fresh, independent solver. The orchestrator decides when to stop exploring and directly synthesizes the final answer from the accumulated evidence. The framework defines an extensible action space over solver dispatch decisions; we instantiate it with a single parameterless \explore{} tool and show that even this minimal configuration achieves strong results. We evaluate \our{} on six benchmarks spanning mathematical reasoning, scientific question answering, code generation, and multimodal reasoning. By stopping early when evidence converges, \our{} achieves competitive or superior accuracy with substantially fewer API calls than fixed-budget alternatives: 80.81\% on GPQA-Diamond, 82.29\% on LiveCodeBench, 56.00\% on HLE-Verified, and 23.20\% on BabyVision. An ablation (\our{} (+ Integrator)) replacing the orchestrator's direct synthesis with a separate integrator call degrades or fails to improve accuracy on three of four benchmarks, indicating that stateful evidence accumulation during exploration is critical to the method's effectiveness.
+Test-time scaling has become a key lever for improving large language model reasoning, but existing approaches rely on rigid heuristic allocation or explicit search over intermediate reasoning steps. We introduce \our{}, a delegated sequential test-time scaling framework in which a lightweight orchestrator adaptively controls a pool of candidate solutions through a single action: \explore{}, which launches a fresh, independent solver. The orchestrator decides when to stop exploring and directly synthesizes the final answer from the accumulated evidence. The framework defines an extensible action space over solver dispatch decisions; we instantiate it with a single parameterless \explore{} tool and show that even this minimal configuration achieves strong results. We evaluate \our{} on five benchmarks spanning mathematical reasoning, scientific question answering, code generation, and multimodal reasoning. By stopping early when evidence converges, \our{} achieves competitive or superior accuracy with substantially fewer API calls than fixed-budget alternatives. An ablation (\our{} (+ Integrator)) replacing the orchestrator's direct synthesis with a separate integrator call degrades or fails to improve accuracy on three of four benchmarks, indicating that stateful evidence accumulation during exploration is critical to the method's effectiveness.
 \end{abstract}
 
 \section{Introduction}
@@ -114,7 +114,7 @@ The orchestrator repeatedly decides whether to call \explore{} or to stop and sy
 
 \begin{algorithm}[t]
 \caption{\our{}: Adaptive Test-Time Scaling}
-\label{alg:atts}
+\label{alg:atlas}
 \begin{algorithmic}[1]
 \REQUIRE Problem $x$, exploration budget $T$, orchestrator LLM $\mathcal{O}$, solver LLM $\mathcal{S}$
 \ENSURE Final answer $y$
@@ -132,7 +132,7 @@ The orchestrator repeatedly decides whether to call \explore{} or to stop and sy
 \end{algorithmic}
 \end{algorithm}
 
-Algorithm~\ref{alg:atts} summarizes the procedure. The control logic is benchmark-agnostic: only the explorer prompt and answer schema change across tasks. The orchestrator prompt encodes its decision logic as declarative principles (e.g.\ ``a single candidate does not constitute sufficient evidence'') rather than prescriptive rules, paired with worked examples that demonstrate how these principles apply in concrete scenarios. Appendix~\ref{app:implementation-details} gives the full implementation details including representative prompts.
+Algorithm~\ref{alg:atlas} summarizes the procedure. The control logic is benchmark-agnostic: only the explorer prompt and answer schema change across tasks. The orchestrator prompt encodes its decision logic as declarative principles (e.g.\ ``a single candidate does not constitute sufficient evidence'') rather than prescriptive rules, paired with worked examples that demonstrate how these principles apply in concrete scenarios. Appendix~\ref{app:implementation-details} gives the full implementation details including representative prompts.
 
 \subsection{Extensible Action Space}
 
@@ -152,10 +152,10 @@ We evaluate on four benchmarks: HLE-Verified \citep{hle_verified_paper}, LiveCod
 \subsection{Experimental Setup}
 
 % =============================================================================
-% NAMING REFERENCE -- ATTS method variants (do not edit lightly).
+% NAMING REFERENCE -- ATLAS method variants (do not edit lightly).
 % Two main methods (always reported with bare names):
 %
-%   Axis              | ATTS                       | ATTS-MM
+%   Axis              | ATLAS                       | ATLAS-MM
 %   ------------------|----------------------------|--------------------------
 %   Solver pool       | Sonnet 4.6 (single)        | {Haiku, Sonnet, Opus}
 %   Effort            | --                         | Medium
@@ -165,17 +165,17 @@ We evaluate on four benchmarks: HLE-Verified \citep{hle_verified_paper}, LiveCod
 %   Budget T          | 8                          | 16 (Haiku 8, Sonnet 8, Opus 4)
 %
 % Ablation variants (deviate on one axis only; name pattern: BASE (deviation)):
-%   ATTS (+ Integrator)     -- adds separate \integrate{} step (Tab 2)
-%   ATTS (no thinking)      -- disables extended thinking (Tab 4)
-%   ATTS (Haiku orch)       -- swaps orchestrator only (App B Tab 6)
-%   ATTS (Opus orch)        -- swaps orchestrator only (App B Tab 6)
-%   ATTS w/ GPT-5.2 backbone (Tab 3) -- backbone family swap, all roles
-%   ATTS-MM (Low) / ATTS-MM (High)   -- effort sweep (App B Tab 5)
+%   ATLAS (+ Integrator)     -- adds separate \integrate{} step (Tab 2)
+%   ATLAS (no thinking)      -- disables extended thinking (Tab 4)
+%   ATLAS (Haiku orch)       -- swaps orchestrator only (App B Tab 6)
+%   ATLAS (Opus orch)        -- swaps orchestrator only (App B Tab 6)
+%   ATLAS w/ GPT-5.2 backbone (Tab 3) -- backbone family swap, all roles
+%   ATLAS-MM (Low) / ATLAS-MM (High)   -- effort sweep (App B Tab 5)
 %
 % Forbidden phrasings (do NOT reintroduce -- collapsed during cleanup):
-%   "ATTS (Ours)", "ATTS Multi-model Med", "ATTS Multi Med",
-%   "the multi-model variant", "single-model ATTS configuration",
-%   "default ATTS architecture", "Default (no integrator)",
+%   "ATLAS (Ours)", "ATLAS Multi-model Med", "ATLAS Multi Med",
+%   "the multi-model variant", "single-model ATLAS configuration",
+%   "default ATLAS architecture", "Default (no integrator)",
 %   "Thinking disabled" as standalone label, "Sonnet orchestrator" as suffix.
 % =============================================================================
 
@@ -246,7 +246,7 @@ Budget Forcing & 51.00 & 0.60 \\
 % Corrected: 10 compaction-failed explores in hle/sonnet/gold cache zeroed (cost_usd -> 0).
 % Skywork/LLM Selection read all 8 explores per question -> all 10 bad explores consumed -> -$79.40.
 % Skywork: ($440.73-$79.40)/100 = $3.61. LLM Selection: ($449.95-$79.40)/100 = $3.71.
-% ATTS (v3): 4 of 10 consumed -> -$31.68 -> ($190.47-$31.68)/100 = $1.59.
+% ATLAS (v3): 4 of 10 consumed -> -$31.68 -> ($190.47-$31.68)/100 = $1.59.
 % Multi-model Med: 1 of 10 consumed -> -$8.63 -> ($162.80-$8.63)/100 = $1.54.
 Skywork-Reward-V2 & 52.00 & 3.61 \\
 LLM Selection ($N{=}8$) & \textbf{58.00} & 3.71 \\
@@ -281,7 +281,7 @@ Skywork-Reward-V2 & 78.86 & \textbf{100.00} & 90.38 & 60.00 & 1.41 \\
 LLM Selection ($N{=}8$) & 81.14 & \textbf{100.00} & 86.54 & 67.50 & 1.51 \\
 % N=4 row added 2026-05-04: integrator $18.30 + cache Explorer $146.90 = $165.20/175 = $0.94.
 % Per-subset: easy 43/43, med 48/52, hard 55/80. Run: Experiment/analysis/run/lcb/sonnet_standalone_integrator_n4/.
-% N=4 outperforms N=8 on Pass@1 (+2.29pp) and Med (+5.77pp), tying ATTS-MM on Med at 92.31 (joint bold).
+% N=4 outperforms N=8 on Pass@1 (+2.29pp) and Med (+5.77pp), tying ATLAS-MM on Med at 92.31 (joint bold).
 LLM Selection ($N{=}4$) & 83.43 & \textbf{100.00} & \textbf{92.31} & 68.75 & 0.94 \\
 \our{} & 82.29 & \textbf{100.00} & 90.38 & 67.50 & 0.53 \\
 \attsmm{} & \textbf{85.63} & \textbf{100.00} & \textbf{92.31} & \textbf{73.42} & 0.69 \\
@@ -355,7 +355,7 @@ Table~\ref{tab:main-results} presents the main results across all four benchmark
 
 \paragraph{HLE-Verified.}
 % Corrected: HLE costs adjusted after zeroing 10 compaction-failed explores.
-% ATTS: $1.90 -> $1.59. LLM Selection: $4.53 -> $3.71. Multi-model Med: $1.63 -> $1.54.
+% ATLAS: $1.90 -> $1.59. LLM Selection: $4.53 -> $3.71. Multi-model Med: $1.63 -> $1.54.
 % Ratio: $3.71/$1.59 = 2.33 -> 2.3x (was $4.53/$1.90 = 2.38 -> 2.4x).
 On HLE-Verified, \our{} achieves 56.00\% accuracy at \$1.59/q, outperforming Self-Refine (53.00\%) and Budget Forcing (51.00\%). LLM Selection reaches 58.00\% but at \$3.71/q---a $2.3\times$ cost increase for a 2-point gain---illustrating that single-pass aggregation achieves higher accuracy when cost is unconstrained, but adaptive exploration provides a more efficient operating point. \attsmm{} improves to 57.00\% at \$1.54/q, narrowing the accuracy gap while maintaining cost efficiency. Socratic Self-Refine underperforms Self-Refine on HLE-Verified (45.00\% vs.\ 53.00\%, at $2.2\times$ the cost): on this benchmark the Socratic probing step does not consistently improve revisions and occasionally drives the model away from a correct initial draft, indicating that more elaborate critique is not uniformly beneficial when the underlying answer interface is already free-form text.
 
@@ -376,7 +376,7 @@ Among test-time scaling methods, \our{} ties with Majority Voting and LLM Select
 \end{figure}
 
 \paragraph{Overall trends.}
-% Corrected: HLE cost ratio 2.4x -> 2.3x (LLM Selection $3.71 / ATTS $1.59 = 2.33).
+% Corrected: HLE cost ratio 2.4x -> 2.3x (LLM Selection $3.71 / ATLAS $1.59 = 2.33).
 % Range upper bound: 2.4x -> 2.3x. Lower bound 1.7x unchanged (non-HLE benchmark).
 Across all four benchmarks, \our{} achieves the best or tied-best accuracy among test-time scaling methods while costing $1.7$--$2.3\times$ \emph{less} than alternatives of comparable accuracy. The gains are largest where one-shot generation leaves the most headroom: on GPQA-Diamond, \our{} improves over Pass@1 by 6.6 percentage points (74.24\% $\to$ 80.81\%) at \$0.34/q; on LiveCodeBench Hard problems, accuracy rises from 60.00\% to 67.50\%. On easy subtasks where the backbone is already near ceiling (100\% Easy on LiveCodeBench), additional exploration yields no benefit---and \our{} does not waste budget there. Where a higher-cost method edges ahead in accuracy---LLM Selection reaches 58.00\% on HLE versus \our{}'s 56.00\%---it does so at $2.3\times$ the cost. This pattern reflects the adaptive allocation at the core of the framework: explore when the current candidate pool is incomplete or inconsistent, and synthesize once the evidence suffices. The results support our main claim: even a purposefully constrained single-tool interface can turn test-time scaling into a semantic compute-allocation problem rather than a fixed sampling schedule.
 
@@ -621,67 +621,28 @@ Condition & Acc. (\%) & \$/q & Explores/q \\
 % =====================================================================
 
 \paragraph{The orchestrator's stop time tracks candidate-pool convergence, not budget exhaustion.}
-A reviewer might worry that the gains reported above arise from any aggregation strategy and that the stopping decision itself is a budget-exhaustion artifact. To probe the stopping mechanism directly, we measure for each question the gap between the orchestrator's natural stop time $t^\star$ and the earliest prefix length at which a correct majority among the cached explores would have emerged ($k^\star$): $\mathrm{gap} = t^\star - k^\star$. A negative gap means the orchestrator stopped before convergence; a positive gap means it kept exploring after the pool had already converged on the correct answer; zero is the ideal. We compute this on the five GPQA-Diamond stability runs ($5 \times 198 = 975$ trajectories, of which $790$ admit a defined $k^\star$; the remaining $185$ ($19\%$) never see a correct majority within the exploration budget and are reported separately as the capitulation cohort). Across the defined cohort, the gap concentrates sharply on zero: median $0$ with bootstrap $95\%$ CI $[0, 0]$, $88.9\%$ of trajectories stop exactly at convergence, $94.3\%$ stop within one step of it, and no trajectory overstays past convergence (the fraction of positive gaps is $0$). The five stability runs report identical medians individually, ruling out cherry-picking across runs. As a null reference, the same gap computed under uniform-random stopping in $[1, T]$ has median $+2$ with CI $[+2, +2.5]$, non-overlapping with the observed CI by two full units. This rules out the random and budget-exhaustion nulls at once: \our{} stops at the moment the candidate pool resolves, not at the budget cap and not at random.
+We next examine whether the stopping decision is tied to the state of the candidate pool. On GPQA-Diamond, convergence can be measured cleanly because each answer maps to a multiple-choice option. For each trajectory, we compare the orchestrator's natural stop time with the earliest prefix at which the cached candidate pool contains a correct majority. We compute this diagnostic on the five GPQA-Diamond stability runs ($5 \times 198 = 975$ trajectories), excluding the $185$ trajectories ($19\%$) in which no correct majority appears within the exploration budget. The resulting gap is sharply concentrated at zero (Figure~\ref{fig:analysis-stop-time}a): the median is $0$, $88.9\%$ of trajectories stop exactly at convergence, $94.3\%$ stop within one step, and no trajectory continues after a correct majority has already emerged. The five runs have identical median gaps, indicating that the pattern is not a single-run artifact. Under a uniform-random stopping reference, the median gap is $+2$. Thus, on GPQA-Diamond, the orchestrator's stop time tracks the resolution of the candidate pool rather than the budget cap or a random schedule. We restrict this stop-time diagnostic to GPQA-Diamond because exact answer-majority is not a reliable convergence observable for free-form benchmarks such as HLE-Verified and LiveCodeBench.
+
+\paragraph{GPQA accuracy tracks how much correct evidence appears in the pool.}
+We further stratify GPQA trajectories by the number of cached explores, out of eight, that produce the correct option. This grouping is derived from the candidate pool alone and is independent of the orchestrator's stopping decision. Figure~\ref{fig:analysis-stop-time}b shows a monotonic difficulty pattern. When the pool is reliable ($7$--$8$ correct explores; $n{=}655$), \our{} answers correctly in every trajectory. Accuracy remains high when the correct option is still a pool majority ($4$--$6$ correct explores; $91.1\%$), but falls to $36.7\%$ when the correct option appears only as a minority ($1$--$3$ correct explores), and to $7.3\%$ when no cached explore finds the correct option. On GPQA, the minority-extraction rate is meaningful because answer identity is discrete: it measures cases where the orchestrator recovers the correct option even though the modal cached answer at the stop point is not correct. These cases distinguish \our{} from rigid selection rules such as majority voting or single-pass candidate selection: the orchestrator is not only choosing the most frequent answer, but can synthesize across reasoning traces and select a correct minority option when the pool is noisy.
 
 \begin{figure}[H]
 \centering
-\begin{subfigure}[t]{\linewidth}
+\begin{subfigure}[t]{0.49\linewidth}
   \centering
   \includegraphics[width=\linewidth]{figures/orch_evidence_gap_histogram.pdf}
-  \caption{Distribution of $\mathrm{gap} = t^\star - k^\star$ over the $n{=}790$ GPQA-Diamond trajectories with a defined $k^\star$, pooled across the five stability runs. Observed (\our{}) is concentrated at zero; uniform-random stopping in $[1, T]$ is shown as the null reference.}
+  \caption{Stop-time gap on the $n{=}790$ GPQA-Diamond trajectories with a defined convergence point.}
   \label{fig:analysis-gap-histogram}
 \end{subfigure}
-\caption{Stop-time validity. The orchestrator's natural stop time aligns with the earliest emergence of a correct majority in the candidate pool, not with the budget cap or a random schedule. Additional analysis panels will be added as siblings to this subfigure.}
-\label{fig:analysis-stop-time}
-\end{figure}
-
-% =====================================================================
-% Second paragraph -- "Comfort zone: 100% accuracy on the easy cohort
-% across all four benchmarks" (Tier 1-B)
-%   Source data : 4 pool_state.parquet files at
-%                 Experiment/analysis/orch_evidence/{gpqa,hle,lcb,babyvision}_sonnet/pool_state.parquet
-%                 (1613 trajectories total: GPQA 975, HLE 100, LCB 151, BV 387)
-%                 GPQA pools the 5 stability runs (5 x 195 clean qids).
-%                 HLE / LCB / BV are single-run (n_trajectories = n_questions).
-%   Build script: Experiment/scripts/orch_evidence/build_pool_state_all_benchmarks.py
-%   Plot src    : currently inline matplotlib (see tmp/orch_ev_cross_bench.log
-%                 documented in Experiment/core_code/todo_orch_evidence_A_pool_state.md
-%                 item 11). If the figure needs re-polishing, lift the inline
-%                 code into a standalone scripts/orch_evidence/plot_difficulty_cohorts.py.
-%   Figure src  : Experiment/analysis/orch_evidence/fig4_cross_benchmark_difficulty.pdf
-%   Figure copy : figures/orch_evidence_difficulty_cohorts.pdf (this file)
-%
-% Cohort definitions (binning is per-question, derived from the cached
-% explore pool, independent of orchestrator decisions):
-%   easy      : k* = 2  (first 2 explores both correct)
-%   medium    : k* in {3, 4}
-%   hard      : k* >= 5
-%   undefined : no k* (correct majority never emerges in T=8 budget) =
-%               capitulation cohort
-% Per-cohort n (visible as panel annotations):
-%   GPQA : easy 690, medium 55, hard 45, undefined 185 (total 975)
-%   HLE  : easy 30,  medium 14, hard 7,  undefined 49  (total 100)
-%   LCB  : easy 33,  medium 18, hard 1,  undefined 99  (total 151)
-%   BV   : easy 60,  medium 22, hard 11, undefined 294 (total 387)
-%
-% This paragraph cites only the easy cohort. The medium/hard/undefined
-% bars on the same figure will be cited by subsequent paragraphs (taxonomy,
-% capitulation, multi-model rescue) without re-introducing the figure.
-% =====================================================================
-
-\paragraph{Easy cohort: \our{} captures every two-explore convergence at $100\%$ accuracy.}
-The previous paragraph established that \our{} stops at convergence. This paragraph asks how often convergence is correct, and how reliably \our{} captures it. Re-using $k^\star$ from above, we bin every question of every benchmark by $k^\star$ into four cohorts: \emph{easy} ($k^\star{=}2$, the first two explores agree on the correct answer), \emph{medium} ($k^\star{\in}\{3,4\}$), \emph{hard} ($k^\star{\geq}5$), and \emph{undefined} (no correct majority emerges within the budget; the capitulation cohort). The binning is determined by the cached explore pool alone and is independent of orchestrator decisions. Figure~\ref{fig:analysis-difficulty-cohorts} reports, for each cohort, the fraction of trajectories on which \our{} answers correctly (blue) alongside the fraction on which the final answer differs from the modal cached answer (red, ``minority extraction''). The leftmost bars in all four panels report the comfort-zone effect: when the first two explores agree on the correct answer, \our{} answers correctly in $100\%$ of trajectories on every benchmark, with a minority-extraction rate of $0$--$13\%$. \our{} resolves these trajectories by detecting and locking in the agreed answer, not by overriding the pool. The cohort sizes, however, vary sharply across benchmarks: $71\%$ ($n{=}690/975$) of GPQA-Diamond trajectories, $30\%$ ($n{=}30/100$) of HLE-Verified, $22\%$ ($n{=}33/151$) of LiveCodeBench, and only $16\%$ ($n{=}60/387$) of BabyVision fall into this regime. This differential is the structural reason \our{} reaches $80.81\%$ on GPQA but $23.20\%$ on BabyVision under the same control logic and budget: BabyVision rarely admits a two-explore correct convergence, so \our{}'s effective accuracy on that benchmark is dominated by the harder cohorts shown in the remaining bars (analyzed in subsequent paragraphs).
-
-\begin{figure}[H]
-\centering
-\begin{subfigure}[t]{\linewidth}
+\hfill
+\begin{subfigure}[t]{0.49\linewidth}
   \centering
-  \includegraphics[width=\linewidth]{figures/orch_evidence_difficulty_cohorts.pdf}
-  \caption{ATTS behavior stratified by question difficulty across the four benchmarks. Each panel reports final accuracy (blue) and minority-extraction rate (red) within four cohorts defined by $k^\star$: easy ($k^\star{=}2$), medium ($k^\star{\in}\{3,4\}$), hard ($k^\star{\geq}5$), undefined (no correct majority within budget). Per-cohort sample size $n$ is annotated on each bar.}
-  \label{fig:analysis-difficulty-cohorts}
+  \includegraphics[width=\linewidth]{figures/orch_evidence_gpqa_cohorts.pdf}
+  \caption{GPQA-Diamond behavior stratified by the number of correct candidates among eight cached explores.}
+  \label{fig:analysis-gpqa-cohorts}
 \end{subfigure}
-\caption{Comfort-zone effect and difficulty stratification. The leftmost bar in every panel shows that \our{} captures every two-explore correct convergence at $100\%$ accuracy. The cohort that contains those convergences is itself a sharply benchmark-dependent quantity, ranging from $71\%$ of GPQA-Diamond down to $16\%$ of BabyVision. Subsequent paragraphs analyze the medium, hard, and undefined cohorts.}
-\label{fig:analysis-difficulty}
+\caption{Candidate-pool diagnostics on GPQA-Diamond. Left: the orchestrator's natural stop time aligns with correct-majority emergence rather than a random schedule. Right: performance is near-perfect when the cached pool contains many correct candidates and degrades as correct evidence becomes sparse.}
+\label{fig:analysis-stop-time}
 \end{figure}
 
 \section{Limitations}
@@ -690,7 +651,7 @@ The previous paragraph established that \our{} stops at convergence. This paragr
 
 \section{Conclusion}
 
-The central empirical finding of this work is that an LLM orchestrator performing closed-loop decision-making over a minimal action space---a single \explore{} tool---achieves competitive or superior accuracy to fixed-budget test-time scaling strategies while using substantially fewer API calls. \attsmm{} further improves to 57.00\% and 85.63\% on HLE-Verified and LiveCodeBench respectively. The ablation results sharpen this finding: removing the orchestrator's multi-turn context by delegating synthesis to a separate call degrades or fails to improve accuracy on three of four benchmarks, demonstrating that \emph{stateful evidence management}---not just candidate diversity---drives the gains. For the broader field, these results indicate that test-time compute allocation is better approached as closed-loop decision-making by an LLM agent---with an extensible action space over solver dispatch---than as explicit tree search or fixed sampling. A key limitation is the orchestrator's conservative stopping behavior: on GPQA-Diamond, 82\% of questions use exactly two \explore{} calls, leaving substantial headroom relative to oracle best-of-$N$. Learning stopping policies that better exploit the full exploration budget remains an open problem. Code and cached experimental artifacts are available at \url{https://github.com/t2ance/ATTS}.
+The central empirical finding of this work is that an LLM orchestrator performing closed-loop decision-making over a minimal action space---a single \explore{} tool---achieves competitive or superior accuracy to fixed-budget test-time scaling strategies while using substantially fewer API calls. \attsmm{} further improves to 57.00\% and 85.63\% on HLE-Verified and LiveCodeBench respectively. The ablation results sharpen this finding: removing the orchestrator's multi-turn context by delegating synthesis to a separate call degrades or fails to improve accuracy on three of four benchmarks, demonstrating that \emph{stateful evidence management}---not just candidate diversity---drives the gains. For the broader field, these results indicate that test-time compute allocation is better approached as closed-loop decision-making by an LLM agent---with an extensible action space over solver dispatch---than as explicit tree search or fixed sampling. A key limitation is the orchestrator's conservative stopping behavior: on GPQA-Diamond, 82\% of questions use exactly two \explore{} calls, leaving substantial headroom relative to oracle best-of-$N$. Learning stopping policies that better exploit the full exploration budget remains an open problem. Code and cached experimental artifacts are available at \url{https://github.com/t2ance/ATLAS}.
 
 \bibliographystyle{plainnat}
 \bibliography{main}
@@ -1035,6 +996,96 @@ BabyVision is the only benchmark on which the highest mean \explore{} count ($2.
 % Not included in the current build; to re-enable, uncomment the line below.
 % \input{archive/appendix_h}
 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%
+% Trajectory-Oracle decomposition appendix (added 2026-05-05).
+% Per-cell Acc and O_K computed from results.jsonl in:
+%   GPQA-Diamond  ATLAS:    run/gpqa/sonnet_no_integrate_run1/run_20260328_060344
+%   GPQA-Diamond  Self-Refine: run/gpqa/sonnet_self_refine/run_20260313_230052
+%   GPQA-Diamond  Budget Forcing: run/gpqa/sonnet_budget_forcing/run_20260313_230055
+%   HLE-Verified  ATLAS:    run/hle/sonnet_no_integrate/run_20260319_003712
+%   HLE-Verified  Self-Refine: run/hle/sonnet_self_refine/run_20260315_154153
+%   HLE-Verified  Socratic SR: run/hle/sonnet_socratic_self_refine/run_20260427_071039
+%   HLE-Verified  Budget Forcing: run/hle/sonnet_budget_forcing/run_20260315_154148
+%   LiveCodeBench ATLAS:    run/lcb/sonnet_no_integrate/run_20260317_213909
+%   LiveCodeBench Self-Refine: run/lcb/sonnet_self_refine/run_20260314_222342
+%   LiveCodeBench Socratic SR: run/lcb/sonnet_socratic_self_refine/run_20260428_163748
+%   LiveCodeBench Budget Forcing: run/lcb/sonnet_budget_forcing/run_20260314_181955
+%   BabyVision    ATLAS:    run/babyvision/sonnet_no_integrate/run_20260319_021914
+%   BabyVision    Self-Refine: run/babyvision/sonnet_self_refine/run_20260313_231138
+%   BabyVision    Socratic SR: run/babyvision/sonnet_socratic_self_refine/run_20260428_075116
+%   BabyVision    Budget Forcing: run/babyvision/sonnet_budget_forcing/run_20260313_231131
+% Within-question canonicalization (LLM-judge benchmarks): a candidate counts
+% as correct if its normalized answer matches the final method answer and the
+% final was judged correct (collapses Haiku non-determinism on identical
+% answer strings; keeps O_K >= A by construction for Self-Refine variants).
+% Denominator N drops rows where the per-candidate is_correct field is
+% missing (typically 1-7 rows per method, due to precache failures).
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\section{Trajectory Oracle: Decomposing Iterative Methods into Exploration and Selection}
+\label{app:trajectory-oracle}
+
+For the iterative test-time scaling methods evaluated in Table~\ref{tab:main-results}---\our{}, Self-Refine, Socratic Self-Refine, and Budget Forcing---the per-question explore count $K$ is variable: each method may issue between $0$ and the cap $T{=}8$ explore calls depending on its stopping rule. Final accuracy alone does not separate two distinct failure modes: the method may have stopped before any correct candidate was generated (\emph{stopping insufficiency}), or it may have generated a correct candidate during exploration but committed to a different answer at synthesis time (\emph{selection error}). This appendix introduces the \textbf{trajectory Oracle} $O_K$ to expose this decomposition.
+
+\paragraph{Definition.}
+For question $q$ with gold answer $g$, let $(c_1, \ldots, c_K)$ denote the sequence of $K$ candidate answers actually produced by the method during exploration on $q$ (so $K = $ \texttt{num\_explores} for that question), and let $j(\cdot, g)\in\{0,1\}$ be the per-benchmark grading function (string match for GPQA-Diamond, code execution for LiveCodeBench, LLM judge for HLE-Verified and BabyVision). We define
+\begin{align*}
+A(q) &\;=\; j(\mathrm{final}(q),\, g) \quad\text{(final method answer is correct)} \\
+O_K(q) &\;=\; \mathbf{1}\!\left[\,\exists\, i\in\{1,\ldots,K\}:\, j(c_i, g) = 1\,\right] \quad\text{(trajectory contains a correct candidate)}
+\end{align*}
+The aggregate quantities reported in Table~\ref{tab:trajectory-oracle} are means over the question set: $A = \tfrac{1}{N}\sum_q A(q)$ and $O_K = \tfrac{1}{N}\sum_q O_K(q)$, where $N$ is the number of questions for which both the final grade and per-candidate grades are available in the run logs.
+
+\paragraph{Trajectory Oracle vs.\ Pass@$8$.}
+$O_K$ is bounded above by Pass@$8 = \tfrac{1}{N}\sum_q \mathbf{1}\!\left[\exists\, i\in\{1,\ldots,8\}:\, j(c_i, g)=1\right]$, the standard ``best-of-$N$ at the budget cap.'' Pass@$8$ assesses whether a correct candidate exists in the pool of cached samples regardless of when the method stopped exploring; $O_K$ assesses whether a correct candidate was actually \emph{produced during the trajectory the method ran}. The difference Pass@$8 - O_K$ is the cost of stopping early. We focus on $O_K$ in this appendix because it is the right counterfactual for ``what could the method have committed to with perfect selection \emph{given its actual exploration},'' which is what the comparison between methods needs to control.
+
+\paragraph{Note on \our{} synthesis.}
+\our{}'s final answer is synthesized by the orchestrator from the trajectory and is not itself one of the $c_i$. It can therefore differ from every individual candidate, and one can in principle have $A(q) > O_K(q)$ when the orchestrator recombines parts of multiple candidates into a new correct answer that no individual explorer produced. Self-Refine, Socratic Self-Refine, and Budget Forcing, by contrast, return a draft from their trajectory (typically the last revision), so $A \le O_K$ holds trivially for those three methods.
+
+\paragraph{Note on within-question consistency for LLM-judged benchmarks.}
+For HLE-Verified and BabyVision, the grading function $j$ is implemented by an LLM judge (Haiku) and is not deterministic on identical answer strings: candidates that share the same normalized answer can receive different verdicts in the run logs. We resolve this within each question by setting $j(c_i, g) = 1$ whenever $c_i$'s normalized answer string matches the final method answer's normalized answer string and the final answer was judged correct. This collapses judge non-determinism inside one question without re-querying the judge, and ensures the $A \le O_K$ relation expected for Self-Refine, Socratic Self-Refine, and Budget Forcing is preserved in the table.
+
+\begin{table}[h]
+\centering
+\caption{Trajectory-Oracle decomposition. Each row corresponds to one $(\text{method}, \text{benchmark})$ pair under the same Sonnet-4.6 backbone and the same precached candidate pool used in Table~\ref{tab:main-results}. $N$: number of evaluated questions for which both the final grade and per-candidate grades are present in the run logs. $A$: final accuracy. $O_K$: trajectory Oracle (any of the $K$ actually-explored candidates correct). $O_K - A$: selection gap in percentage points. $A/O_K$: fraction of trajectory-Oracle realised as final accuracy. $\bar K$: mean explore count per question. Socratic Self-Refine on GPQA-Diamond was not run.}
+\label{tab:trajectory-oracle}
+\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llrrrrrr}
+\toprule
+Method & Benchmark & $N$ & $A$ (\%) & $O_K$ (\%) & $O_K - A$ (pp) & $A/O_K$ (\%) & $\bar K$ \\
+\midrule
+\our{}                & HLE-Verified   & 100 & 56.00 & 60.00 & +4.00  & 93.3  & 2.39 \\
+\our{}                & LiveCodeBench  & 166 & 86.14 & 86.75 & +0.60  & 99.3  & 1.79 \\
+\our{}                & GPQA-Diamond   & 197 & 81.22 & 82.23 & +1.02  & 98.8  & 2.13 \\
+\our{}                & BabyVision     & 388 & 23.20 & 29.12 & +5.93  & 79.7  & 2.79 \\
+\midrule
+Self-Refine           & HLE-Verified   &  97 & 54.64 & 57.73 & +3.09  & 94.6  & 1.70 \\
+Self-Refine           & LiveCodeBench  & 165 & 85.45 & 85.45 & +0.00  & 100.0 & 1.05 \\
+Self-Refine           & GPQA-Diamond   & 196 & 73.98 & 73.98 & +0.00  & 100.0 & 1.13 \\
+Self-Refine           & BabyVision     & 388 & 21.39 & 28.61 & +7.22  & 74.8  & 2.61 \\
+\midrule
+Socratic Self-Refine  & HLE-Verified   &  98 & 59.18 & 61.22 & +2.04  & 96.7  & 3.31 \\
+Socratic Self-Refine  & LiveCodeBench  & 163 & 88.34 & 88.34 & +0.00  & 100.0 & 3.01 \\
+Socratic Self-Refine  & GPQA-Diamond   & --  & --    & --    & --     & --    & --   \\
+Socratic Self-Refine  & BabyVision     & 388 & 21.13 & 33.25 & +12.11 & 63.6  & 3.62 \\
+\midrule
+Budget Forcing        & HLE-Verified   &  93 & 54.84 & 61.29 & +6.45  & 89.5  & 7.95 \\
+Budget Forcing        & LiveCodeBench  & 161 & 86.96 & 87.58 & +0.62  & 99.3  & 7.93 \\
+Budget Forcing        & GPQA-Diamond   & 194 & 78.87 & 79.38 & +0.52  & 99.4  & 8.00 \\
+Budget Forcing        & BabyVision     & 387 & 21.96 & 28.68 & +6.72  & 76.6  & 7.98 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\paragraph{Reading the table.}
+Two patterns emerge. First, on the three text benchmarks (HLE-Verified, LiveCodeBench, GPQA-Diamond) all four methods commit to their trajectory's correct candidate at least $89.5\%$ of the time when one exists ($A/O_K \in [89.5\%, 100\%]$), so the absolute-accuracy differences between methods on these benchmarks come from differences in $O_K$ (richness of trajectory) rather than differences in selection. Second, on BabyVision the selection gap $O_K - A$ is large for every method ($5.9$--$12.1$ pp) and separates the methods sharply: Socratic Self-Refine has the highest BabyVision $O_K$ ($33.25\%$) but the lowest $A/O_K$ ($63.6\%$)---its Socratic critic surfaces a correct candidate roughly one in three questions but commits to that candidate only roughly one in five questions. \our{} on BabyVision exposes a lower Oracle ceiling ($29.12\%$) but realises a larger fraction of it ($79.7\%$), and it is this combined behaviour---rather than higher $O_K$ alone---that produces the highest absolute accuracy ($23.20\%$) among the four methods on this benchmark.
+
+\paragraph{Connection to Pass@$8$ headroom.}
+The Pass@$8$ ceiling discussed in the Limitations section is bounded from below by the trajectory Oracle and from above by Pass@$8$ itself. Budget Forcing trajectories run essentially to the cap on every benchmark ($\bar K \in [7.93, 8.00]$ in the table), so its $O_K$ closely approximates Pass@$8$. \our{}'s mean $K \approx 2$ leaves a multi-percentage-point Pass@$8$ headroom on every benchmark---e.g.\ on GPQA-Diamond, Pass@$8$ on the same explore caches is $88.83\%$ versus \our{}'s $O_K = 82.23\%$, a $6.60$ pp stopping gap. This stopping-side headroom is the quantity referenced as ``oracle best-of-$N$ continues to climb through $N{=}8$'' in the Limitations section, and is distinct from the selection gap reported here.
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
 \newpage
 \section*{NeurIPS Paper Checklist}
 
@@ -1043,7 +1094,7 @@ BabyVision is the only benchmark on which the highest mean \explore{} count ($2.
 \item {\bf Claims}
     \item[] Question: Do the main claims made in the abstract and introduction accurately reflect the paper's contributions and scope?
     \item[] Answer: \answerYes{}
-    \item[] Justification: The abstract and introduction claim that ATTS matches or outperforms baselines on four main benchmarks while remaining cost-competitive; these claims are directly supported by Table~1 and the cost-accuracy analysis in Section~4.
+    \item[] Justification: The abstract and introduction claim that ATLAS matches or outperforms baselines on four main benchmarks while remaining cost-competitive; these claims are directly supported by Table~1 and the cost-accuracy analysis in Section~4.
 
 \item {\bf Limitations}
     \item[] Question: Does the paper discuss the limitations of the work performed by the authors?
@@ -1063,7 +1114,7 @@ BabyVision is the only benchmark on which the highest mean \explore{} count ($2.
 \item {\bf Open access to data and code}
     \item[] Question: Does the paper provide open access to the data and code, with sufficient instructions to faithfully reproduce the main experimental results, as described in supplemental material?
     \item[] Answer: \answerYes{}
-    \item[] Justification: Code will be released at \url{https://github.com/t2ance/ATTS}. All benchmarks used are publicly available with dataset identifiers cited in Appendix~C. Reproduction requires access to the Claude API, which is a commercial service.
+    \item[] Justification: Code will be released at \url{https://github.com/t2ance/ATLAS}. All benchmarks used are publicly available with dataset identifiers cited in Appendix~C. Reproduction requires access to the Claude API, which is a commercial service.
 
 \item {\bf Experimental Setting/Details}
     \item[] Question: Does the paper specify all the training and test details (e.g., data splits, hyperparameters, how they were chosen, type of optimizer, etc.) necessary to understand the results?
@@ -1103,7 +1154,7 @@ BabyVision is the only benchmark on which the highest mean \explore{} count ($2.
 \item {\bf New Assets}
     \item[] Question: Are new assets introduced in the paper well documented and is the documentation provided alongside the assets?
     \item[] Answer: \answerNA{}
-    \item[] Justification: The paper does not introduce new datasets or pretrained models. The released code is an implementation of the ATTS framework, documented in the GitHub repository.
+    \item[] Justification: The paper does not introduce new datasets or pretrained models. The released code is an implementation of the ATLAS framework, documented in the GitHub repository.
 
 \item {\bf Crowdsourcing and Research with Human Subjects}
     \item[] Question: For crowdsourcing experiments and research with human subjects, does the paper include the full text of instructions given to participants and screenshots, if applicable, as well as details about compensation (if any)?

@@ -283,13 +283,31 @@ class ExploreVariant(BaseModel):
         """
         from cache_types import Exploration
         exp = self._load_explore(qid, idx, rollout_idx)
+        # Surfaced to eval.log so users can audit hit/miss without inspecting
+        # the cache directory mtimes. variant=self.label disambiguates multi-
+        # variant runs (multi_model / effort modes); rollout_idx is included
+        # for K>1 num_rollouts setups.
+        rollout_tag = f" rollout={rollout_idx}" if rollout_idx is not None else ""
         if exp is None:
+            logger.info(
+                f"[cache miss] explore qid={qid} idx={idx} "
+                f"variant={self.label}{rollout_tag} -> calling generate_fn"
+            )
             exp = await generate_fn()
             assert isinstance(exp, Exploration), (
                 f"generate_fn must return Exploration, got {type(exp).__name__}"
             )
             exp.qid, exp.idx, exp.rollout_idx = qid, idx, rollout_idx
             exp.persist(self._explore_dir(qid, idx, rollout_idx))
+            logger.info(
+                f"[cache writeback] explore qid={qid} idx={idx} "
+                f"variant={self.label}{rollout_tag} -> {self._explore_dir(qid, idx, rollout_idx)}"
+            )
+        else:
+            logger.info(
+                f"[cache hit] explore qid={qid} idx={idx} "
+                f"variant={self.label}{rollout_tag} timed_out={exp.timed_out}"
+            )
 
         if grader is not None:
             cached_outcome = self._load_judge(qid, idx, grader.judge_spec, rollout_idx)
