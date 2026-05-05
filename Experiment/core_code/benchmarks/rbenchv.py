@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from benchmarks.base import BenchmarkConfig, ANSWER_FORMAT_RULES, image_to_data_url
 from benchmarks.grader import judge_answer
+from cache_types import JudgeOutcome
 
 
 # ---------------------------------------------------------------------------
@@ -87,10 +88,9 @@ If you cannot solve it exactly, give your best estimate and set confidence accor
         # the boundary so per_subset keys in results.jsonl + audit are consistent.
         return row.get("catagory", "unknown").lower()
 
-    async def grade(self, predicted, gold, question, row, backend, out_dir=None):
+    async def grade(self, predicted, gold, question, row, backend) -> JudgeOutcome:
         return await judge_answer(
             predicted, gold, question, self.judge_spec,
             max_retries=self.judge_max_retries,
-            out_dir=out_dir,
         )
 

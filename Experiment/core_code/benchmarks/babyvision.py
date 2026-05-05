@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from benchmarks.base import BenchmarkConfig, ANSWER_FORMAT_RULES, image_to_data_url
 from benchmarks.grader import check_answer, judge_answer
+from cache_types import JudgeOutcome
 
 
 # ---------------------------------------------------------------------------
@@ -97,12 +98,19 @@ If you cannot solve it exactly, give your best estimate and set confidence accor
     def classify_subset(self, row: dict) -> str:
         return row.get("type", "unknown")
 
-    async def grade(self, predicted, gold, question, row, backend, out_dir=None):
+    async def grade(self, predicted, gold, question, row, backend) -> JudgeOutcome:
         if row.get("ansType") == "choice":
-            return check_answer(predicted, gold, "multipleChoice"), 0.0
+            is_correct = check_answer(predicted, gold, "multipleChoice")
+            return JudgeOutcome(
+                is_correct=is_correct,
+                cost_usd=0.0,
+                judge_spec_snapshot=None,
+                input_md="",
+                output_md="",
+                result_dict={"correct": is_correct, "kind": "rule_based_mc"},
+            )
         return await judge_answer(
             predicted, gold, question, self.judge_spec,
             max_retries=self.judge_max_retries,
-            out_dir=out_dir,
         )
 

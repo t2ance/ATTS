@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 from benchmarks.base import BenchmarkConfig
 from benchmarks.grader import check_answer, judge_answer
+from cache_types import JudgeOutcome
 from multimodal_input import has_image, normalize_image_data_url
 
 
@@ -150,16 +151,23 @@ class HLEBenchmark(BenchmarkConfig):
     def classify_subset(self, row: dict) -> str:
         return _classify_subset(row)
 
-    async def grade(self, predicted, gold, question, row, backend, out_dir=None):
+    async def grade(self, predicted, gold, question, row, backend) -> JudgeOutcome:
         # HLE rows carry per-row answer_type; multipleChoice rows skip the LLM judge.
         answer_type = row.get("answer_type", "exactMatch")
         if answer_type == "multipleChoice":
-            return check_answer(predicted, gold, "multipleChoice"), 0.0
+            is_correct = check_answer(predicted, gold, "multipleChoice")
+            return JudgeOutcome(
+                is_correct=is_correct,
+                cost_usd=0.0,
+                judge_spec_snapshot=None,
+                input_md="",
+                output_md="",
+                result_dict={"correct": is_correct, "kind": "rule_based_mc"},
+            )
         # `backend` (orchestrator backend) is intentionally ignored here: the
-        # judge backend lives entirely in self.judge_spec["name"] per YAML.
+        # judge backend lives entirely in self.judge_spec["backend"] per YAML.
         return await judge_answer(
             predicted, gold, question, self.judge_spec,
             max_retries=self.judge_max_retries,
-            out_dir=out_dir,
         )
 

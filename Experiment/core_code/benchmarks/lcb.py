@@ -6,6 +6,7 @@ from typing import Any
 
 from benchmarks.base import BenchmarkConfig
 from benchmarks.grader import grade_code, normalize_code
+from cache_types import JudgeOutcome
 
 
 # ---------------------------------------------------------------------------
@@ -137,8 +138,16 @@ Put your final solution code in the `final_code` field.
     def classify_subset(self, row: dict) -> str:
         return row.get("difficulty", "unknown").lower()
 
-    async def grade(self, predicted, gold, question, row, backend, out_dir=None):
-        return await grade_code(predicted, row)
+    async def grade(self, predicted, gold, question, row, backend) -> JudgeOutcome:
+        is_correct, _ = await grade_code(predicted, row)
+        return JudgeOutcome(
+            is_correct=is_correct,
+            cost_usd=0.0,
+            judge_spec_snapshot=None,
+            input_md="",
+            output_md="",
+            result_dict={"correct": is_correct, "kind": "rule_based_code"},
+        )
 
     def normalize_answer(self, text: str) -> str:
         return normalize_code(text)

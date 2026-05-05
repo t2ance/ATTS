@@ -7,6 +7,7 @@ import random
 
 from benchmarks.base import BenchmarkConfig, ANSWER_FORMAT_RULES
 from benchmarks.grader import check_answer
+from cache_types import JudgeOutcome
 
 
 # ---------------------------------------------------------------------------
@@ -99,6 +100,14 @@ Your job:
     def classify_subset(self, row: dict) -> str:
         return row.get("High-level domain", "unknown")
 
-    async def grade(self, predicted, gold, question, row, backend, out_dir=None):
-        return check_answer(predicted, gold, "multipleChoice"), 0.0
+    async def grade(self, predicted, gold, question, row, backend) -> JudgeOutcome:
+        is_correct = check_answer(predicted, gold, "multipleChoice")
+        return JudgeOutcome(
+            is_correct=is_correct,
+            cost_usd=0.0,
+            judge_spec_snapshot=None,
+            input_md="",
+            output_md="",
+            result_dict={"correct": is_correct, "kind": "rule_based_mc"},
+        )
 

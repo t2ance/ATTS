@@ -34,12 +34,12 @@ def test_judge_answer_succeeds_first_attempt():
         {"input_tokens": 100, "output_tokens": 50},
     )
     with patch("benchmarks.grader.call_sub_model", new=AsyncMock(return_value=successful)) as m:
-        is_correct, cost = _run(judge_answer(
+        outcome = _run(judge_answer(
             "42", "42", "what is the answer?", JUDGE_SPEC,
             max_retries=3,
         ))
-    assert is_correct is True
-    assert cost == pytest.approx(0.001)
+    assert outcome.is_correct is True
+    assert outcome.cost_usd == pytest.approx(0.001)
     assert m.await_count == 1
 
 
@@ -58,12 +58,12 @@ def test_judge_answer_succeeds_after_one_retry():
         {"input_tokens": 100, "output_tokens": 50},
     )
     with patch("benchmarks.grader.call_sub_model", new=AsyncMock(side_effect=[failure, success])) as m:
-        is_correct, cost = _run(judge_answer(
+        outcome = _run(judge_answer(
             "x", "y", "q?", JUDGE_SPEC,
             max_retries=3,
         ))
-    assert is_correct is False
-    assert cost == pytest.approx(0.0008 + 0.0005)
+    assert outcome.is_correct is False
+    assert outcome.cost_usd == pytest.approx(0.0008 + 0.0005)
     assert m.await_count == 2
 
 

@@ -19,6 +19,7 @@ sys.path.insert(0, str(_CORE_CODE_DIR))
 from eval import _grade_with_cache
 from benchmarks.hle import HLEBenchmark
 from benchmarks.gpqa import GPQABenchmark
+from cache_types import JudgeOutcome
 
 
 def _run(coro):
@@ -28,23 +29,15 @@ def _run(coro):
 _HAIKU_SPEC = {"backend": "claude", "model": "claude-haiku-4-5-20251001"}
 
 
-def _write_judge_files_into_out_dir(out_dir: Path):
-    """Stand-in for what benchmarks.grader.judge_answer would normally write
-    via TrajectoryWriter + save_sub_model_result + the new config.json line."""
-    out_dir.mkdir(parents=True, exist_ok=True)
-    (out_dir / "config.json").write_text(json.dumps(_HAIKU_SPEC, indent=2, sort_keys=True))
-    (out_dir / "input.md").write_text("judge prompt")
-    (out_dir / "output.md").write_text("judge raw output")
-    (out_dir / "result.json").write_text(json.dumps({"correct": True}))
-
-
 def test_cache_miss_writes_bundle_into_judges_label_dir(tmp_path):
     bench = HLEBenchmark(judge_spec=_HAIKU_SPEC)
 
-    async def fake_grade(self, predicted, gold, question, row, *, backend, out_dir):
-        # Mimic real judge_answer's side-effect of populating out_dir.
-        _write_judge_files_into_out_dir(out_dir)
-        return True, 0.012
+    async def fake_grade(self, predicted, gold, question, row, backend):
+        return JudgeOutcome(
+            is_correct=True, cost_usd=0.012, judge_spec_snapshot=_HAIKU_SPEC,
+            input_md="judge prompt", output_md="judge raw output",
+            result_dict={"correct": True},
+        )
 
     with patch.object(HLEBenchmark, "grade", new=fake_grade):
         is_correct, judge_cost = _run(_grade_with_cache(

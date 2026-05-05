@@ -176,20 +176,18 @@ async def _grade_with_cache(
 ) -> tuple[bool, float]:
     """Grade an answer, caching the bundle under grade_dir/judges/<label>/.
 
-    grade_dir is the per-explore (cache_base/<qid>/explore_N/) or per-rollout
-    integrate (run_dir/grading/<qid>/[/rollout_<r>]/) directory. On cache hit,
-    returns the cached verdict with judge_cost=0. On miss, calls benchmark.grade
-    (which writes config.json + input.md/output.md/result.json into the bundle)
-    and finalizes the bundle with grade.json.
+    Transitional helper (will be deleted in the upcoming ExploreVariant.get_*
+    refactor). Calls the new benchmark.grade returning JudgeOutcome and
+    persists via outcome.persist; on cache hit reads back grade.json directly.
 
     No-judge benchmarks (LCB/GPQA/AIME -> judge_spec is None) short-circuit
-    through benchmark.grade with out_dir=None and write nothing under judges/.
+    through benchmark.grade and write nothing under judges/.
     """
     if benchmark.judge_spec is None:
-        return await benchmark.grade(
-            predicted, gold, question, row,
-            backend=backend, out_dir=None,
+        outcome = await benchmark.grade(
+            predicted, gold, question, row, backend=backend,
         )
+        return outcome.is_correct, outcome.cost_usd
 
     judges_dir = grade_dir / "judges"
     cached = find_cached_judge(judges_dir, benchmark.judge_spec)
@@ -202,20 +200,17 @@ async def _grade_with_cache(
 
     label = judge_label(benchmark.judge_spec)
     bundle_dir = judges_dir / label
-    bundle_dir.mkdir(parents=True, exist_ok=True)
-    is_correct, judge_cost = await benchmark.grade(
-        predicted, gold, question, row,
-        backend=backend, out_dir=bundle_dir,
+    outcome = await benchmark.grade(
+        predicted, gold, question, row, backend=backend,
     )
-    logger.info(f"  [sub-model] judge: correct={is_correct}, predicted={str(predicted)[:60]}, gold={str(gold)[:60]}, cost=${judge_cost}")
-    (bundle_dir / "grade.json").write_text(json.dumps({
-        "judge_spec": benchmark.judge_spec,
-        "is_correct": is_correct,
-        "predicted": predicted,
-        "gold": gold,
-        "judge_cost_usd": judge_cost,
-    }, indent=2, ensure_ascii=False), encoding="utf-8")
-    return is_correct, judge_cost
+    if outcome.label is not None:
+        outcome.persist(bundle_dir)
+    logger.info(
+        f"  [sub-model] judge: correct={outcome.is_correct}, "
+        f"predicted={str(predicted)[:60]}, gold={str(gold)[:60]}, "
+        f"cost=${outcome.cost_usd}"
+    )
+    return outcome.is_correct, outcome.cost_usd
 
 
 async def _grade_cached_explores(

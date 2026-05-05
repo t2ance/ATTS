@@ -5,6 +5,7 @@ from __future__ import annotations
 import re
 
 from benchmarks.base import BenchmarkConfig, ANSWER_FORMAT_RULES
+from cache_types import JudgeOutcome
 
 
 # ---------------------------------------------------------------------------
@@ -114,8 +115,23 @@ Your job:
     def classify_subset(self, row: dict) -> str:
         return str(row.get("year", "unknown"))
 
-    async def grade(self, predicted, gold, question, row, backend, out_dir=None):
-        return _normalize_aime_answer(predicted) == _normalize_aime_answer(gold), 0.0
+    async def grade(self, predicted, gold, question, row, backend) -> JudgeOutcome:
+        pred_norm = _normalize_aime_answer(predicted)
+        gold_norm = _normalize_aime_answer(gold)
+        is_correct = pred_norm == gold_norm
+        return JudgeOutcome(
+            is_correct=is_correct,
+            cost_usd=0.0,
+            judge_spec_snapshot=None,
+            input_md="",
+            output_md="",
+            result_dict={
+                "correct": is_correct,
+                "kind": "rule_based_exact",
+                "pred_norm": pred_norm,
+                "gold_norm": gold_norm,
+            },
+        )
 
     def normalize_answer(self, text: str) -> str:
         return _normalize_aime_answer(text)
