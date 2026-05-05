@@ -138,6 +138,163 @@ def _scan_cache_dir(
     return out
 
 
+def _atomic_write_json(path: Path, payload: dict) -> None:
+    """Write `payload` to `path` atomically (tmp + rename).
+
+    The existing pattern duplicated in RunLogger._write_progress; pulled
+    out so PrecacheLogger uses the same dance and we have one place to
+    fix any future race conditions.
+    """
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_suffix(path.suffix + ".tmp")
+    with open(tmp, "w") as f:
+        json.dump(payload, f, indent=2, ensure_ascii=False, default=str)
+        f.write("\n")
+    tmp.rename(path)
+
+
+class PrecacheLogger:
+    """Writes <cache_dir>/progress.json for precache_explores.py.
+
+    Cumulative fields are reconstructed from the result.json files already
+    on disk at __init__ time. record_task() / finalize() update an in-memory
+    record map and rewrite the progress file atomically.
+    """
+
+    PROGRESS_FILENAME = "progress.json"
+
+    def __init__(
+        self,
+        cache_dir: Path,
+        qids: list[str],
+        num_explores: int,
+    ) -> None:
+        self.cache_dir = Path(cache_dir)
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+        self.qids = list(qids)
+        self.num_explores = int(num_explores)
+
+        self._start_time = time.time()
+        # Records: source of truth for all cumulative fields.
+        self.records: dict[tuple[str, int], _TaskRecord] = _scan_cache_dir(
+            self.cache_dir, self.qids, self.num_explores,
+        )
+        # `tasks_skipped_cached` is frozen at the count we observed on disk
+        # at startup. Anything we add via record_task() afterward counts as
+        # "this session" instead.
+        self._initial_record_count = len(self.records)
+        # Rolling window of completion timestamps for throughput.
+        self._session_completion_times: list[float] = []
+        self._write_progress(status="running")
+
+    # ------------------------------------------------------------------ #
+    # Snapshot / write
+    # ------------------------------------------------------------------ #
+
+    def _build_payload(self, status: str) -> dict:
+        records = list(self.records.values())
+        successes = [r for r in records if r.bucket == "success"]
+        soft = [r for r in records if r.bucket == "soft_fail"]
+        wall = [r for r in records if r.bucket == "wall_timeout"]
+
+        # Per-qid bucket counts.
+        succ_per_qid: dict[str, int] = {q: 0 for q in self.qids}
+        timed_per_qid: dict[str, int] = {q: 0 for q in self.qids}
+        for r in successes:
+            succ_per_qid[r.qid] = succ_per_qid.get(r.qid, 0) + 1
+        for r in soft + wall:
+            timed_per_qid[r.qid] = timed_per_qid.get(r.qid, 0) + 1
+
+        per_q_hist: dict[str, int] = {}
+        for c in succ_per_qid.values():
+            per_q_hist[str(c)] = per_q_hist.get(str(c), 0) + 1
+        timed_hist: dict[str, int] = {}
+        for c in timed_per_qid.values():
+            timed_hist[str(c)] = timed_hist.get(str(c), 0) + 1
+
+        # Soft-fail breakdown (wall_timeout counted in its own bucket).
+        sf_keys = ["no_tool_call", "invalid_json_in_tool_args", "empty_choices", "wall_timeout", "other"]
+        sf_counts: dict[str, int] = {k: 0 for k in sf_keys}
+        for r in soft:
+            sf_counts[r.reason or "other"] = sf_counts.get(r.reason or "other", 0) + 1
+        for r in wall:
+            sf_counts["wall_timeout"] += 1
+        sf_total = sum(sf_counts.values())
+
+        tasks_total = len(self.qids) * self.num_explores
+        tasks_done_session = len(self.records) - self._initial_record_count
+        tasks_remaining = max(0, tasks_total - len(self.records))
+        total_cost = sum(r.cost_usd for r in records)
+        durations = [r.duration_seconds for r in records if r.duration_seconds > 0]
+        in_toks = [r.input_tokens for r in records if r.input_tokens > 0]
+        out_toks = [r.output_tokens for r in records if r.output_tokens > 0]
+
+        elapsed = time.time() - self._start_time
+        throughput = self._compute_throughput(elapsed)
+
+        return {
+            "mode": "precache",
+            "status": status,
+            "updated_at": datetime.now().isoformat(),
+            "elapsed_seconds": elapsed,
+
+            "tasks_total": tasks_total,
+            "tasks_skipped_cached": self._initial_record_count,
+            "tasks_done_this_session": tasks_done_session,
+            "tasks_remaining": tasks_remaining,
+
+            "questions_total": len(self.qids),
+            "explores_per_question": self.num_explores,
+
+            "total_cost_usd": total_cost,
+            "avg_cost_per_task": (total_cost / len(records)) if records else 0.0,
+
+            "throughput": throughput,
+            "wall_per_task_sec": _summarize_distribution(durations),
+
+            "tokens": {
+                "explorer": {
+                    "calls": len(records),
+                    "input_tokens": _summarize_distribution(in_toks),
+                    "output_tokens": _summarize_distribution(out_toks),
+                }
+            },
+
+            "soft_failures": {
+                "by_reason": sf_counts,
+                "total": sf_total,
+                "rate_pct": (100.0 * sf_total / len(records)) if records else 0.0,
+            },
+
+            "per_question_completion": per_q_hist,
+            "timed_out_explores_per_question": timed_hist,
+        }
+
+    def _compute_throughput(self, elapsed: float) -> dict[str, float]:
+        n_session = len(self._session_completion_times)
+        overall = (60.0 * n_session / elapsed) if elapsed > 0 else 0.0
+
+        def _rate_over_last(k: int) -> float:
+            if n_session < k:
+                return 0.0
+            window = self._session_completion_times[-k:]
+            span = window[-1] - window[0]
+            if span <= 0:
+                return 0.0
+            return 60.0 * (k - 1) / span
+
+        return {
+            "tasks_per_min_overall": overall,
+            "tasks_per_min_last_5": _rate_over_last(5),
+            "tasks_per_min_last_10": _rate_over_last(10),
+        }
+
+    def _write_progress(self, status: str) -> None:
+        payload = self._build_payload(status)
+        _atomic_write_json(self.cache_dir / self.PROGRESS_FILENAME, payload)
+
+
 _LOGGING_CONFIGURED = False
 _LOG_FORMAT = "%(asctime)s | %(levelname)-7s | %(name)s | %(message)s"
 _LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"

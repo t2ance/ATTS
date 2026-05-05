@@ -158,3 +158,78 @@ def test_scan_skips_qids_not_listed(tmp_path):
     out = _scan_cache_dir(tmp_path, qids=["q1"], num_explores=4)
     assert ("leftover", 1) not in out
     assert ("q1", 1) in out
+
+
+# ---------------------------------------------------------------------------
+# _atomic_write_json + PrecacheLogger.__init__
+# ---------------------------------------------------------------------------
+
+from logger import _atomic_write_json, PrecacheLogger
+
+
+def test_atomic_write_json_creates_file(tmp_path):
+    path = tmp_path / "x.json"
+    _atomic_write_json(path, {"a": 1})
+    assert json.loads(path.read_text()) == {"a": 1}
+
+
+def test_atomic_write_json_overwrites_existing(tmp_path):
+    path = tmp_path / "x.json"
+    path.write_text('{"old": true}')
+    _atomic_write_json(path, {"new": True})
+    assert json.loads(path.read_text()) == {"new": True}
+    # No leftover .tmp file.
+    assert not (tmp_path / "x.json.tmp").exists()
+
+
+def test_precache_logger_init_empty_cache(tmp_path):
+    log = PrecacheLogger(
+        cache_dir=tmp_path,
+        qids=["q1", "q2"],
+        num_explores=4,
+    )
+    progress = json.loads((tmp_path / "progress.json").read_text())
+    assert progress["mode"] == "precache"
+    assert progress["status"] == "running"
+    assert progress["tasks_total"] == 8
+    assert progress["tasks_skipped_cached"] == 0
+    assert progress["tasks_done_this_session"] == 0
+    assert progress["tasks_remaining"] == 8
+    assert progress["questions_total"] == 2
+    assert progress["explores_per_question"] == 4
+    assert progress["total_cost_usd"] == 0.0
+    assert progress["soft_failures"]["total"] == 0
+    assert progress["per_question_completion"] == {"0": 2}
+    assert progress["timed_out_explores_per_question"] == {"0": 2}
+
+
+def test_precache_logger_init_loads_disk_state(tmp_path):
+    # 2 successful explores for q1 already on disk.
+    for i in (1, 2):
+        _write_result(tmp_path, "q1", i, {
+            "answer": "A",
+            "usage": {"input_tokens": 1000, "output_tokens": 500},
+            "duration_seconds": 10.0,
+            "cost_usd": 0.01,
+        })
+    # 1 soft-fail for q2.
+    _write_result(tmp_path, "q2", 1, {
+        "timed_out": True, "reason": "no_tool_call",
+        "usage": {"input_tokens": 800, "output_tokens": 0},
+        "duration_seconds": 5.0, "cost_usd": 0.005,
+    })
+
+    log = PrecacheLogger(cache_dir=tmp_path, qids=["q1", "q2"], num_explores=4)
+    progress = json.loads((tmp_path / "progress.json").read_text())
+    assert progress["tasks_total"] == 8
+    assert progress["tasks_skipped_cached"] == 3
+    assert progress["tasks_done_this_session"] == 0
+    assert progress["tasks_remaining"] == 5
+    assert progress["total_cost_usd"] == pytest.approx(0.025)
+    assert progress["tokens"]["explorer"]["calls"] == 3
+    assert progress["tokens"]["explorer"]["input_tokens"]["sum"] == 2800
+    assert progress["soft_failures"]["by_reason"]["no_tool_call"] == 1
+    assert progress["soft_failures"]["total"] == 1
+    # q1 has 2 successes, q2 has 0; histograms count qids per bucket size.
+    assert progress["per_question_completion"] == {"0": 1, "2": 1}
+    assert progress["timed_out_explores_per_question"] == {"0": 1, "1": 1}
