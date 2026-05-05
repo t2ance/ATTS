@@ -4,15 +4,16 @@ benchmark:
   judge:
     model: claude-haiku-4-5-20251001
     backend: claude
+    effort: low
 explore:
   label: default
   model:
     backend: claude
     model: claude-sonnet-4-6
-    budget_tokens: 32000
-    effort: low
+    budget_tokens: 65536
     timeout: 1200.0
   cache_dir: ../analysis/cache/rbenchv/sonnet
   num_explores: 4
 num_workers: 4
+num: 4
 seed: 42

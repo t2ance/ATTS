@@ -1,0 +1,44 @@
+# num=2 smoke for grok-4.1-fast HLE: orchestrator effort=high over the
+# 100-qid cache that was generated at explore effort=low. Validates the
+# post-modelconfig-refactor double-effort split using the same explore cache.
+# Cache layer is shared with hle_grok-4.1-fast_eval.yaml (cache_key =
+# explore_{idx}, cache_dir matches), so explores never re-fire.
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+  judge:
+    model: claude-haiku-4-5-20251001
+    backend: claude
+method:
+  name: tts-agent
+  orchestrator_prompt: single
+  orchestrator:
+    backend: openrouter
+    model: x-ai/grok-4.1-fast
+    # Override library default (effort=low). Why: the entire point of this
+    # smoke is to compare the orchestrator-side reasoning depth at high vs
+    # the cached explore population at low. Couplings: this only affects
+    # the orchestrator turn; cached explores are read by cache_key and
+    # cannot re-fire under cache_only=true.
+    effort: high
+    timeout: 1200.0
+    max_output_tokens: 8000
+  explore:
+    - label: default
+      model:
+        backend: openrouter
+        model: x-ai/grok-4.1-fast
+        # Matches the effort the existing 794 result.json files were generated
+        # at. effort is NOT part of the cache key (cache_key = explore_{idx}),
+        # so a mismatch would not cause a cache miss -- but a mismatch would
+        # silently mean "you think you ran high but the cached numbers are low".
+        effort: low
+        timeout: 1200.0
+        max_output_tokens: 8000
+      cache_dir: ../analysis/cache/hle/openrouter_grok-4.1-fast/gold
+      num_explores: 4
+num: 2
+num_workers: 2
+seed: 42
+log_dir: ../analysis/run/hle/openrouter_grok-4.1-fast/smoke_orch_high

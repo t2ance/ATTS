@@ -7,17 +7,16 @@ method:
     backend: claude
     model: claude-sonnet-4-6
   explore:
-    - label: default
-      model:
-        backend: claude
-        model: claude-sonnet-4-6
-      cache_dir: ../analysis/cache/aime2025/sonnet
-      num_explores: 8
-  integrate:
+  - label: default
     model:
       backend: claude
       model: claude-sonnet-4-6
     cache_dir: ../analysis/cache/aime2025/sonnet
+    num_explores: 8
+  integrate:
+    model:
+      backend: claude
+      model: claude-sonnet-4-6
 num_workers: 16
 seed: 42
 log_dir: ../analysis/run/aime2025/sonnet

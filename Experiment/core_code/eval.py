@@ -76,7 +76,7 @@ def _spec_cache_dir(spec):
     if isinstance(spec, (SelfRefineSpec, SocraticSelfRefineSpec, BudgetForcingSpec)):
         return spec.explore.cache_dir
     if isinstance(spec, StandaloneIntegratorSpec):
-        return spec.integrate.cache_dir
+        return spec.cache_dir
     if isinstance(spec, RerankSpec):
         return spec.cache_dir
     raise AssertionError(f"unknown spec type: {type(spec).__name__}")
@@ -114,7 +114,7 @@ def _spec_variants(spec) -> list:
         return [ExploreVariant(
             label="default",
             model=spec.integrate.model,  # placeholder; not used for read-only
-            cache_dir=spec.integrate.cache_dir,
+            cache_dir=spec.cache_dir,
             num_explores=spec.num_explores,
         )]
     if isinstance(spec, RerankSpec):

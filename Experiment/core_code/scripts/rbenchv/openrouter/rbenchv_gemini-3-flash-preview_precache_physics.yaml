@@ -1,0 +1,41 @@
+# Pre-generate explore rollouts on R-Bench-V Physics (157 visual reasoning Qs)
+# using google/gemini-3-flash-preview via OpenRouter. Default routing (Google
+# AI Studio + Google providers, both verified working per CLAUDE.md cheat-
+# sheet 2026-05-04). Vision-capable model -> image_data_url is forwarded.
+benchmark:
+  name: rbenchv
+  category: Physics
+  judge:
+    model: claude-haiku-4-5-20251001
+    backend: claude
+explore:
+  label: default
+  model:
+    backend: openrouter
+    model: google/gemini-3-flash-preview
+    # Override library default (effort=low). Why: gemini-3 vision reasoning
+    # on RBenchV Physics needs the higher reasoning budget; effort=low smoke
+    # 2026-05-05 produced 27.6% soft-failure (no_tool_call/empty_choices) on
+    # 13 sampled qids. Couplings: cache_dir is keyed on this effort -- if a
+    # later paper-row needs effort=low for cross-row comparability, point at
+    # a NEW cache_dir, do NOT overwrite this one.
+    effort: high
+    timeout: 1200.0
+    # Override library default (max_output_tokens=null, i.e. backend default).
+    # Why: in the grok-4.1-fast HLE run 2026-05-05, 9/100 Qs blew past the
+    # 8000 cap on the orchestrator side; gemini-3 at effort=high routinely
+    # emits 14k+ output tokens on hard Physics questions (max observed in
+    # smoke: 14771). 65536 = 64K is gemini-3's natural ceiling, leaving the
+    # cap effectively non-binding. Couplings: per-call cap, not cumulative.
+    max_output_tokens: 65536
+  cache_dir: ../analysis/cache/rbenchv/openrouter_gemini-3-flash-preview/Physics
+  # 4 explores per qid (less than the paper main config's 8). If the
+  # paper RBenchV row later needs to be redone at 8 for cross-row
+  # comparability, open a separate cache_dir; do NOT bump this in place
+  # since the existing 16 result.json on disk would then mix 4-explore and
+  # 8-explore qids.
+  num_explores: 4
+# OpenRouter free-tier rpm limit doesn't apply here (paid model). num_workers=8
+# matches autonomous_8h_4bench_paper precedent.
+num_workers: 8
+seed: 42

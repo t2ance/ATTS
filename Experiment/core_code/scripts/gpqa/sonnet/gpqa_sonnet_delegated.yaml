@@ -7,17 +7,16 @@ method:
     backend: claude
     model: claude-sonnet-4-6
   explore:
-    - label: default
-      model:
-        backend: claude
-        model: claude-sonnet-4-6
-      cache_dir: ../analysis/cache/gpqa/sonnet
-      num_explores: 8
-  integrate:
+  - label: default
     model:
       backend: claude
       model: claude-sonnet-4-6
     cache_dir: ../analysis/cache/gpqa/sonnet
+    num_explores: 8
+  integrate:
+    model:
+      backend: claude
+      model: claude-sonnet-4-6
 num_workers: 4
 seed: 42
 log_dir: ../analysis/run/gpqa/sonnet

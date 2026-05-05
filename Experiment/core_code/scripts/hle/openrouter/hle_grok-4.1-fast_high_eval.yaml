@@ -1,0 +1,51 @@
+# Full HLE-100 eval for grok-4.1-fast with the modelconfig double-effort split:
+# orchestrator at effort=high reading explores cached at effort=low.
+# Resume + redo 9-题: 91 prior runs stay; 9 questions whose orchestrator hit the
+# 8000 token cap or never committed were stripped from results.jsonl and will
+# re-solve under the higher cap below.
+benchmark:
+  name: hle
+  subset: gold
+  text_only: true
+  judge:
+    model: claude-haiku-4-5-20251001
+    backend: claude
+method:
+  name: tts-agent
+  orchestrator_prompt: single
+  orchestrator:
+    backend: openrouter
+    model: x-ai/grok-4.1-fast
+    # Override library default (effort=low). Why: this is the high-effort
+    # orchestrator condition for the post-modelconfig-refactor double-effort
+    # experiment. Coupled with explore.effort=low (cached); do NOT change
+    # either side independently or the cache layer answers a different
+    # experiment.
+    effort: high
+    timeout: 1200.0
+    # Override library default (8000). Why: in the prior run 9/100 questions
+    # blew past the 8000 cap on grok's reasoning channel — 2 died on the
+    # first turn before any tool call, 7 died mid-run on the integrate turn.
+    # 65536 is large enough to absorb grok-4.1-fast effort=high reasoning
+    # traces (observed up to ~116K-output single-turn empirically; cap here
+    # bounds the worst-case spend per call). Couplings: this only caps the
+    # output channel; explore-side cap is not touched (cached, untouched).
+    max_output_tokens: 65536
+  explore:
+    - label: default
+      model:
+        backend: openrouter
+        model: x-ai/grok-4.1-fast
+        # Matches the effort the existing 794 cached result.json entries were
+        # generated at. effort is NOT part of the cache key; documented here
+        # to keep the experiment label honest.
+        effort: low
+        timeout: 1200.0
+        max_output_tokens: 8000
+      cache_dir: ../analysis/cache/hle/openrouter_grok-4.1-fast/gold
+      num_explores: 4
+num: 100
+num_workers: 4
+seed: 42
+log_dir: ../analysis/run/hle/openrouter_grok-4.1-fast-high
+resume: ../analysis/run/hle/openrouter_grok-4.1-fast-high/run_20260505_000010

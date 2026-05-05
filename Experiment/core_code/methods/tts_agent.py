@@ -302,7 +302,12 @@ async def run_explore(ctx: SolveContext, spec, variants_by_label: dict, label: s
 
 
 async def run_integrate(ctx: SolveContext, spec) -> str:
-    """Run the integrate call against spec.integrate (RoleSlot)."""
+    """Run the integrate call against spec.integrate (RoleSlot).
+
+    No cache: integrate input is candidate content (already cached at the
+    explore layer); caching by (qid, count) was content-blind and unsafe.
+    Trajectory still written to run_dir/trajectories via ctx.writer.
+    """
     assert spec.integrate is not None, "integrate called when spec.integrate is None"
     state = ctx.state
     assert state.candidates, "integrate called with no candidates"
@@ -311,16 +316,12 @@ async def run_integrate(ctx: SolveContext, spec) -> str:
     integrate_schema = ctx.benchmark.get_integrate_schema()
     user_msg = ctx.benchmark.build_integrator_message(state.problem, state.candidates)
 
-    question_cache_dir = (spec.integrate.cache_dir / ctx.question_id) if ctx.question_id else None
-    integrate_caller = make_sub_model_caller(
-        spec.integrate.model.backend, question_cache_dir, ctx.cache_only,
-        traj_dir=ctx.traj_dir, timeout=spec.integrate.model.timeout,
-    )
-    result, _traj, cost_usd, usage, _dur = await integrate_caller(
+    backend_mod = import_module(f"backends.{spec.integrate.model.backend}")
+    timeout = spec.integrate.model.timeout
+    api_coro = backend_mod.call_sub_model(
         integrator_system_prompt, user_msg, ctx.image_data_url,
         spec.integrate.model.model, integrate_schema,
-        cache_key=f"integrate_{state.explore.call_count + 1}",
-        writer=TrajectoryWriter.noop(),
+        ctx.writer,
         budget_tokens=spec.integrate.model.budget_tokens,
         effort=spec.integrate.model.effort,
         sampling=(spec.integrate.model.vllm_sampling.model_dump()
@@ -328,6 +329,16 @@ async def run_integrate(ctx: SolveContext, spec) -> str:
         provider_order=spec.integrate.model.openrouter_provider_order,
         provider_allow_fallbacks=spec.integrate.model.openrouter_provider_allow_fallbacks,
     )
+    if timeout is not None:
+        try:
+            result, _traj, cost_usd, usage = await asyncio.wait_for(api_coro, timeout=timeout)
+        except asyncio.TimeoutError:
+            logger.info(f"  [integrate] WALL-CLOCK TIMEOUT after {timeout}s")
+            ctx.cost.add(0.0, {}, component="integrator")
+            state.final_answer = ""
+            return "Integrate timed out."
+    else:
+        result, _traj, cost_usd, usage = await api_coro
     ctx.cost.add(cost_usd, usage, component="integrator")
 
     final_answer = ctx.benchmark.get_answer_from_integrate(result)

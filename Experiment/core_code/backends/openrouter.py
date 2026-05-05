@@ -123,6 +123,25 @@ def _split_sampling_kwargs(s: dict | None) -> tuple[dict, dict]:
     return direct, extra
 
 
+def _build_user_content(text: str, image_data_url: str | None) -> str | list[dict[str, Any]]:
+    """OpenAI Chat Completions multimodal content construction.
+
+    Text-only call: returns the raw string (matches the historical contract).
+    Image present: returns a content-block list per the OpenAI Chat Completions
+    spec, which OpenRouter forwards verbatim to vision-capable models
+    (gemini-3, gpt-4o, claude-vision, grok-vision-beta, ...). Non-vision
+    models return 400 from upstream — this is a model-capability concern, not
+    a backend-protocol concern, so we let the backend surface that error
+    rather than gating client-side.
+    """
+    if image_data_url is None:
+        return text
+    return [
+        {"type": "text", "text": text},
+        {"type": "image_url", "image_url": {"url": image_data_url}},
+    ]
+
+
 async def call_sub_model(
     system_prompt: str,
     user_message: str,
@@ -154,13 +173,6 @@ async def call_sub_model(
     `effort`: passed via `extra_body={"reasoning": {"effort": effort}}`.
     `sampling`: vllm-style — full block accepted (temperature / top_p / etc).
     """
-    if image_data_url is not None:
-        raise NotImplementedError(
-            "backends.openrouter does not currently support image_data_url. "
-            "Scope is text-only HLE / LCB / GPQA. Implement multimodal content "
-            "blocks before enabling for BabyVision / RBenchV."
-        )
-
     direct_kwargs, extra_body = _split_sampling_kwargs(sampling)
     direct_kwargs.setdefault("temperature", 0.0)
     direct_kwargs.setdefault("max_tokens", budget_tokens)
@@ -191,7 +203,7 @@ async def call_sub_model(
             model=model,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_message},
+                {"role": "user", "content": _build_user_content(user_message, image_data_url)},
             ],
             tools=tools,
             tool_choice=tool_choice,
@@ -343,12 +355,6 @@ async def run_tool_conversation(
     write_text per visible content / per reasoning block, write_tool_use per
     tool call, write_tool_result per tool response.
     """
-    if image_data_url is not None:
-        raise NotImplementedError(
-            "backends.openrouter does not currently support image_data_url. "
-            "Text-only scope: HLE / LCB / GPQA."
-        )
-
     direct_kwargs, extra_body = _split_sampling_kwargs(sampling)
     if "temperature" not in direct_kwargs and temperature is not None:
         direct_kwargs["temperature"] = temperature
@@ -385,7 +391,7 @@ async def run_tool_conversation(
 
     messages: list[dict] = [
         {"role": "system", "content": system_prompt},
-        {"role": "user", "content": user_message},
+        {"role": "user", "content": _build_user_content(user_message, image_data_url)},
     ]
 
     openai_tools: list[dict[str, Any]] = [

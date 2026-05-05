@@ -12,6 +12,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+from importlib import import_module
+
 from methods.base import InfraConfig, create_solve_context, load_cached_candidates
 from trajectory import CostTracker, RoundLog, SolveResult
 
@@ -71,12 +73,22 @@ async def solve(
 
     ctx.cost.add(explore_cost_total, {}, component="explorer")
 
-    result, traj, cost_usd, usage, dur = await ctx.call_sub_model(
-        system_prompt=ctx.benchmark.get_integrator_system_prompt(backend),
-        user_message=ctx.benchmark.build_integrator_message(problem, candidates),
-        model_cfg=integrate_role.model,
-        output_schema=ctx.benchmark.get_integrate_schema(),
-        cache_key=f"integrate_standalone_{len(candidates)}",
+    # No cache: integrate input is candidate content (already cached at the
+    # explore layer); caching by (qid, count) was content-blind and unsafe.
+    backend_mod = import_module(f"backends.{backend}")
+    result, traj, cost_usd, usage = await backend_mod.call_sub_model(
+        ctx.benchmark.get_integrator_system_prompt(backend),
+        ctx.benchmark.build_integrator_message(problem, candidates),
+        ctx.image_data_url,
+        integrate_role.model.model,
+        ctx.benchmark.get_integrate_schema(),
+        ctx.writer,
+        budget_tokens=integrate_role.model.budget_tokens,
+        effort=integrate_role.model.effort,
+        sampling=(integrate_role.model.vllm_sampling.model_dump()
+                  if integrate_role.model.vllm_sampling is not None else None),
+        provider_order=integrate_role.model.openrouter_provider_order,
+        provider_allow_fallbacks=integrate_role.model.openrouter_provider_allow_fallbacks,
     )
     assert not result.get("timed_out"), f"integrate call timed out for {question_id}"
     ctx.cost.add(cost_usd, usage, component="integrator")

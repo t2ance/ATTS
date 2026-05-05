@@ -6,7 +6,7 @@ method:
     model:
       backend: claude
       model: claude-sonnet-4-6
-    cache_dir: ../analysis/cache/lcb/sonnet
+  cache_dir: ../analysis/cache/lcb/sonnet
   num_explores: 4
 num_workers: 16
 seed: 42

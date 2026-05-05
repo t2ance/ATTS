@@ -12,17 +12,16 @@ method:
     backend: claude
     model: claude-sonnet-4-6
   explore:
-    - label: default
-      model:
-        backend: claude
-        model: claude-sonnet-4-6
-      cache_dir: ../analysis/cache/hle/sonnet/gold
-      num_explores: 8
-  integrate:
+  - label: default
     model:
       backend: claude
       model: claude-sonnet-4-6
     cache_dir: ../analysis/cache/hle/sonnet/gold
+    num_explores: 8
+  integrate:
+    model:
+      backend: claude
+      model: claude-sonnet-4-6
 num: 100
 num_workers: 16
 seed: 42

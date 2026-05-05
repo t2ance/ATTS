@@ -26,8 +26,8 @@ def _make_spec(num_explores: int | None = None) -> dict:
         "name": "standalone-integrator",
         "integrate": {
             "model": {"backend": "claude", "model": "claude-sonnet-4-6"},
-            "cache_dir": "/tmp/fake-cache",
         },
+        "cache_dir": "/tmp/fake-cache",
     }
     if num_explores is not None:
         spec["num_explores"] = num_explores
@@ -38,7 +38,7 @@ def test_spec_default_is_eight():
     parsed = StandaloneIntegratorSpec.model_validate(_make_spec())
     assert parsed.num_explores == 8
     assert parsed.integrate.model.model == "claude-sonnet-4-6"
-    assert parsed.integrate.cache_dir == Path("/tmp/fake-cache")
+    assert parsed.cache_dir == Path("/tmp/fake-cache")
 
 
 def test_spec_accepts_override():

@@ -97,11 +97,10 @@ def test_tts_agent_single_with_integrate():
         "explore": [_DEFAULT_VARIANT],
         "integrate": {
             "model": {"backend": "claude", "model": "claude-sonnet-4-6"},
-            "cache_dir": "/cache/x",
         },
     }))
     assert cfg.method.integrate is not None
-    assert cfg.method.integrate.cache_dir == Path("/cache/x")
+    assert cfg.method.integrate.model.model == "claude-sonnet-4-6"
 
 
 def test_tts_agent_single_rejects_multi_explore():

@@ -132,14 +132,15 @@ class ModelConfig(BaseModel):
 
 
 class RoleSlot(BaseModel):
-    """A model invocation + the cache_dir its outputs land in.
+    """A model invocation. Used by single-call cacheless roles (e.g. integrate).
 
-    Used by single-call cached roles (e.g. integrate). Pydantic extra="forbid"
-    rejects num_explores or other ExploreVariant-shaped fields at config-load.
+    No cache_dir: integrate input is candidate content, which is not encoded
+    in any cache_key; caching by (qid, count) is content-blind and unsafe.
+    Pydantic extra="forbid" rejects num_explores or other ExploreVariant-shaped
+    fields at config-load.
     """
     model_config = {"extra": "forbid"}
     model: ModelConfig
-    cache_dir: Path
 
 
 class ExploreVariant(BaseModel):
@@ -438,6 +439,10 @@ class RerankSpec(_MethodSpec):
 class StandaloneIntegratorSpec(_MethodSpec):
     name: Literal["standalone-integrator"]
     integrate: RoleSlot
+    # Where to read cached explore candidates from. Top-level (not on RoleSlot)
+    # because the integrate role is cacheless after 2026-05-05 refactor; this
+    # field points at the explore cache produced by precache.
+    cache_dir: Path
     # Default 8 reproduces the paper's "LLM Selection (N=8)" baseline (main.tex
     # tab:main-results). Override e.g. `num_explores: 4` in yaml to take only
     # the first N cached candidates per question -- enables cost-vs-accuracy

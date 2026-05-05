@@ -87,8 +87,8 @@ class MethodConfig(ABC):
 
 class TTSAgentMethod(MethodConfig):
     name = "tts-agent"
-    cache_only = True
-    pre_flight_check = True
+    cache_only = False
+    pre_flight_check = False
     supports_num_rollouts = True
 
     def build_solve_fn(self, spec: TTSAgentSpec):

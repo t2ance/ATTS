@@ -13,19 +13,18 @@ method:
     model: gpt-5.2
     effort: low
   explore:
-    - label: default
-      model:
-        backend: codex
-        model: gpt-5.2
-        effort: low
-      cache_dir: ../analysis/cache/hle/gpt5.2_low/gold
-      num_explores: 8
-  integrate:
+  - label: default
     model:
       backend: codex
       model: gpt-5.2
       effort: low
     cache_dir: ../analysis/cache/hle/gpt5.2_low/gold
+    num_explores: 8
+  integrate:
+    model:
+      backend: codex
+      model: gpt-5.2
+      effort: low
 num: 200
 num_workers: 8
 seed: 42

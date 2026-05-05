@@ -9,7 +9,7 @@ method:
     model:
       backend: claude
       model: claude-sonnet-4-6
-    cache_dir: ../analysis/cache/rbenchv/sonnet
+  cache_dir: ../analysis/cache/rbenchv/sonnet
   num_explores: 8
 num_workers: 4
 seed: 42
