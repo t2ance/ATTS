@@ -77,6 +77,67 @@ def _classify_result_json(payload: dict) -> tuple[str, str | None]:
     return ("soft_fail", "other")
 
 
+@dataclass(frozen=True)
+class _TaskRecord:
+    """One precache call's contribution to the progress aggregate.
+
+    Built from a parsed result.json payload. Frozen because record_task
+    semantics is "first writer wins per (qid, idx)" — once a task is
+    classified, re-recording it overwrites by replacing the dict entry,
+    not by mutating the record in place.
+    """
+    qid: str
+    explore_idx: int
+    bucket: str            # "success" | "soft_fail" | "wall_timeout"
+    reason: str | None     # None for success; sub-bucket otherwise
+    input_tokens: int
+    output_tokens: int
+    duration_seconds: float
+    cost_usd: float
+
+
+def _record_from_payload(qid: str, explore_idx: int, payload: dict) -> _TaskRecord:
+    bucket, reason = _classify_result_json(payload)
+    usage = payload.get("usage") or {}
+    return _TaskRecord(
+        qid=qid,
+        explore_idx=explore_idx,
+        bucket=bucket,
+        reason=reason,
+        input_tokens=int(usage.get("input_tokens", 0) or 0),
+        output_tokens=int(usage.get("output_tokens", 0) or 0),
+        duration_seconds=float(payload.get("duration_seconds", 0.0) or 0.0),
+        cost_usd=float(payload.get("cost_usd", 0.0) or 0.0),
+    )
+
+
+def _scan_cache_dir(
+    cache_dir: Path,
+    qids: list[str],
+    num_explores: int,
+) -> dict[tuple[str, int], _TaskRecord]:
+    """Walk the listed qids and load every result.json that exists.
+
+    qids are taken from the filtered dataset, not from the cache_dir
+    directory listing — that way stale leftover qids (filtered out of
+    this run) never inflate the counts.
+    """
+    out: dict[tuple[str, int], _TaskRecord] = {}
+    for qid in qids:
+        for idx in range(1, num_explores + 1):
+            rp = cache_dir / qid / f"explore_{idx}" / "result.json"
+            if not rp.exists():
+                continue
+            try:
+                payload = json.loads(rp.read_text(encoding="utf-8"))
+            except json.JSONDecodeError:
+                # Corrupt cache file; treat same as missing so the worker
+                # rewrites it on the next pass. Don't crash the logger.
+                continue
+            out[(qid, idx)] = _record_from_payload(qid, idx, payload)
+    return out
+
+
 _LOGGING_CONFIGURED = False
 _LOG_FORMAT = "%(asctime)s | %(levelname)-7s | %(name)s | %(message)s"
 _LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
