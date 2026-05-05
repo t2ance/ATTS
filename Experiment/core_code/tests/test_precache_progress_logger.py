@@ -233,3 +233,86 @@ def test_precache_logger_init_loads_disk_state(tmp_path):
     # q1 has 2 successes, q2 has 0; histograms count qids per bucket size.
     assert progress["per_question_completion"] == {"0": 1, "2": 1}
     assert progress["timed_out_explores_per_question"] == {"0": 1, "1": 1}
+
+
+# ---------------------------------------------------------------------------
+# record_task + finalize
+# ---------------------------------------------------------------------------
+
+def test_precache_logger_record_task_increments_counters(tmp_path):
+    log = PrecacheLogger(cache_dir=tmp_path, qids=["q1"], num_explores=4)
+
+    log.record_task(
+        qid="q1", explore_idx=1,
+        result={"answer": "A"},
+        usage={"input_tokens": 1000, "output_tokens": 500},
+        duration_seconds=10.0,
+        cost_usd=0.01,
+    )
+
+    progress = json.loads((tmp_path / "progress.json").read_text())
+    assert progress["tasks_done_this_session"] == 1
+    assert progress["tasks_remaining"] == 3
+    assert progress["tokens"]["explorer"]["calls"] == 1
+    assert progress["tokens"]["explorer"]["input_tokens"]["sum"] == 1000
+
+
+def test_precache_logger_record_task_soft_fail(tmp_path):
+    log = PrecacheLogger(cache_dir=tmp_path, qids=["q1"], num_explores=4)
+
+    log.record_task(
+        qid="q1", explore_idx=1,
+        result={"timed_out": True, "reason": "no_tool_call"},
+        usage={"input_tokens": 700, "output_tokens": 0},
+        duration_seconds=4.0,
+        cost_usd=0.002,
+    )
+
+    progress = json.loads((tmp_path / "progress.json").read_text())
+    assert progress["soft_failures"]["by_reason"]["no_tool_call"] == 1
+    assert progress["soft_failures"]["total"] == 1
+    assert progress["timed_out_explores_per_question"]["1"] == 1
+
+
+def test_precache_logger_record_task_wall_timeout(tmp_path):
+    log = PrecacheLogger(cache_dir=tmp_path, qids=["q1"], num_explores=4)
+
+    log.record_task(
+        qid="q1", explore_idx=1,
+        result={"timed_out": True},  # short-form returned by methods/base.py:340
+        usage={},
+        duration_seconds=1201.0,
+        cost_usd=0.0,
+    )
+
+    progress = json.loads((tmp_path / "progress.json").read_text())
+    # record_task synthesizes timeout_seconds when the caller only sees
+    # the `{"timed_out": True}` short-form, so this lands in wall_timeout.
+    assert progress["soft_failures"]["by_reason"]["wall_timeout"] == 1
+
+
+def test_precache_logger_record_task_idempotent_on_replay(tmp_path):
+    """Replaying the same (qid, idx) does not double-count."""
+    log = PrecacheLogger(cache_dir=tmp_path, qids=["q1"], num_explores=4)
+    log.record_task(qid="q1", explore_idx=1, result={"answer": "A"},
+                    usage={"input_tokens": 100, "output_tokens": 50},
+                    duration_seconds=5.0, cost_usd=0.001)
+    log.record_task(qid="q1", explore_idx=1, result={"answer": "A"},
+                    usage={"input_tokens": 100, "output_tokens": 50},
+                    duration_seconds=5.0, cost_usd=0.001)
+    progress = json.loads((tmp_path / "progress.json").read_text())
+    assert progress["tasks_done_this_session"] == 1
+
+
+def test_precache_logger_finalize_marks_completed(tmp_path):
+    log = PrecacheLogger(cache_dir=tmp_path, qids=["q1"], num_explores=2)
+    log.record_task(qid="q1", explore_idx=1, result={"answer": "A"},
+                    usage={"input_tokens": 100, "output_tokens": 50},
+                    duration_seconds=5.0, cost_usd=0.001)
+    log.record_task(qid="q1", explore_idx=2, result={"answer": "A"},
+                    usage={"input_tokens": 100, "output_tokens": 50},
+                    duration_seconds=5.0, cost_usd=0.001)
+    log.finalize()
+    progress = json.loads((tmp_path / "progress.json").read_text())
+    assert progress["status"] == "completed"
+    assert progress["tasks_remaining"] == 0

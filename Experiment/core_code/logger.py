@@ -294,6 +294,51 @@ class PrecacheLogger:
         payload = self._build_payload(status)
         _atomic_write_json(self.cache_dir / self.PROGRESS_FILENAME, payload)
 
+    # ------------------------------------------------------------------ #
+    # Record / finalize
+    # ------------------------------------------------------------------ #
+
+    def record_task(
+        self,
+        qid: str,
+        explore_idx: int,
+        result: dict,
+        usage: dict,
+        duration_seconds: float,
+        cost_usd: float,
+    ) -> None:
+        """Record one finished precache call and rewrite progress.json.
+
+        Idempotent on (qid, explore_idx) — overwrites any prior record for
+        the same key, so replaying a worker is safe. Synthesizes
+        `timeout_seconds` into the payload when the caller only sees the
+        `{"timed_out": True}` short-form returned by methods/base.py:340
+        (the wall-clock-timeout return path strips most fields). Without
+        the synthesis, _classify_result_json would mark this as
+        "soft_fail / other" which is wrong.
+        """
+        payload = dict(result)
+        if (
+            payload.get("timed_out")
+            and "reason" not in payload
+            and "timeout_seconds" not in payload
+        ):
+            payload["timeout_seconds"] = duration_seconds
+        rec = _record_from_payload(qid, explore_idx, {
+            **payload,
+            "usage": usage,
+            "duration_seconds": duration_seconds,
+            "cost_usd": cost_usd,
+        })
+        prev = self.records.get((qid, explore_idx))
+        self.records[(qid, explore_idx)] = rec
+        if prev is None:
+            self._session_completion_times.append(time.time())
+        self._write_progress(status="running")
+
+    def finalize(self) -> None:
+        self._write_progress(status="completed")
+
 
 _LOGGING_CONFIGURED = False
 _LOG_FORMAT = "%(asctime)s | %(levelname)-7s | %(name)s | %(message)s"
