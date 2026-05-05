@@ -11,7 +11,9 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import os
+import statistics
 import sys
 import time
 from dataclasses import asdict, dataclass, field
@@ -31,6 +33,29 @@ def now_str() -> str:
     across eval.py and precache_explores.py worker progress prints.
     """
     return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _summarize_distribution(values: list[float]) -> dict[str, float]:
+    """Return {min, p50, mean, p95, max, sum} for a numeric list.
+
+    Empty list returns all zeros so callers don't have to branch.
+    p95 uses nearest-rank on the sorted list (no interpolation), which
+    keeps the value an exact element of the input set — easier to reason
+    about than numpy's default linear interpolation.
+    """
+    if not values:
+        return {"min": 0.0, "p50": 0.0, "mean": 0.0, "p95": 0.0, "max": 0.0, "sum": 0.0}
+    xs = sorted(values)
+    n = len(xs)
+    p95_idx = max(0, math.ceil(0.95 * n) - 1)
+    return {
+        "min": xs[0],
+        "p50": statistics.median(xs),
+        "mean": statistics.fmean(xs),
+        "p95": xs[p95_idx],
+        "max": xs[-1],
+        "sum": sum(xs),
+    }
 
 
 _LOGGING_CONFIGURED = False
