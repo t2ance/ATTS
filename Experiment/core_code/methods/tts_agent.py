@@ -13,6 +13,10 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+import asyncio
+import time
+
+from cache_types import Exploration
 from methods.base import (
     Candidate,
     InfraConfig,
@@ -95,14 +99,13 @@ INTEGRATE_TOOL: dict[str, Any] = {
 
 def process_explore_result(
     ctx: SolveContext,
-    result: dict,
-    explore_cost: float,
-    explore_usage: dict,
+    exp: Exploration,
+    *,
     label: str,
     model_label: str = "",
     extra_budget_text: str = "",
 ) -> str:
-    """Process an explore result: update state, return tool result text.
+    """Process an Exploration: update state, return tool result text.
 
     The returned text is produced by `methods.tool_io.FullRenderer` -- the
     single source of truth for candidate-text rendering, also consumed by
@@ -113,8 +116,11 @@ def process_explore_result(
     state.explore = advance(state.explore, label=label) if label else advance(state.explore)
     used = state.explore.used
     label_suffix = f" ({model_label})" if model_label else ""
+    extra = exp.extra or {}
+    explore_cost = exp.cost_usd
+    explore_usage = extra.get("usage", {})
 
-    if result.get("timed_out"):
+    if exp.timed_out:
         logger.info(f"  [sub-model] explore #{used}{label_suffix}: TIMED OUT -- recording empty candidate")
         state.candidates.append(
             Candidate(answer="", reasoning="timed out", approach="", confidence=0.0, cost_usd=0.0)
@@ -135,14 +141,14 @@ def process_explore_result(
         ))
 
     ctx.cost.add(explore_cost, explore_usage, component="explorer")
-    answer = ctx.benchmark.get_answer_from_explore(result)
+    answer = exp.answer
 
     state.candidates.append(
         Candidate(
             answer=answer,
-            reasoning=result.get("reasoning", ""),
-            approach=result.get("approach", ""),
-            confidence=result.get("confidence", 0.0),
+            reasoning=extra.get("reasoning", ""),
+            approach=extra.get("approach", ""),
+            confidence=extra.get("confidence", 0.0),
             cost_usd=explore_cost,
         )
     )
@@ -150,16 +156,16 @@ def process_explore_result(
     text = FullRenderer().render(CandidateRecord(
         idx=used,
         answer=answer,
-        confidence=float(result.get("confidence", 0.0)),
-        approach=result.get("approach", ""),
-        reasoning=result.get("reasoning", ""),
+        confidence=float(extra.get("confidence", 0.0)),
+        approach=extra.get("approach", ""),
+        reasoning=extra.get("reasoning", ""),
         cost_usd=explore_cost,
         used=used,
         max_explores=state.explore.max_explores,
         model_label=model_label,
         extra_budget_text=extra_budget_text,
     ))
-    logger.info(f"  [sub-model] explore candidate #{len(state.candidates)}{label_suffix}: answer={answer}, confidence={result.get('confidence', 'N/A')}")
+    logger.info(f"  [sub-model] explore candidate #{len(state.candidates)}{label_suffix}: answer={answer}, confidence={extra.get('confidence', 'N/A')}")
     return text
 
 
@@ -195,13 +201,13 @@ def _budget_status_text(spec, ctx: SolveContext) -> str:
     return "\nPer-variant budget: " + ", ".join(parts) + "."
 
 
-async def run_explore(ctx: SolveContext, spec, variant_callers: dict, label: str) -> str:
+async def run_explore(ctx: SolveContext, spec, variants_by_label: dict, label: str) -> str:
     """Run an explore call against the variant identified by `label`.
 
-    Per-variant cache key is `f"explore_{in_variant_idx}"` where in_variant_idx
-    counts within the variant's cache_dir. This matches the old
-    tts_agent_multi.py:108 behavior: each variant's cache directory is
-    isolated, so the index can restart at 1 inside each.
+    Cache + persistence is owned by ExploreVariant.get_exploration. The
+    generate_fn closure here only handles the API call + Exploration
+    construction; the variant decides cache hit vs miss and writes the
+    bundle into <cache_dir>/<qid>/[rollout_<r>/]explore_<idx>/.
     """
     multi = len(spec.explore) > 1
     if ctx.state.explore.is_exhausted:
@@ -215,29 +221,80 @@ async def run_explore(ctx: SolveContext, spec, variant_callers: dict, label: str
             f"Variant {label!r} budget exhausted ({cap} used). "
             f"Call explore with a different variant or submit_answer."
         )
-    variant = next(v for v in spec.explore if v.label == label)
+    variant = variants_by_label[label]
     in_idx = ctx.state.explore.variant_call_counts.get(label, 0) + 1
 
     user_msg = ctx.benchmark.build_explorer_message(ctx.state.problem)
     explorer_system_prompt = ctx.benchmark.get_explorer_system_prompt(variant.model.backend)
     explore_schema = ctx.benchmark.get_explore_schema()
+    cache_only = ctx.cache_only
+    timeout = variant.model.timeout
 
-    caller = variant_callers[label]
-    result, _traj, cost, usage, _dur = await caller(
-        explorer_system_prompt, user_msg, ctx.image_data_url,
-        variant.model.model, explore_schema,
-        cache_key=f"explore_{in_idx}",
-        writer=TrajectoryWriter.noop(),
-        budget_tokens=variant.model.budget_tokens,
-        effort=variant.model.effort,
-        sampling=(variant.model.vllm_sampling.model_dump()
-                  if variant.model.vllm_sampling is not None else None),
-        provider_order=variant.model.openrouter_provider_order,
-        provider_allow_fallbacks=variant.model.openrouter_provider_allow_fallbacks,
+    async def generate_fn() -> Exploration:
+        if cache_only:
+            raise AssertionError(
+                f"cache_only mode: explore cache miss at "
+                f"{variant._explore_dir(ctx.question_id, in_idx, ctx.rollout_idx)}"
+            )
+        backend_mod = import_module(f"backends.{variant.model.backend}")
+        t0 = time.time()
+        api_coro = backend_mod.call_sub_model(
+            explorer_system_prompt, user_msg, ctx.image_data_url,
+            variant.model.model, explore_schema,
+            TrajectoryWriter.noop(),
+            budget_tokens=variant.model.budget_tokens,
+            effort=variant.model.effort,
+            sampling=(variant.model.vllm_sampling.model_dump()
+                      if variant.model.vllm_sampling is not None else None),
+            provider_order=variant.model.openrouter_provider_order,
+            provider_allow_fallbacks=variant.model.openrouter_provider_allow_fallbacks,
+        )
+        if timeout is not None:
+            try:
+                result, traj, cost, usage = await asyncio.wait_for(api_coro, timeout=timeout)
+            except asyncio.TimeoutError:
+                duration = time.time() - t0
+                logger.info(
+                    f"  [sub-model] explore_{in_idx}: WALL-CLOCK TIMEOUT after {duration:.0f}s "
+                    f"(limit: {timeout}s)"
+                )
+                return Exploration(
+                    qid=ctx.question_id or "", idx=in_idx, rollout_idx=ctx.rollout_idx,
+                    answer="", trajectory="", cost_usd=0.0, model=variant.model.model,
+                    timed_out=True,
+                    extra={"timeout_seconds": timeout, "duration_seconds": duration},
+                    system_prompt=explorer_system_prompt,
+                    user_message=user_msg,
+                )
+        else:
+            result, traj, cost, usage = await api_coro
+
+        answer = ctx.benchmark.get_answer_from_explore(result)
+        return Exploration(
+            qid=ctx.question_id or "", idx=in_idx, rollout_idx=ctx.rollout_idx,
+            answer=answer,
+            trajectory=traj,
+            cost_usd=cost,
+            model=variant.model.model,
+            timed_out=bool(result.get("timed_out", False)),
+            extra={"usage": usage,
+                   **{k: v for k, v in result.items() if k not in {"answer"}}},
+            system_prompt=explorer_system_prompt,
+            user_message=user_msg,
+        )
+
+    exp = await variant.get_exploration(
+        ctx.question_id or "", in_idx,
+        rollout_idx=ctx.rollout_idx,
+        generate_fn=generate_fn,
     )
 
+    # Mirror to traj_dir for this run's working record.
+    if ctx.traj_dir is not None:
+        exp.persist(ctx.traj_dir / f"explore_{in_idx}")
+
     return process_explore_result(
-        ctx, result, cost, usage,
+        ctx, exp,
         label=label,
         model_label=label if multi else "",
         extra_budget_text=_budget_status_text(spec, ctx),
@@ -302,7 +359,7 @@ def _log_round(ctx: SolveContext, round_log: RoundLog) -> None:
 async def _run_orchestrator(
     ctx: SolveContext,
     spec,
-    variant_callers: dict,
+    variants_by_label: dict,
     user_message_text: str,
     system_prompt: str,
     temperature: float | None = None,
@@ -318,7 +375,7 @@ async def _run_orchestrator(
                 label = spec.explore[0].label
             else:
                 # Length>1: `variant` is required by the tool schema. Fail
-                # loud rather than silently defaulting to spec.explore[0] —
+                # loud rather than silently defaulting to spec.explore[0] --
                 # a missing field means the orchestrator/backend dropped it
                 # and we want the operator to see the gap, not silently
                 # bias every multi-variant run toward the first variant.
@@ -328,7 +385,7 @@ async def _run_orchestrator(
                 )
                 label = args["variant"]
             n_before = len(ctx.state.candidates)
-            result_text = await run_explore(ctx, spec, variant_callers, label)
+            result_text = await run_explore(ctx, spec, variants_by_label, label)
             if len(ctx.state.candidates) > n_before:
                 cand = ctx.state.candidates[-1]
                 _log_round(ctx, RoundLog(
@@ -468,16 +525,10 @@ async def solve(
             variant_caps={v.label: v.num_explores for v in spec.explore},
         )
 
-    # Per-variant sub-model callers, keyed by label. Each caller is bound
-    # to its variant's cache_dir + backend + timeout. Mirrors the per-alias
-    # caller dict from the deleted tts_agent_multi.py.
-    variant_callers: dict[str, Any] = {}
-    for v in spec.explore:
-        question_cache_dir = (v.cache_dir / question_id) if question_id else None
-        variant_callers[v.label] = make_sub_model_caller(
-            v.model.backend, question_cache_dir, infra.cache_only,
-            traj_dir=ctx.traj_dir, timeout=v.model.timeout,
-        )
+    # Per-variant ExploreVariant lookup, keyed by label. Each ExploreVariant
+    # owns its cache_dir + persistence + judge cache; the orchestrator passes
+    # generate_fn closures into get_exploration.
+    variants_by_label: dict[str, Any] = {v.label: v for v in spec.explore}
 
     logger.info(
         f"\nTTS Agent [{spec.orchestrator.backend}] -- "
@@ -488,7 +539,7 @@ async def solve(
     logger.info("")
 
     await _run_orchestrator(
-        ctx, spec, variant_callers, user_message_text, system_prompt,
+        ctx, spec, variants_by_label, user_message_text, system_prompt,
         temperature=temperature,
     )
 
