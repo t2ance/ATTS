@@ -33,12 +33,16 @@ ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
+import time
+from importlib import import_module
+
 from benchmarks import get_benchmark
 from benchmarks.base import BenchmarkConfig
 from benchmarks.specs import BenchmarkSpec
-from methods.base import make_sub_model_caller
+from cache_types import Exploration
 from methods.specs import ExploreVariant
 from logger import setup_console_logging, PrecacheLogger
+from trajectory import TrajectoryWriter
 
 
 class PrecacheConfig(BaseModel):
@@ -120,83 +124,108 @@ async def precache(
     completed = 0
     sem = asyncio.Semaphore(num_workers)
 
+    async def _do_api_call(image_data_url, input_text):
+        backend_mod = import_module(f"backends.{backend}")
+        t0 = time.time()
+        api_coro = backend_mod.call_sub_model(
+            explorer_prompt, input_text, image_data_url,
+            variant.model.model, explore_schema,
+            TrajectoryWriter.noop(),
+            budget_tokens=variant.model.budget_tokens,
+            effort=variant.model.effort,
+            sampling=sampling_dump,
+            provider_order=variant.model.openrouter_provider_order,
+            provider_allow_fallbacks=variant.model.openrouter_provider_allow_fallbacks,
+        )
+        timeout = variant.model.timeout
+        if timeout is not None:
+            try:
+                result, traj, cost, usage = await asyncio.wait_for(api_coro, timeout=timeout)
+                duration = time.time() - t0
+            except asyncio.TimeoutError:
+                duration = time.time() - t0
+                logger.info(
+                    f"  WALL-CLOCK TIMEOUT after {duration:.0f}s (limit: {timeout}s)"
+                )
+                return ({"timed_out": True, "timeout_seconds": timeout, "duration_seconds": duration},
+                        "", 0.0, {}, duration)
+        else:
+            result, traj, cost, usage = await api_coro
+            duration = time.time() - t0
+        return result, traj, cost, usage, duration
+
     async def worker(qid: str, row: dict, explore_idx: int) -> None:
         nonlocal completed
         async with sem:
             logger.info(f"  [{qid} explore_{explore_idx}] started")
-            question_cache_dir = cache_dir / qid
-            sub_model_fn = make_sub_model_caller(
-                backend, cache_dir=question_cache_dir, cache_only=False,
-                traj_dir=question_cache_dir, timeout=variant.model.timeout,
-            )
-
             image_data_url = benchmark.get_image(row)
             input_text = benchmark.build_explorer_message(benchmark.get_question(row))
 
-            result, traj, cost_usd, usage, duration = await sub_model_fn(
-                system_prompt=explorer_prompt,
-                user_message=input_text,
-                image_data_url=image_data_url,
-                model=variant.model.model,
-                output_schema=explore_schema,
-                cache_key=f"explore_{explore_idx}",
-                budget_tokens=variant.model.budget_tokens,
-                effort=variant.model.effort,
-                sampling=sampling_dump,
-                provider_order=variant.model.openrouter_provider_order,
-                provider_allow_fallbacks=variant.model.openrouter_provider_allow_fallbacks,
+            async def gen() -> Exploration:
+                result, traj, cost, usage, duration = await _do_api_call(image_data_url, input_text)
+                if result.get("timed_out"):
+                    return Exploration(
+                        qid=qid, idx=explore_idx, rollout_idx=None,
+                        answer="", trajectory=traj, cost_usd=cost,
+                        model=variant.model.model, timed_out=True,
+                        extra={"usage": usage, "duration_seconds": duration,
+                               **{k: v for k, v in result.items() if k not in {"answer"}}},
+                        system_prompt=explorer_prompt, user_message=input_text,
+                    )
+                # MALFORMED retry: if benchmark.get_answer_from_explore would
+                # KeyError on this result, do one inline retry before giving up.
+                try:
+                    answer = benchmark.get_answer_from_explore(result)
+                except KeyError as e:
+                    logger.warning(f"  [{qid} explore_{explore_idx}] MALFORMED (missing {e}), retrying...")
+                    result, traj, cost2, usage2, duration2 = await _do_api_call(image_data_url, input_text)
+                    cost += cost2
+                    duration += duration2
+                    if result.get("timed_out"):
+                        return Exploration(
+                            qid=qid, idx=explore_idx, rollout_idx=None,
+                            answer="", trajectory=traj, cost_usd=cost,
+                            model=variant.model.model, timed_out=True,
+                            extra={"usage": usage2, "duration_seconds": duration,
+                                   **{k: v for k, v in result.items() if k not in {"answer"}}},
+                            system_prompt=explorer_prompt, user_message=input_text,
+                        )
+                    answer = benchmark.get_answer_from_explore(result)
+                    usage = usage2
+                return Exploration(
+                    qid=qid, idx=explore_idx, rollout_idx=None,
+                    answer=answer, trajectory=traj, cost_usd=cost,
+                    model=variant.model.model, timed_out=False,
+                    extra={"usage": usage, "duration_seconds": duration,
+                           **{k: v for k, v in result.items() if k not in {"answer"}}},
+                    system_prompt=explorer_prompt, user_message=input_text,
+                )
+
+            exp = await variant.get_exploration(
+                qid, explore_idx, generate_fn=gen,
             )
 
-            import shutil
-            result_dir = question_cache_dir / f"explore_{explore_idx}"
-
-            if result.get("timed_out"):
-                progress_logger.record_task(
-                    qid=qid, explore_idx=explore_idx,
-                    result=result, usage=usage,
-                    duration_seconds=duration, cost_usd=cost_usd,
-                )
-                completed += 1
-                logger.info(f"  [{completed}/{total}] {qid} explore_{explore_idx}: TIMED OUT after {duration:.0f}s")
-                return
-
-            try:
-                answer = benchmark.get_answer_from_explore(result)
-            except KeyError as e:
-                shutil.rmtree(result_dir, ignore_errors=True)
-                logger.warning(f"  [{qid} explore_{explore_idx}] MALFORMED (missing {e}), retrying...")
-                result, traj, cost_usd, usage, duration = await sub_model_fn(
-                    system_prompt=explorer_prompt,
-                    user_message=input_text,
-                    image_data_url=image_data_url,
-                    model=variant.model.model,
-                    output_schema=explore_schema,
-                    cache_key=f"explore_{explore_idx}",
-                    budget_tokens=variant.model.budget_tokens,
-                    effort=variant.model.effort,
-                    sampling=sampling_dump,
-                    provider_order=variant.model.openrouter_provider_order,
-                    provider_allow_fallbacks=variant.model.openrouter_provider_allow_fallbacks,
-                )
-                if result.get("timed_out"):
-                    progress_logger.record_task(
-                        qid=qid, explore_idx=explore_idx,
-                        result=result, usage=usage,
-                        duration_seconds=duration, cost_usd=cost_usd,
-                    )
-                    completed += 1
-                    logger.info(f"  [{completed}/{total}] {qid} explore_{explore_idx}: TIMED OUT on retry")
-                    return
-                answer = benchmark.get_answer_from_explore(result)
-
+            # PrecacheLogger expects the legacy result+usage shape.
+            extra = exp.extra or {}
+            duration = extra.get("duration_seconds", 0.0)
+            usage = extra.get("usage", {})
+            payload = {
+                "answer": exp.answer,
+                **{k: v for k, v in extra.items() if k not in {"usage", "duration_seconds"}},
+            }
+            if exp.timed_out:
+                payload["timed_out"] = True
             progress_logger.record_task(
                 qid=qid, explore_idx=explore_idx,
-                result=result, usage=usage,
-                duration_seconds=duration, cost_usd=cost_usd,
+                result=payload, usage=usage,
+                duration_seconds=duration, cost_usd=exp.cost_usd,
             )
             completed += 1
-            answer_short = answer.replace("\n", " ")[:80]
-            logger.info(f"  [{completed}/{total}] {qid} explore_{explore_idx}: answer={answer_short}, confidence={result.get('confidence', 'N/A')}")
+            if exp.timed_out:
+                logger.info(f"  [{completed}/{total}] {qid} explore_{explore_idx}: TIMED OUT after {duration:.0f}s")
+            else:
+                answer_short = exp.answer.replace("\n", " ")[:80]
+                logger.info(f"  [{completed}/{total}] {qid} explore_{explore_idx}: answer={answer_short}, confidence={extra.get('confidence', 'N/A')}")
 
     await asyncio.gather(*(worker(qid, row, idx) for qid, row, idx in tasks))
 
