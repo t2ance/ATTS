@@ -14,10 +14,38 @@ from benchmarks.babyvision import BabyVisionBenchmark
 from benchmarks.rbenchv import RBenchVBenchmark
 from benchmarks.lcb import LCBBenchmark
 from benchmarks.aime import AIMEBenchmark
+from cache_types import JudgeOutcome
 
 
 def _run(coro):
     return asyncio.get_event_loop().run_until_complete(coro)
+
+
+def test_judge_answer_returns_judge_outcome(monkeypatch):
+    """judge_answer is pure: returns JudgeOutcome, writes nothing."""
+    from benchmarks.grader import judge_answer
+
+    async def fake_call_sub_model(*args, **kwargs):
+        return (
+            {"correct": True, "extracted_final_answer": "42", "reasoning": "ok"},
+            "trajectory text",
+            0.001,
+            {"prompt_tokens": 10, "completion_tokens": 5},
+        )
+
+    monkeypatch.setattr("benchmarks.grader.call_sub_model", fake_call_sub_model)
+
+    spec = {"backend": "claude", "model": "claude-haiku-4-5-20251001"}
+    outcome = _run(judge_answer(
+        predicted="42", gold="42", question="what is 6*7?",
+        judge_spec=spec, max_retries=1,
+    ))
+    assert isinstance(outcome, JudgeOutcome)
+    assert outcome.is_correct is True
+    assert outcome.cost_usd == 0.001
+    assert outcome.judge_spec_snapshot == spec
+    assert outcome.label == "claude__claude-haiku-4-5-20251001"
+    assert "trajectory text" in outcome.output_md
 
 
 # Standard claude-haiku judge_spec for tests that need an LLM judge.

@@ -10,7 +10,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-from methods.base import call_sub_model, save_sub_model_result
+from cache_types import JudgeOutcome
+from methods.base import call_sub_model
 from prompts import format_claude_structured_suffix
 from trajectory import TrajectoryWriter
 
@@ -110,22 +111,19 @@ async def judge_answer(
     predicted: str, gold: str, question: str, judge_spec: dict,
     *,
     max_retries: int,
-    out_dir: Path | None = None,
-) -> tuple[bool, float]:
-    """Use an LLM to judge if predicted answer matches gold. Returns (correct, cost_usd).
+) -> JudgeOutcome:
+    """Use an LLM to judge if predicted answer matches gold. Returns JudgeOutcome.
+
+    Pure function: no disk I/O. Caller (ExploreVariant or eval.py) is responsible
+    for persisting the bundle via outcome.persist(target_dir).
 
     Retries up to `max_retries` times if the judge returns an invalid verdict
-    (timed_out or parse_failed). max_retries is required (no default) — the
-    caller (BenchmarkConfig subclass) supplies it from EvalConfig.judge_max_retries.
-    All attempts' costs are summed into the returned cost. After all retries
-    exhaust, raises RuntimeError — never silently judges as incorrect.
+    (timed_out or parse_failed). All attempts' costs are summed into the
+    returned outcome. After all retries exhaust, raises RuntimeError -- never
+    silently judges as incorrect.
 
-    judge_spec carries `name` (backend: claude/codex/vllm), `model`, and an
-    optional `sampling` block (vllm only). When out_dir is set, the bundle
-    written there contains:
-      - config.json   (full judge_spec dump; identity source-of-truth)
-      - output.md     (judge raw output of the successful attempt)
-      - result.json   (judge structured verdict of the successful attempt)
+    judge_spec carries `backend` (claude/codex/vllm), `model`, and optional
+    knobs (vllm_sampling, effort, budget_tokens).
     """
     backend = judge_spec["backend"]
     model = judge_spec["model"]
@@ -172,52 +170,48 @@ async def judge_answer(
             f"finish_reason={result.get('finish_reason')})"
             + (" -- retrying" if attempt < max_retries else " -- giving up")
         )
-    if out_dir is not None:
-        out_dir.mkdir(parents=True, exist_ok=True)
-        # config.json is the identity source-of-truth for find_cached_judge.
-        # Sort keys for deterministic byte-equal writes across runs.
-        (out_dir / "config.json").write_text(
-            json.dumps(judge_spec, indent=2, sort_keys=True, ensure_ascii=False),
-            encoding="utf-8",
-        )
-        (out_dir / "output.md").write_text(last_trajectory, encoding="utf-8")
-        save_sub_model_result(
-            out_dir=out_dir,
-            result=last_result,
-            trajectory_text=last_trajectory,
-            cost_usd=total_cost,
-            usage=last_usage,
-            duration_seconds=0.0,
-            model=model,
-        )
     if last_result.get("timed_out") or last_result.get("parse_failed"):
         raise RuntimeError(
             f"judge_answer: {max_retries} attempts all returned invalid verdict "
             f"(timed_out={last_result.get('timed_out')}, parse_failed={last_result.get('parse_failed')}, "
             f"finish_reason={last_result.get('finish_reason')}). "
-            f"Backend={backend} model={model}. Refuse to silently judge as incorrect — "
+            f"Backend={backend} model={model}. Refuse to silently judge as incorrect -- "
             f"tighten judge prompt or sampling (e.g. shrink max_tokens, disable thinking) and retry."
         )
-    return last_result["correct"], total_cost
+    return JudgeOutcome(
+        is_correct=last_result["correct"],
+        cost_usd=total_cost,
+        judge_spec_snapshot=dict(judge_spec),
+        input_md=f"## System Prompt\n\n{judge_prompt}\n\n## User Message\n\n{user_message}",
+        output_md=last_trajectory,
+        result_dict={**last_result, "usage": last_usage, "model": model},
+    )
 
 
 async def grade_answer(
     predicted: str, gold: str, question: str, answer_type: str,
     judge_spec: dict | None = None,
-    out_dir: Path | None = None,
-) -> tuple[bool, float]:
-    """Grade an answer. Returns (correct, judge_cost_usd).
+    *,
+    max_retries: int = 3,
+) -> JudgeOutcome:
+    """Grade an answer. Returns JudgeOutcome.
 
     Routing:
-      - multipleChoice answer_type   -> check_answer (string match), 0 cost
-      - judge_spec is None           -> check_answer (no LLM judge available)
+      - multipleChoice answer_type   -> check_answer (string match), rule-based outcome
+      - judge_spec is None           -> check_answer (no LLM judge available), rule-based outcome
       - otherwise                    -> judge_answer with judge_spec
     """
-    if answer_type == "multipleChoice":
-        return check_answer(predicted, gold, answer_type), 0.0
-    if judge_spec is None:
-        return check_answer(predicted, gold, answer_type), 0.0
-    return await judge_answer(predicted, gold, question, judge_spec, out_dir=out_dir)
+    if answer_type == "multipleChoice" or judge_spec is None:
+        is_correct = check_answer(predicted, gold, answer_type)
+        return JudgeOutcome(
+            is_correct=is_correct,
+            cost_usd=0.0,
+            judge_spec_snapshot=None,
+            input_md="",
+            output_md="",
+            result_dict={"correct": is_correct},
+        )
+    return await judge_answer(predicted, gold, question, judge_spec, max_retries=max_retries)
 
 
 # ---------------------------------------------------------------------------
