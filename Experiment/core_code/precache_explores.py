@@ -38,7 +38,7 @@ from benchmarks.base import BenchmarkConfig
 from benchmarks.specs import BenchmarkSpec
 from methods.base import make_sub_model_caller
 from methods.specs import ExploreVariant
-from logger import setup_console_logging
+from logger import setup_console_logging, PrecacheLogger
 
 
 class PrecacheConfig(BaseModel):
@@ -83,6 +83,23 @@ async def precache(
     if num is not None:
         rows = rows[:num]
 
+    # Build qid list (matches the worker enqueue loop below). Used by the
+    # progress logger to scope its disk scan; stale qids no longer in this
+    # filter never inflate the cumulative counts.
+    qids = [benchmark.get_id(row) for row in rows]
+
+    # Init progress.json. Reconstructs cumulative state from any result.json
+    # files already on disk in cache_dir; safe on a fresh dir too.
+    progress_logger = PrecacheLogger(
+        cache_dir=cache_dir,
+        qids=qids,
+        num_explores=num_explores,
+    )
+    logger.info(
+        f"Progress: {cache_dir / 'progress.json'} "
+        f"({progress_logger._initial_record_count}/{len(qids) * num_explores} already on disk)"
+    )
+
     tasks: list[tuple[str, dict, int]] = []
     skipped = 0
     for row in rows:
@@ -96,6 +113,7 @@ async def precache(
     total = len(tasks)
     logger.info(f"Tasks: {total} to run, {skipped} already cached")
     if total == 0:
+        progress_logger.finalize()
         logger.info("Nothing to do.")
         return
 
@@ -133,6 +151,11 @@ async def precache(
             result_dir = question_cache_dir / f"explore_{explore_idx}"
 
             if result.get("timed_out"):
+                progress_logger.record_task(
+                    qid=qid, explore_idx=explore_idx,
+                    result=result, usage=usage,
+                    duration_seconds=duration, cost_usd=cost_usd,
+                )
                 completed += 1
                 logger.info(f"  [{completed}/{total}] {qid} explore_{explore_idx}: TIMED OUT after {duration:.0f}s")
                 return
@@ -156,18 +179,32 @@ async def precache(
                     provider_allow_fallbacks=variant.model.openrouter_provider_allow_fallbacks,
                 )
                 if result.get("timed_out"):
+                    progress_logger.record_task(
+                        qid=qid, explore_idx=explore_idx,
+                        result=result, usage=usage,
+                        duration_seconds=duration, cost_usd=cost_usd,
+                    )
                     completed += 1
                     logger.info(f"  [{completed}/{total}] {qid} explore_{explore_idx}: TIMED OUT on retry")
                     return
                 answer = benchmark.get_answer_from_explore(result)
 
+            progress_logger.record_task(
+                qid=qid, explore_idx=explore_idx,
+                result=result, usage=usage,
+                duration_seconds=duration, cost_usd=cost_usd,
+            )
             completed += 1
             answer_short = answer.replace("\n", " ")[:80]
             logger.info(f"  [{completed}/{total}] {qid} explore_{explore_idx}: answer={answer_short}, confidence={result.get('confidence', 'N/A')}")
 
     await asyncio.gather(*(worker(qid, row, idx) for qid, row, idx in tasks))
 
-    logger.info(f"\nDone. {completed} cached, {skipped} skipped (already existed).")
+    progress_logger.finalize()
+    logger.info(
+        f"Done. {completed} cached, {skipped} skipped (already existed). "
+        f"Progress: {cache_dir / 'progress.json'}"
+    )
 
 
 def main() -> None:
