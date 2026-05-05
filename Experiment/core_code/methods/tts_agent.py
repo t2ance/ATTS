@@ -22,7 +22,6 @@ from methods.base import (
     InfraConfig,
     SolveContext,
     create_solve_context,
-    make_sub_model_caller,
 )
 from methods.tool_io import CandidateRecord, FullRenderer
 from methods.tool_state import advance

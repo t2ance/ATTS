@@ -423,18 +423,32 @@ async def solve(
     if backend == "claude":
         refiner_prompt += format_claude_structured_suffix(explore_schema)
 
+    backend_mod = import_module(f"backends.{backend}")
     for i in range(2, infra.max_iterations + 1):
-        # -- Feedback call --
+        # -- Feedback call -- direct backend (auxiliary, not an Exploration) --
         fb_msg = history.build_feedback_message(problem)
-
-        fb_result, fb_traj, fb_cost, fb_usage, fb_dur = await ctx.call_sub_model(
-            system_prompt=feedback_prompt,
-            user_message=fb_msg,
-            model_cfg=variant.model,
-            output_schema=FEEDBACK_SCHEMA,
-            cache_key=f"feedback_{i}",
-            writer=ctx.writer,
+        fb_api_coro = backend_mod.call_sub_model(
+            feedback_prompt, fb_msg, image_data_url,
+            variant.model.model, FEEDBACK_SCHEMA,
+            ctx.writer,
+            budget_tokens=variant.model.budget_tokens,
+            effort=variant.model.effort,
+            sampling=(variant.model.vllm_sampling.model_dump()
+                      if variant.model.vllm_sampling is not None else None),
+            provider_order=variant.model.openrouter_provider_order,
+            provider_allow_fallbacks=variant.model.openrouter_provider_allow_fallbacks,
         )
+        if variant.model.timeout is not None:
+            try:
+                fb_result, fb_traj, fb_cost, fb_usage = await asyncio.wait_for(
+                    fb_api_coro, timeout=variant.model.timeout
+                )
+            except asyncio.TimeoutError:
+                logger.info(f"  [socratic-self-refine] Feedback {i}: WALL-CLOCK TIMEOUT")
+                ctx.writer.write_text(f"## Feedback {i}: TIMED OUT")
+                break
+        else:
+            fb_result, fb_traj, fb_cost, fb_usage = await fb_api_coro
 
         ctx.cost.add(fb_cost, fb_usage, component="feedback")
 

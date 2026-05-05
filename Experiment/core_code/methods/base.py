@@ -69,17 +69,15 @@ class SolvingState:
 class SolveContext:
     """Common state for all solve methods, created by create_solve_context().
 
-    Per-role invocation parameters are NO LONGER cached here. Solvers pass
-    a `model_cfg: ModelConfig` to `call_sub_model`; the underlying
-    _sub_model_fn was bound at create_solve_context time to one specific
-    backend (the role that owns the default caller). For cross-backend roles
-    (e.g. multi-variant explore), solvers build their own per-variant
-    `make_sub_model_caller` instances inline.
+    Sub-model dispatch is no longer wrapped here. Solvers either build their
+    own ExploreVariant.get_exploration calls (explore role) or call backend
+    modules directly (integrate / feedback). cache_dir / cache_only are kept
+    on the context for solvers that still want to inspect them (e.g. for
+    cache-only enforcement in generate_fn closures).
     """
     state: SolvingState
     cost: CostTracker
     rounds: list[RoundLog]
-    _sub_model_fn: Any
     writer: TrajectoryWriter
     traj_dir: Path | None
     question_cache_dir: Path | None
@@ -89,40 +87,6 @@ class SolveContext:
     question_id: str | None
     cache_only: bool
     rollout_idx: int | None = None
-
-    async def call_sub_model(
-        self,
-        *,
-        system_prompt: str,
-        user_message: str,
-        model_cfg,  # methods.specs.ModelConfig (typed at call site)
-        output_schema: dict[str, Any],
-        cache_key: str = "",
-        writer: TrajectoryWriter | None = None,
-    ) -> tuple[dict[str, Any], str, float, dict[str, Any], float]:
-        """Dispatch a single backend call using a ModelConfig.
-
-        All backend selection / budget / effort / timeout / sampling /
-        provider routing comes from model_cfg. The infra-level _sub_model_fn
-        was constructed at create_solve_context() time and is bound to a
-        single backend module — so model_cfg.backend MUST match what
-        _sub_model_fn was built against. Solvers that need to dispatch
-        across backends (cross-backend explore variants) keep one
-        _sub_model_fn per backend; see methods/tts_agent.py per-variant
-        callers.
-        """
-        return await self._sub_model_fn(
-            system_prompt, user_message, self.image_data_url,
-            model_cfg.model, output_schema,
-            cache_key=cache_key,
-            writer=writer or TrajectoryWriter.noop(),
-            budget_tokens=model_cfg.budget_tokens,
-            effort=model_cfg.effort,
-            sampling=(model_cfg.vllm_sampling.model_dump()
-                      if model_cfg.vllm_sampling is not None else None),
-            provider_order=model_cfg.openrouter_provider_order,
-            provider_allow_fallbacks=model_cfg.openrouter_provider_allow_fallbacks,
-        )
 
     def result(self, answer: str) -> SolveResult:
         return SolveResult(answer=answer, cost=self.cost, rounds=self.rounds, writer=self.writer)
@@ -260,96 +224,13 @@ async def call_sub_model(
 # Sub-model caller factory (with optional transparent caching)
 # ---------------------------------------------------------------------------
 
-def make_sub_model_caller(
-    backend: str,
-    cache_dir: Path | None = None,
-    cache_only: bool = True,
-    traj_dir: Path | None = None,
-    timeout: float | None = None,
-):
-    """Return a sub-model callable with integrated caching and trajectory I/O.
-
-    Used by create_solve_context() and precache_explores.py.
-    """
-    backend_mod = import_module(f"backends.{backend}")
-
-    def _out_dirs(cache_key: str) -> list[Path]:
-        """Return non-None output directories for a given cache_key."""
-        dirs = []
-        if traj_dir and cache_key:
-            dirs.append(traj_dir / cache_key)
-        if cache_dir and cache_key:
-            dirs.append(cache_dir / cache_key)
-        return dirs
-
-    async def call(
-        system_prompt: str,
-        user_message: str,
-        image_data_url: str | None,
-        model: str,
-        output_schema: dict[str, Any],
-        *,
-        cache_key: str = "",
-        writer: TrajectoryWriter = TrajectoryWriter.noop(),
-        budget_tokens: int = 32000,
-        effort: str | None = None,
-        sampling: dict | None = None,
-        provider_order: list[str] | None = None,
-        provider_allow_fallbacks: bool = True,
-    ) -> tuple[dict[str, Any], str, float, dict[str, Any], float]:
-        # Cache read
-        if cache_dir and cache_key:
-            result_path = cache_dir / cache_key / "result.json"
-            if result_path.exists():
-                cached = json.loads(result_path.read_text(encoding="utf-8"))
-                traj = cached.pop("trajectory", "")
-                cost = cached.pop("cost_usd", 0.0)
-                usage = cached.pop("usage", {})
-                dur = cached.pop("duration_seconds", 0.0)
-                model_name = cached.pop("model", None)
-                for d in _out_dirs(cache_key):
-                    save_sub_model_input(d, user_message, system_prompt, image_data_url)
-                    save_sub_model_result(d, cached, traj, cost, usage, dur, model_name or "")
-                    (d / "output.md").write_text(traj, encoding="utf-8")
-                return cached, traj, cost, usage, dur
-            if cache_only and not cache_key.startswith("integrate_"):
-                raise AssertionError(f"cache_only mode: cache miss at {result_path}")
-
-        # Save input before call
-        for d in _out_dirs(cache_key):
-            save_sub_model_input(d, user_message, system_prompt, image_data_url)
-
-        # API call with optional wall-clock timeout
-        t0 = time.time()
-        api_coro = backend_mod.call_sub_model(
-            system_prompt, user_message, image_data_url, model, output_schema,
-            writer, budget_tokens=budget_tokens, effort=effort, sampling=sampling,
-            provider_order=provider_order,
-            provider_allow_fallbacks=provider_allow_fallbacks,
-        )
-        if timeout is not None:
-            try:
-                result, traj, cost, usage = await asyncio.wait_for(api_coro, timeout=timeout)
-            except asyncio.TimeoutError:
-                duration = time.time() - t0
-                payload = json.dumps({"timed_out": True, "timeout_seconds": timeout, "duration_seconds": duration}, indent=2)
-                for d in _out_dirs(cache_key):
-                    d.mkdir(parents=True, exist_ok=True)
-                    (d / "result.json").write_text(payload, encoding="utf-8")
-                logger.info(f"  [sub-model] {cache_key}: WALL-CLOCK TIMEOUT after {duration:.0f}s (limit: {timeout}s)")
-                return {"timed_out": True}, "", 0.0, {}, duration
-        else:
-            result, traj, cost, usage = await api_coro
-        duration = time.time() - t0
-
-        # Save result + output
-        for d in _out_dirs(cache_key):
-            save_sub_model_result(d, result, traj, cost, usage, duration, model)
-            (d / "output.md").write_text(traj, encoding="utf-8")
-
-        return result, traj, cost, usage, duration
-
-    return call
+# make_sub_model_caller deleted in 2026-05-05 explore-cache-owner refactor.
+# Explore caching is owned by ExploreVariant.get_exploration; integrate calls
+# go directly through backend.call_sub_model with no caching; auxiliary
+# feedback calls (self_refine / socratic_self_refine) likewise call the
+# backend directly. The cache_only / integrate_* exemption disappears with
+# this deletion: cache_only is enforced at the generate_fn closure level
+# inside ExploreVariant.get_exploration callers.
 
 
 # ---------------------------------------------------------------------------
@@ -360,7 +241,7 @@ def create_solve_context(
     *,
     infra: InfraConfig,
     backend: str,
-    timeout: float,
+    timeout: float | None,
     problem: str,
     image_data_url: str | None = None,
     question_id: str | None = None,
@@ -372,16 +253,17 @@ def create_solve_context(
 ) -> SolveContext:
     """Create common solve infrastructure shared by all methods.
 
-    `backend` and `timeout` are passed in by the solver because they belong
-    on the role's ModelConfig now, not on infra. The default _sub_model_fn
-    is built against `backend`; solvers needing cross-backend dispatch (e.g.
-    multi-variant explore in tts_agent.py) build additional _sub_model_fn
-    instances per variant inline.
+    Sub-model callers no longer cached on the context: solvers either build
+    ExploreVariant.get_exploration calls (explore role) or call backend modules
+    directly (integrate / feedback). `backend` and `timeout` are kept in the
+    signature for API stability with existing callers but are not consumed
+    by this factory anymore.
 
     When rollout_idx is None (default, K=1 path), trajectory is written to
-    trajectories/<qid>/ (flat, old behavior). When rollout_idx is set (K>1
-    path), trajectory is written to trajectories/<qid>/rollout_<k>/ (nested).
+    trajectories/<qid>/ (flat). When rollout_idx is set (K>1), trajectory is
+    written to trajectories/<qid>/rollout_<k>/ (nested).
     """
+    del backend, timeout  # historical args; sub-model dispatch moved to callers
     state = SolvingState(
         problem=problem,
         explore=ExploreStepState(max_explores=infra.max_iterations),
@@ -401,10 +283,6 @@ def create_solve_context(
     if infra.cache_dir is not None:
         assert question_id is not None, "question_id required when using cache_dir"
         question_cache_dir = infra.cache_dir / question_id
-    sub_model_fn = make_sub_model_caller(
-        backend, question_cache_dir, infra.cache_only,
-        traj_dir=traj_dir, timeout=timeout,
-    )
 
     if traj_dir is not None:
         writer = TrajectoryWriter.create(
@@ -423,7 +301,6 @@ def create_solve_context(
         state=state,
         cost=cost,
         rounds=rounds,
-        _sub_model_fn=sub_model_fn,
         writer=writer,
         traj_dir=traj_dir,
         question_cache_dir=question_cache_dir,
