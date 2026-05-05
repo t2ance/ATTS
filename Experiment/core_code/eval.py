@@ -343,128 +343,13 @@ async def evaluate(
         {m: [[] for _ in done_records] for m in cache_dirs_multi} if cache_dirs_multi else None
     )
     bon_judge_cost = 0.0
-    # For multi-model grading, use None so grading reads from rounds instead of single cache
-    grade_cache_dir = None if cache_dirs_multi else cache_dir
 
-    # Grade done records in parallel
-    grade_sem = asyncio.Semaphore(num_workers)
-    grade_done_count = 0
-    grade_done_lock = asyncio.Lock()
-
-    # Build a lookup from (id, rollout_idx) -> row for grading resumed records
-    # rollout_idx=0 for K=1 rows so old resume behavior preserved.
-    row_by_id = {(benchmark.get_id(r), r.get("_rollout_idx") or 0): r for r in rows}
-
-    # Count total candidates to grade and how many are already cached.
-    # Uses find_cached_judge against the new judges/<label>/ bundle layout.
-    # Benchmarks without a judge (judge_spec is None) count as "cached" since
-    # they incur zero judge cost regardless.
-    def _bundle_cached(parent_dir: Path) -> bool:
-        if benchmark.judge_spec is None:
-            return True
-        try:
-            cached = find_cached_judge(parent_dir / "judges", benchmark.judge_spec)
-        except RuntimeError:
-            return False  # label collision; surface at grade time
-        return cached is not None and (cached / "grade.json").exists()
-
-    if done_records:
-        total_to_grade = 0
-        already_cached = 0
-        for rec in done_records:
-            qid = rec["id"]
-            rec_rollout = rec.get("rollout_idx")  # None = K=1 old behavior
-            grade_qid_dir = _rollout_subpath(run_logger.run_dir / "grading", qid, rec_rollout)
-            # Count explores from cache_dir (shared cache; always uses real qid)
-            if grade_cache_dir is not None:
-                idx = 1
-                seq = 0
-                while (grade_cache_dir / qid / f"explore_{idx}" / "result.json").exists():
-                    d = json.loads((grade_cache_dir / qid / f"explore_{idx}" / "result.json").read_text())
-                    if not d.get("timed_out"):
-                        seq += 1
-                        total_to_grade += 1
-                        if _bundle_cached(grade_qid_dir / f"explore_{seq}"):
-                            already_cached += 1
-                    idx += 1
-            # Count integrate grade. Write path is grade_qid_dir/judges/<label>/.
-            total_to_grade += 1
-            if _bundle_cached(grade_qid_dir):
-                already_cached += 1
-        need_judge = total_to_grade - already_cached
-        logger.info(f"Grading {len(done_records)} resumed records ({total_to_grade} candidates, {already_cached} cached, {need_judge} need judge)...")
-
-    async def grade_done_record(idx: int, rec: dict) -> dict:
-        nonlocal grade_done_count
-        qid = rec["id"]
-        rec_rollout = rec.get("rollout_idx")  # None = K=1 old record
-        gold_answer = str(rec["gold_answer"])
-        question_text = rec.get("question", "")
-        predicted = str(rec.get("predicted_answer", ""))
-        num_exp = rec.get("num_explores", 0)
-        # Use the original row if available, otherwise construct a minimal one
-        orig_row = row_by_id.get((qid, rec_rollout or 0), rec)
-
-        async with grade_sem:
-            primary_explorations = await variants_list[0].get_all_explorations(
-                qid, rollout_idx=rec_rollout, grader=grader,
-            )
-            cands = [
-                (benchmark.normalize_answer(e.answer),
-                 e.verdict.is_correct if e.verdict else False,
-                 e.cost_usd)
-                for e in primary_explorations
-            ]
-            jc = sum((e.verdict.cost_usd if e.verdict else 0.0)
-                     for e in primary_explorations)
-
-            pm_cands = None
-            if cache_dirs_multi:
-                pm_cands = {}
-                for v in variants_list:
-                    explorations = await v.get_all_explorations(
-                        qid, rollout_idx=rec_rollout, grader=grader,
-                    )
-                    pm_cands[v.label] = [
-                        (benchmark.normalize_answer(e.answer),
-                         e.verdict.is_correct if e.verdict else False,
-                         e.cost_usd)
-                        for e in explorations
-                    ]
-                    jc += sum((e.verdict.cost_usd if e.verdict else 0.0) for e in explorations)
-
-            grade_dir = _rollout_subpath(run_logger.run_dir / "grading", qid, rec_rollout)
-            final_cached = _bundle_cached(grade_dir)
-            final_label = JudgeOutcome.label_for(benchmark.judge_spec)
-            cached_grade_path = (grade_dir / "judges" / final_label / "grade.json"
-                                 if final_label else None)
-            if cached_grade_path is not None and cached_grade_path.exists():
-                gd = json.loads(cached_grade_path.read_text(encoding="utf-8"))
-                is_correct = gd["is_correct"]
-                jc_int = 0.0
-            else:
-                final_outcome = await grader(predicted, qid)
-                is_correct = final_outcome.is_correct
-                jc_int = final_outcome.cost_usd
-                if final_outcome.label is not None:
-                    final_outcome.persist(grade_dir / "judges" / final_outcome.label)
-
-        async with grade_done_lock:
-            grade_done_count += 1
-            tag = "[cached]" if final_cached else "[judged]"
-            logger.info(f"  Grading resumed records: {grade_done_count}/{len(done_records)} ({qid}) {tag}")
-
-        return {
-            "idx": idx, "cands": cands, "bon_jc": jc,
-            "is_correct": is_correct, "judge_cost": jc_int,
-            "predicted": predicted,
-            "first_candidate_correct": cands[0][1] if cands else None,
-            "per_model_cands": pm_cands,
-        }
-
-    results = await asyncio.gather(*(grade_done_record(i, rec) for i, rec in enumerate(done_records))) if done_records else []
-
-    for rec, gr in zip(done_records, results):
+    # Resume done-records: pure deserialize. Records carry their verdicts and
+    # per-explore candidate arrays, so we never re-judge on resume. Multi-
+    # variant resume reads rec["per_variant_candidates"] directly; KeyError
+    # on an unmigrated record is the loud signal to run
+    # tools/migrate_results_jsonl_per_variant.py (see plan Reality Check R3).
+    for i, rec in enumerate(done_records):
         if str(rec.get("predicted_answer", "")).startswith("ERROR:"):
             errors += 1
         total_cost += rec.get("cost_usd", 0.0)
@@ -472,17 +357,23 @@ async def evaluate(
         for comp, comp_cost in rec.get("cost_by_component", {}).items():
             total_cost_by_component[comp] = total_cost_by_component.get(comp, 0.0) + comp_cost
 
-        all_candidates[gr["idx"]] = gr["cands"]
-        all_integrated[gr["idx"]] = (benchmark.normalize_answer(gr["predicted"]), gr["is_correct"])
-        if per_model_all_candidates and gr.get("per_model_cands"):
-            for model, mc in gr["per_model_cands"].items():
-                per_model_all_candidates[model][gr["idx"]] = mc
-        bon_judge_cost += gr["bon_jc"]
-        total_judge_cost += gr["judge_cost"]
-        if gr["is_correct"]:
+        cands = [(c["normalized_answer"], c["is_correct"], c["cost_usd"])
+                 for c in rec.get("explore_candidates", [])]
+        all_candidates[i] = cands
+        all_integrated[i] = (benchmark.normalize_answer(rec["predicted_answer"]), rec["is_correct"])
+
+        if rec["is_correct"]:
             correct += 1
-        if gr["first_candidate_correct"]:
+        if cands and cands[0][1]:
             first_correct += 1
+
+        if cache_dirs_multi:
+            pvc = rec["per_variant_candidates"]
+            for label, cand_list in pvc.items():
+                per_model_all_candidates[label][i] = [
+                    (c["normalized_answer"], c["is_correct"], c["cost_usd"])
+                    for c in cand_list
+                ]
         all_records.append(rec)
 
     sem = asyncio.Semaphore(num_workers)
