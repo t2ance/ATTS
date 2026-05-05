@@ -41,3 +41,41 @@ def test_summarize_distribution_mixed_values():
     assert out["p50"] == 50.5
     # p95 by sorted-index nearest-rank: index = ceil(0.95 * 100) - 1 = 94 → value 95
     assert out["p95"] == 95
+
+
+# ---------------------------------------------------------------------------
+# _classify_result_json
+# ---------------------------------------------------------------------------
+
+from logger import _classify_result_json
+
+
+def test_classify_success():
+    payload = {"answer": "A", "confidence": 0.9, "cost_usd": 0.01}
+    assert _classify_result_json(payload) == ("success", None)
+
+
+def test_classify_soft_fail_no_tool_call():
+    payload = {"timed_out": True, "reason": "no_tool_call", "finish_reason": "stop"}
+    assert _classify_result_json(payload) == ("soft_fail", "no_tool_call")
+
+
+def test_classify_soft_fail_invalid_json():
+    payload = {"timed_out": True, "reason": "invalid_json_in_tool_args", "json_error": "Expecting value"}
+    assert _classify_result_json(payload) == ("soft_fail", "invalid_json_in_tool_args")
+
+
+def test_classify_soft_fail_empty_choices():
+    payload = {"timed_out": True, "reason": "empty_choices", "error_type": "EmptyChoices"}
+    assert _classify_result_json(payload) == ("soft_fail", "empty_choices")
+
+
+def test_classify_wall_timeout():
+    # Shape produced by methods/base.py:335-338 — no `reason` key.
+    payload = {"timed_out": True, "timeout_seconds": 1200, "duration_seconds": 1201.4}
+    assert _classify_result_json(payload) == ("wall_timeout", "wall_timeout")
+
+
+def test_classify_unknown_timed_out():
+    payload = {"timed_out": True, "weird_field": 1}
+    assert _classify_result_json(payload) == ("soft_fail", "other")

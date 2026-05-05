@@ -58,6 +58,25 @@ def _summarize_distribution(values: list[float]) -> dict[str, float]:
     }
 
 
+def _classify_result_json(payload: dict) -> tuple[str, str | None]:
+    """Classify a parsed result.json into (bucket, reason).
+
+    bucket is one of: "success", "soft_fail", "wall_timeout".
+    reason is None for success; the soft-fail subcategory or "wall_timeout"
+    otherwise. The rule mirrors the writers in methods/base.py:335-340
+    (wall-clock timeout — no `reason` key) vs :346-347 (backend soft-failures
+    that come back from the backend with a populated `reason`).
+    """
+    if not payload.get("timed_out"):
+        return ("success", None)
+    reason = payload.get("reason")
+    if reason in {"no_tool_call", "invalid_json_in_tool_args", "empty_choices"}:
+        return ("soft_fail", reason)
+    if reason is None and "timeout_seconds" in payload:
+        return ("wall_timeout", "wall_timeout")
+    return ("soft_fail", "other")
+
+
 _LOGGING_CONFIGURED = False
 _LOG_FORMAT = "%(asctime)s | %(levelname)-7s | %(name)s | %(message)s"
 _LOG_DATEFMT = "%Y-%m-%d %H:%M:%S"
