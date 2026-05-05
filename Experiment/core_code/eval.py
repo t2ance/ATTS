@@ -195,6 +195,13 @@ class EvalConfig(BaseModel):
     resume: str | None = None
     log_dir: str = "logs"
 
+    # Cache mode pin. None inherits MethodConfig hardcoded default (current
+    # behavior, zero migration cost for existing yamls). False permits explore
+    # cache miss -> API -> writeback (online cache mode), AND skips banner-time
+    # preflight. True forces strict cache (caller-side generate_fn raises on
+    # miss).
+    cache_only: bool | None = None
+
 
 def load_config(
     *,
@@ -681,8 +688,10 @@ async def async_main() -> None:
     # cached; tts-agent / self-refine / socratic / budget-forcing fail-fast
     # on missing explore cache entries so the operator catches it in the
     # banner, not hours into a multi-benchmark run.
+    # cache_only=False (yaml) skips preflight: online-cache mode allows misses.
     filtered = method.filter_rows(filtered, cache_dir, benchmark)
-    method.preflight(filtered, cache_dir, num_explores, cfg.num, benchmark)
+    if cfg.cache_only is not False:
+        method.preflight(filtered, cache_dir, num_explores, cfg.num, benchmark)
 
     if num_rollouts > 1:
         question_rows = filtered if cfg.num is None else filtered[:cfg.num]
@@ -704,10 +713,15 @@ async def async_main() -> None:
     # routing all moved inside the spec's per-role ModelConfig. InfraConfig now
     # only carries cross-role context. enable_integrate is the orchestrator-tool
     # gate consumed by tts_agent.solve; for non-tts-agent specs it has no effect.
+    # cache_only resolution: yaml override > MethodConfig hardcoded default.
+    # True forces strict cache (generate_fn raises on miss); False permits
+    # explore cache miss -> API -> writeback (online cache mode).
+    effective_cache_only = (cfg.cache_only if cfg.cache_only is not None
+                            else method.cache_only)
     infra = InfraConfig(
         max_iterations=num_explores,
         cache_dir=cache_dir,
-        cache_only=method.cache_only,
+        cache_only=effective_cache_only,
         benchmark=benchmark,
         logger=None,
         enable_integrate=not getattr(spec, "no_integrate", False),
