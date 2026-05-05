@@ -26,9 +26,10 @@ from benchmarks.base import (
     summarize_judge_cache,
 )
 from benchmarks.specs import BenchmarkSpec
+from cache_types import JudgeOutcome
 from methods import MethodSpec, get_method
 from methods.specs import (
-    SamplingConfig, TTSAgentSpec,
+    ExploreVariant, SamplingConfig, TTSAgentSpec,
     SelfRefineSpec, SocraticSelfRefineSpec, BudgetForcingSpec,
     StandaloneIntegratorSpec, RerankSpec,
 )
@@ -90,6 +91,65 @@ def _spec_multi_cache_dirs(spec) -> dict[str, "Path"] | None:
     if isinstance(spec, TTSAgentSpec) and len(spec.explore) > 1:
         return {v.label: v.cache_dir for v in spec.explore}
     return None
+
+
+def _spec_variants(spec) -> list:
+    """All ExploreVariant instances in a spec.
+
+    Single-variant specs return [spec.explore]; multi-variant TTSAgentSpec
+    returns spec.explore (already a list). Rerank/StandaloneIntegrator have
+    no per-variant cache_dir; we synthesize a single ExploreVariant from
+    spec.cache_dir at call sites that need one (eval grading walks the
+    cache_dir directly via this synthesized variant).
+    """
+    if isinstance(spec, TTSAgentSpec):
+        return list(spec.explore)
+    if isinstance(spec, (SelfRefineSpec, SocraticSelfRefineSpec, BudgetForcingSpec)):
+        return [spec.explore]
+    if isinstance(spec, StandaloneIntegratorSpec):
+        # StandaloneIntegrator reads cached explores from a single cache_dir.
+        # Synthesize a read-only ExploreVariant for grading-phase iteration.
+        # Model fields are placeholders -- only cache_dir is used by
+        # get_all_explorations.
+        return [ExploreVariant(
+            label="default",
+            model=spec.integrate.model,  # placeholder; not used for read-only
+            cache_dir=spec.integrate.cache_dir,
+            num_explores=spec.num_explores,
+        )]
+    if isinstance(spec, RerankSpec):
+        # Same synthesis trick.
+        from methods.specs import ModelConfig
+        return [ExploreVariant(
+            label="default",
+            model=ModelConfig(backend="claude", model="placeholder"),
+            cache_dir=spec.cache_dir,
+            num_explores=8,
+        )]
+    raise AssertionError(f"unknown spec type: {type(spec).__name__}")
+
+
+class _Grader:
+    """Async grader closure: (answer, qid) -> JudgeOutcome.
+
+    Captures benchmark + rows_by_id + judge_spec at construction. Used by
+    ExploreVariant.get_all_explorations / get_exploration to attach verdicts
+    on cache miss, and by eval.py for the integrated-answer grading step.
+    """
+    def __init__(self, benchmark, rows_by_id: dict[str, dict], judge_spec: dict | None):
+        self.benchmark = benchmark
+        self.rows_by_id = rows_by_id
+        self.judge_spec = judge_spec
+
+    async def __call__(self, answer: str, qid: str) -> JudgeOutcome:
+        row = self.rows_by_id[qid]
+        return await self.benchmark.grade(
+            predicted=answer,
+            gold=str(self.benchmark.get_answer(row)),
+            question=self.benchmark.get_question(row),
+            row=row,
+            backend="",
+        )
 
 
 def _spec_num_explores(spec) -> int:
@@ -168,143 +228,6 @@ def _rollout_subpath(base: Path, qid: str, rollout_idx: int | None) -> Path:
 # ---------------------------------------------------------------------------
 # Grading helpers
 # ---------------------------------------------------------------------------
-
-async def _grade_with_cache(
-    benchmark: BenchmarkConfig,
-    predicted: str, gold: str, question: str, row: dict,
-    backend: str, grade_dir: Path,
-) -> tuple[bool, float]:
-    """Grade an answer, caching the bundle under grade_dir/judges/<label>/.
-
-    Transitional helper (will be deleted in the upcoming ExploreVariant.get_*
-    refactor). Calls the new benchmark.grade returning JudgeOutcome and
-    persists via outcome.persist; on cache hit reads back grade.json directly.
-
-    No-judge benchmarks (LCB/GPQA/AIME -> judge_spec is None) short-circuit
-    through benchmark.grade and write nothing under judges/.
-    """
-    if benchmark.judge_spec is None:
-        outcome = await benchmark.grade(
-            predicted, gold, question, row, backend=backend,
-        )
-        return outcome.is_correct, outcome.cost_usd
-
-    judges_dir = grade_dir / "judges"
-    cached = find_cached_judge(judges_dir, benchmark.judge_spec)
-    if cached is not None:
-        grade_path = cached / "grade.json"
-        if grade_path.exists():
-            data = json.loads(grade_path.read_text(encoding="utf-8"))
-            return data["is_correct"], 0.0
-        # config.json present but grade.json missing -> partial bundle, re-run.
-
-    label = judge_label(benchmark.judge_spec)
-    bundle_dir = judges_dir / label
-    outcome = await benchmark.grade(
-        predicted, gold, question, row, backend=backend,
-    )
-    if outcome.label is not None:
-        outcome.persist(bundle_dir)
-    logger.info(
-        f"  [sub-model] judge: correct={outcome.is_correct}, "
-        f"predicted={str(predicted)[:60]}, gold={str(gold)[:60]}, "
-        f"cost=${outcome.cost_usd}"
-    )
-    return outcome.is_correct, outcome.cost_usd
-
-
-async def _grade_cached_explores(
-    benchmark: BenchmarkConfig,
-    qid: str, gold_answer: str, question: str, row: dict,
-    cache_base: Path,
-    backend: str,
-    grade_qid_dir: Path,
-) -> tuple[list[Candidate3], float]:
-    """Grade all cached explores for one question from a single cache directory.
-
-    _grade_with_cache writes the bundle into cache_base/<qid>/explore_<idx>/judges/<label>/.
-    This makes subsequent runs (same model + judge_spec) hit the cache for free.
-    The legacy explicit-cache-hit fast-path is no longer needed; _grade_with_cache
-    handles cache lookup internally via find_cached_judge.
-    """
-    candidates: list[Candidate3] = []
-    total_jc = 0.0
-    idx = 1
-    while True:
-        cp = cache_base / qid / f"explore_{idx}" / "result.json"
-        if not cp.exists():
-            break
-        d = json.loads(cp.read_text(encoding="utf-8"))
-        if d.get("timed_out"):
-            idx += 1
-            continue
-        ans = benchmark.get_answer_from_explore(d)
-        is_correct_exp, jc = await _grade_with_cache(
-            benchmark, ans, gold_answer, question, row,
-            backend=backend, grade_dir=cache_base / qid / f"explore_{idx}",
-        )
-        candidates.append((benchmark.normalize_answer(ans), is_correct_exp, d.get("cost_usd", 0.0)))
-        total_jc += jc
-        idx += 1
-    return candidates, total_jc
-
-
-async def _grade_question_explores(
-    benchmark: BenchmarkConfig,
-    qid: str, gold_answer: str, question: str, row: dict,
-    rounds: list[dict],
-    cache_dir: Path | None,
-    backend: str,
-    traj_base_dir: Path,
-    rollout_idx: int | None = None,
-) -> tuple[list[Candidate3], float]:
-    """Grade all explores for one question. Returns (candidates, judge_cost)."""
-    grade_qid_dir = _rollout_subpath(traj_base_dir / "grading", qid, rollout_idx)
-
-    if cache_dir is not None:
-        return await _grade_cached_explores(
-            benchmark, qid, gold_answer, question, row,
-            cache_dir, backend, grade_qid_dir,
-        )
-
-    candidates: list[Candidate3] = []
-    total_jc = 0.0
-    explore_seq = 0
-    for r in rounds:
-        if r.get("action") == "explore":
-            ans = r.get("answer", "")
-            explore_seq += 1
-            is_correct_exp, jc = await _grade_with_cache(
-                benchmark, ans, gold_answer, question, row,
-                backend=backend, grade_dir=grade_qid_dir / f"explore_{explore_seq}",
-            )
-            candidates.append((benchmark.normalize_answer(ans), is_correct_exp, r.get("cost_usd", 0.0)))
-            total_jc += jc
-    return candidates, total_jc
-
-
-async def _grade_question_explores_multi(
-    benchmark: BenchmarkConfig,
-    qid: str, gold_answer: str, question: str, row: dict,
-    cache_dirs: dict[str, Path],
-    backend: str,
-    traj_base_dir: Path,
-    rollout_idx: int | None = None,
-) -> tuple[dict[str, list[Candidate3]], float]:
-    """Grade all cached explores per model for one question."""
-    per_model: dict[str, list[Candidate3]] = {}
-    total_jc = 0.0
-    grade_qid_dir = _rollout_subpath(traj_base_dir / "grading", qid, rollout_idx)
-    for model_alias, cache_base in cache_dirs.items():
-        cands, jc = await _grade_cached_explores(
-            benchmark, qid, gold_answer, question, row,
-            cache_base, backend,
-            grade_qid_dir / model_alias,
-        )
-        per_model[model_alias] = cands
-        total_jc += jc
-    return per_model, total_jc
-
 
 # ---------------------------------------------------------------------------
 # Main evaluation loop
@@ -400,6 +323,13 @@ async def evaluate(
     logger.info(f"Logs:   {run_logger.run_dir}")
     logger.info(f"{'=' * 60}\n")
 
+    # Build grader closure and variants list (used by per-question grading
+    # phase + resume-grading path). rows_by_id covers both new pending rows
+    # and any rows referenced by done_records.
+    rows_by_id_full = {benchmark.get_id(r): r for r in rows}
+    grader = _Grader(benchmark, rows_by_id_full, benchmark.judge_spec)
+    variants_list = _spec_variants(spec)
+
     total_cost = 0.0
     total_judge_cost = 0.0
     total_cost_by_component: dict[str, float] = {}
@@ -476,28 +406,48 @@ async def evaluate(
         orig_row = row_by_id.get((qid, rec_rollout or 0), rec)
 
         async with grade_sem:
-            cands, jc = await _grade_question_explores(
-                benchmark, qid, gold_answer, question_text, orig_row,
-                rec.get("rounds", []), grade_cache_dir, backend, run_logger.run_dir,
-                rollout_idx=rec_rollout,
+            primary_explorations = await variants_list[0].get_all_explorations(
+                qid, rollout_idx=rec_rollout, grader=grader,
             )
+            cands = [
+                (benchmark.normalize_answer(e.answer),
+                 e.verdict.is_correct if e.verdict else False,
+                 e.cost_usd)
+                for e in primary_explorations
+            ]
+            jc = sum((e.verdict.cost_usd if e.verdict else 0.0)
+                     for e in primary_explorations)
+
             pm_cands = None
             if cache_dirs_multi:
-                pm_cands, pm_jc = await _grade_question_explores_multi(
-                    benchmark, qid, gold_answer, question_text, orig_row,
-                    cache_dirs_multi, backend, run_logger.run_dir,
-                    rollout_idx=rec_rollout,
-                )
-                jc += pm_jc
+                pm_cands = {}
+                for v in variants_list:
+                    explorations = await v.get_all_explorations(
+                        qid, rollout_idx=rec_rollout, grader=grader,
+                    )
+                    pm_cands[v.label] = [
+                        (benchmark.normalize_answer(e.answer),
+                         e.verdict.is_correct if e.verdict else False,
+                         e.cost_usd)
+                        for e in explorations
+                    ]
+                    jc += sum((e.verdict.cost_usd if e.verdict else 0.0) for e in explorations)
+
             grade_dir = _rollout_subpath(run_logger.run_dir / "grading", qid, rec_rollout)
-            # Detect cache-hit BEFORE calling _grade_with_cache so the per-record
-            # log line tells the user "previously graded" vs "freshly judged".
-            # Uses the new judges/<label>/ layout via find_cached_judge.
             final_cached = _bundle_cached(grade_dir)
-            is_correct, jc_int = await _grade_with_cache(
-                benchmark, predicted, gold_answer, question_text, orig_row,
-                backend=backend, grade_dir=grade_dir,
-            )
+            final_label = JudgeOutcome.label_for(benchmark.judge_spec)
+            cached_grade_path = (grade_dir / "judges" / final_label / "grade.json"
+                                 if final_label else None)
+            if cached_grade_path is not None and cached_grade_path.exists():
+                gd = json.loads(cached_grade_path.read_text(encoding="utf-8"))
+                is_correct = gd["is_correct"]
+                jc_int = 0.0
+            else:
+                final_outcome = await grader(predicted, qid)
+                is_correct = final_outcome.is_correct
+                jc_int = final_outcome.cost_usd
+                if final_outcome.label is not None:
+                    final_outcome.persist(grade_dir / "judges" / final_outcome.label)
 
         async with grade_done_lock:
             grade_done_count += 1
@@ -583,37 +533,61 @@ async def evaluate(
             elapsed = time.time() - t0
             traj_dir = _rollout_subpath(run_logger.run_dir / "trajectories", qid, rollout_idx)
             actual_explores = sum(1 for r in (result.rounds if result else []) if r.action == "explore")
-            grade_dir = _rollout_subpath(run_logger.run_dir / "grading", qid, rollout_idx)
-            is_correct, judge_cost_1 = await _grade_with_cache(
-                benchmark, predicted, gold_answer, question, row,
-                backend=backend, grade_dir=grade_dir,
-            )
 
-            question_cands, qbon_jc = await _grade_question_explores(
-                benchmark, qid, gold_answer, question, row,
-                round_logs, grade_cache_dir, backend, run_logger.run_dir,
-                rollout_idx=rollout_idx,
+            # Final-answer grading (integrated answer). Lives under run_dir/grading/<qid>/.
+            grade_dir = _rollout_subpath(run_logger.run_dir / "grading", qid, rollout_idx)
+            final_label = JudgeOutcome.label_for(benchmark.judge_spec)
+            cached_grade_path = (grade_dir / "judges" / final_label / "grade.json"
+                                 if final_label else None)
+            if cached_grade_path is not None and cached_grade_path.exists():
+                gd = json.loads(cached_grade_path.read_text(encoding="utf-8"))
+                is_correct = gd["is_correct"]
+                judge_cost_1 = 0.0
+            else:
+                final_outcome = await grader(predicted, qid)
+                is_correct = final_outcome.is_correct
+                judge_cost_1 = final_outcome.cost_usd
+                if final_outcome.label is not None:
+                    final_outcome.persist(grade_dir / "judges" / final_outcome.label)
+            question_judge_cost = judge_cost_1
+
+            # Per-explore grading via ExploreVariant.get_all_explorations.
+            # Single-variant: read from variants[0]; aggregate into question_cands.
+            # Multi-variant: also build per-label pm_cands.
+            primary_variant = variants_list[0]
+            primary_explorations = await primary_variant.get_all_explorations(
+                qid, rollout_idx=rollout_idx, grader=grader,
             )
-            # best-of-1 = first cached explore's grade. orchestrator's run_explore
-            # uses cache_key=f"explore_{call_count+1}", so question_cands[0]
-            # corresponds to the orchestrator's first explore call. Reusing it
-            # avoids a duplicate Haiku judge call per question (~$0.03/q ×
-            # batch). Matches the RESUME-path equivalence at line 435.
+            question_cands = [
+                (benchmark.normalize_answer(e.answer),
+                 e.verdict.is_correct if e.verdict else False,
+                 e.cost_usd)
+                for e in primary_explorations
+            ]
+            qbon_jc = sum((e.verdict.cost_usd if e.verdict else 0.0)
+                          for e in primary_explorations)
+
             first_explore = next(
                 (r for r in (result.rounds if result else []) if r.action == "explore"), None
             )
             first_candidate_correct = (
                 question_cands[0][1] if (first_explore and question_cands) else None
             )
-            question_judge_cost = judge_cost_1
+
             pm_cands = None
             if cache_dirs_multi:
-                pm_cands, pm_jc = await _grade_question_explores_multi(
-                    benchmark, qid, gold_answer, question, row,
-                    cache_dirs_multi, backend, run_logger.run_dir,
-                    rollout_idx=rollout_idx,
-                )
-                qbon_jc += pm_jc
+                pm_cands = {}
+                for v in variants_list:
+                    explorations = await v.get_all_explorations(
+                        qid, rollout_idx=rollout_idx, grader=grader,
+                    )
+                    pm_cands[v.label] = [
+                        (benchmark.normalize_answer(e.answer),
+                         e.verdict.is_correct if e.verdict else False,
+                         e.cost_usd)
+                        for e in explorations
+                    ]
+                    qbon_jc += sum((e.verdict.cost_usd if e.verdict else 0.0) for e in explorations)
 
             category = row.get("category", "Unknown")
             answer_type = row.get("answer_type", "exactMatch")
